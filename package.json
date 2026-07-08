@@ -1,0 +1,23 @@
+{
+  "name": "movie-app-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "mobile": "pnpm --filter @movie-app/mobile start",
+    "mobile:ios": "pnpm --filter @movie-app/mobile ios",
+    "mobile:android": "pnpm --filter @movie-app/mobile android",
+    "desktop:dev": "pnpm --filter @movie-app/desktop tauri:dev",
+    "desktop:build": "pnpm --filter @movie-app/desktop tauri:build",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "react": "19.2.3",
+      "react-dom": "19.2.3"
+    }
+  },
+  "packageManager": "pnpm@10.30.3"
+}

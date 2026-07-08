@@ -1,0 +1,119 @@
+export type MediaType = 'MOVIE' | 'TV' | 'VARIETY' | 'ANIME' | 'DOCUMENTARY';
+
+export interface Media {
+  id: string;
+  title: string;
+  originalTitle?: string | null;
+  alias?: string | null;
+  type: MediaType;
+  year: number;
+  area?: string | null;
+  genres: string[];
+  directors: string[];
+  actors: string[];
+  description?: string | null;
+  posterUrl?: string | null;
+  backdropUrl?: string | null;
+  status?: 'PUBLISHED' | 'ONGOING' | 'COMPLETED';
+  fingerprint: string;
+  currentEpisodes?: number;
+  totalEpisodes?: number;
+  isShortDrama: boolean;
+  viewCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Episode {
+  id: string;
+  mediaId: string;
+  seasonNumber: number;
+  episodeNumber: number;
+  title?: string | null;
+  duration?: number | null;
+}
+
+export interface PlaySource {
+  id: string;
+  episodeId: string;
+  sourceId: string;
+  sourceName?: string | null;
+  url: string;
+  quality?: string | null;
+}
+
+export interface VideoSource {
+  id: string;
+  code: string;
+  name: string;
+  baseUrl: string;
+  type: string;
+  isEnabled: boolean;
+  rateLimit: number;
+  priority: number;
+  healthStatus?: string | null;
+  lastCheckAt?: string | null;
+}
+
+export interface Favorite {
+  id: string;
+  mediaId: string;
+  createdAt: string;
+}
+
+export interface WatchHistory {
+  id: string;
+  mediaId: string;
+  episodeId?: string | null;
+  progress: number;
+  duration: number;
+  updatedAt: string;
+}
+
+export interface CMSMediaItem {
+  vod_id: number;
+  vod_name: string;
+  vod_pic: string;
+  vod_year: string;
+  vod_area: string;
+  vod_type: string;
+  vod_actor: string;
+  vod_director: string;
+  vod_content: string;
+  vod_play_from: string;
+  vod_play_url: string;
+  vod_remarks?: string;
+  [key: string]: any;
+}
+
+export interface CMSListResponse {
+  code: number;
+  msg: string;
+  page: number;
+  pagecount: number;
+  limit: string;
+  total: number;
+  list: CMSMediaItem[];
+}
+
+export interface PaginatedMeta {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  meta: PaginatedMeta;
+}
+
+export interface ListParams {
+  page?: number;
+  pageSize?: number;
+  sort?: string;
+  type?: string;
+  year?: number;
+  genre?: string;
+  area?: string;
+}
