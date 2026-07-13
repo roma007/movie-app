@@ -24,6 +24,7 @@ const MOVIE_KEYWORDS = ['电影', '正片', '蓝光', 'BD', 'HD高清', '超清'
 const AI_DRAMA_KEYWORDS = [
   'AI漫剧', 'ai漫剧', 'AI動漫', 'ai動漫',
   'AI短剧', 'ai短剧',
+  '漫剧', '漫畫劇',
 ];
 
 export function isAiDrama(...texts: string[]): boolean {
@@ -31,7 +32,8 @@ export function isAiDrama(...texts: string[]): boolean {
   return AI_DRAMA_KEYWORDS.some(kw => allText.includes(kw));
 }
 
-export function isBlacklisted(blacklistKeywords: string[], ...texts: string[]): boolean {
+export function isBlacklisted(blacklistKeywords: string[] | undefined, ...texts: string[]): boolean {
+  if (!blacklistKeywords || blacklistKeywords.length === 0) return false;
   const allText = texts.join(' ');
   return blacklistKeywords.some(kw => allText.includes(kw));
 }

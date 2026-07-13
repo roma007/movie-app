@@ -29,12 +29,12 @@ export default function FavoritesPage() {
   }, [favorites]);
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-6 space-y-5 max-w-7xl mx-auto">
       <h1 className="text-2xl font-bold">收藏</h1>
       {loading ? (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-4">
           {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="aspect-[2/3] rounded-lg" />
+            <Skeleton key={i} className="aspect-[2/3] rounded-lg animate-pulse-skeleton" />
           ))}
         </div>
       ) : medias.length === 0 ? (

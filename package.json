@@ -19,5 +19,9 @@
       "react-dom": "19.2.3"
     }
   },
-  "packageManager": "pnpm@10.30.3"
+  "packageManager": "pnpm@10.30.3",
+  "dependencies": {
+    "lucide-react-native": "^1.23.0",
+    "sqlite3": "^6.0.1"
+  }
 }

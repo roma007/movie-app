@@ -1,7 +1,7 @@
 import { Converter } from 'opencc-js';
 import type { MediaType } from '../types';
 
-const MIN_YEAR = 2025;
+export const DEFAULT_MIN_YEAR = 2025;
 
 const converter = Converter({ from: 'tw', to: 'cn' });
 
@@ -29,6 +29,16 @@ const extraVocabMap: Record<string, string> = {
 };
 
 export class DataNormalizer {
+  private minYear: number;
+
+  constructor(minYear: number = DEFAULT_MIN_YEAR) {
+    this.minYear = minYear;
+  }
+
+  setMinYear(minYear: number): void {
+    this.minYear = minYear;
+  }
+
   async toSimplified(text: string): Promise<string> {
     if (!text) return '';
     let result = text;
@@ -49,7 +59,7 @@ export class DataNormalizer {
     const match = str.match(/(\d{4})/);
     if (!match) return null;
     const num = parseInt(match[1], 10);
-    return num >= MIN_YEAR ? num : null;
+    return num >= this.minYear ? num : null;
   }
 
   async normalizeTitle(title: string): Promise<string> {
@@ -72,10 +82,10 @@ export class DataNormalizer {
     const filtered = simplified.filter(g => {
       if (!g) return false;
       if (mediaType === 'MOVIE' && ['电视剧', '综艺', '动漫', '纪录片', '记录片', '纪录'].includes(g)) return false;
-      if (mediaType === 'TV' && ['电影', '综艺', '动漫', '纪录片', '记录片', '纪录', 'AI漫剧'].includes(g)) return false;
-      if (mediaType === 'VARIETY' && ['电影', '电视剧', '动漫', '纪录片', '记录片', '纪录', 'AI漫剧'].includes(g)) return false;
-      if (mediaType === 'ANIME' && ['电影', '电视剧', '综艺', '纪录片', '记录片', '纪录', 'AI漫剧'].includes(g)) return false;
-      if (mediaType === 'DOCUMENTARY' && ['电影', '电视剧', '综艺', '动漫', 'AI漫剧'].includes(g)) return false;
+      if (mediaType === 'TV' && ['电影', '综艺', '动漫', '纪录片', '记录片', '纪录', 'AI漫剧', '漫剧'].includes(g)) return false;
+      if (mediaType === 'VARIETY' && ['电影', '电视剧', '动漫', '纪录片', '记录片', '纪录', 'AI漫剧', '漫剧'].includes(g)) return false;
+      if (mediaType === 'ANIME' && ['电影', '电视剧', '综艺', '纪录片', '记录片', '纪录', 'AI漫剧', '漫剧'].includes(g)) return false;
+      if (mediaType === 'DOCUMENTARY' && ['电影', '电视剧', '综艺', '动漫', 'AI漫剧', '漫剧'].includes(g)) return false;
       return true;
     });
     return filtered;
@@ -243,6 +253,9 @@ export class DataNormalizer {
     const cleanTitle = simplified
       .toLowerCase()
       .replace(/[^\w\u4e00-\u9fa5]/g, '')
+      .replace(/更新到第[一二三四五六七八九十百千\d]+集$/i, '')
+      .replace(/更新至第[一二三四五六七八九十百千\d]+集$/i, '')
+      .replace(/更新\d+集$/i, '')
       .replace(/第[一二三四五六七八九十百千\d]+季$/i, '')
       .replace(/season\s*\d+$/i, '')
       .replace(/\s+/g, '')

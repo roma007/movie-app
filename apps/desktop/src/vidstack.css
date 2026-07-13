@@ -1,0 +1,18 @@
+/* Vidstack Default Layout 样式聚合引入 */
+@import '@vidstack/react/player/styles/base.css';
+@import '@vidstack/react/player/styles/default/theme.css';
+@import '@vidstack/react/player/styles/default/buttons.css';
+@import '@vidstack/react/player/styles/default/sliders.css';
+@import '@vidstack/react/player/styles/default/time.css';
+@import '@vidstack/react/player/styles/default/menus.css';
+@import '@vidstack/react/player/styles/default/controls.css';
+@import '@vidstack/react/player/styles/default/captions.css';
+@import '@vidstack/react/player/styles/default/gestures.css';
+@import '@vidstack/react/player/styles/default/keyboard.css';
+@import '@vidstack/react/player/styles/default/buffering.css';
+@import '@vidstack/react/player/styles/default/thumbnail.css';
+@import '@vidstack/react/player/styles/default/poster.css';
+@import '@vidstack/react/player/styles/default/icons.css';
+@import '@vidstack/react/player/styles/default/tooltips.css';
+@import '@vidstack/react/player/styles/default/chapter-title.css';
+@import '@vidstack/react/player/styles/default/layouts/video.css';

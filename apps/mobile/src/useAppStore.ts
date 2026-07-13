@@ -13,4 +13,4 @@ export function useAppStore<T = AppState>(selector?: (state: AppState) => T): T 
   return selector ? store(selector) : (store as unknown as () => T)();
 }
 
-export { getStore, getCollector, initApp } from './init';
+export { getStore, getCollector, getProvider, initApp } from './init';

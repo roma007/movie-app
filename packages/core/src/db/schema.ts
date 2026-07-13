@@ -5,6 +5,9 @@
 export const PRAGMA_SQL = `
   PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
+  PRAGMA busy_timeout = 5000;
+  PRAGMA synchronous = NORMAL;
+  PRAGMA cache_size = -20000;
 `;
 
 export const SCHEMA_SQL = `
@@ -27,6 +30,8 @@ export const SCHEMA_SQL = `
     current_episodes INTEGER,
     total_episodes INTEGER,
     is_short_drama INTEGER DEFAULT 0,
+    duration_check_status TEXT,
+    duration_retry_at TEXT,
     view_count INTEGER DEFAULT 0,
     favorite_count INTEGER DEFAULT 0,
     search_count INTEGER DEFAULT 0,
@@ -51,6 +56,9 @@ export const SCHEMA_SQL = `
     source_name TEXT,
     url TEXT NOT NULL,
     quality TEXT,
+    is_active INTEGER DEFAULT 1,
+    fail_count INTEGER DEFAULT 0,
+    last_fail_at TEXT,
     FOREIGN KEY (episode_id) REFERENCES episode(id) ON DELETE CASCADE
   );
 
@@ -65,7 +73,9 @@ export const SCHEMA_SQL = `
     priority INTEGER DEFAULT 0,
     health_status TEXT,
     last_check_at TEXT,
-    created_at TEXT
+    created_at TEXT,
+    fail_count INTEGER DEFAULT 0,
+    total_requests INTEGER DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS favorite (
@@ -80,6 +90,13 @@ export const SCHEMA_SQL = `
     episode_id TEXT,
     progress INTEGER DEFAULT 0,
     duration INTEGER DEFAULT 0,
+    updated_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS search_history (
+    id TEXT PRIMARY KEY,
+    keyword TEXT NOT NULL,
+    count INTEGER DEFAULT 1,
     updated_at TEXT
   );
 
@@ -107,6 +124,20 @@ export const SCHEMA_SQL = `
     INSERT INTO media_fts(rowid, title, alias, original_title, director, cast)
     VALUES (new.rowid, new.title, new.alias, new.original_title, new.director, new.cast);
   END;
+
+  CREATE TABLE IF NOT EXISTS system_config (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    value_type TEXT DEFAULT 'string',
+    remark TEXT,
+    created_at TEXT,
+    updated_at TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_episode_media_id ON episode(media_id);
+  CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source(episode_id);
+  CREATE INDEX IF NOT EXISTS idx_favorite_media_id ON favorite(media_id);
+  CREATE INDEX IF NOT EXISTS idx_watch_history_media_id ON watch_history(media_id);
 `;
 
 /**

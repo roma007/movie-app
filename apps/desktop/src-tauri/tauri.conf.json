@@ -10,6 +10,7 @@
     "beforeBuildCommand": "pnpm --filter @movie-app/desktop build"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "Movie App",
@@ -22,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src * data: blob: ws: wss:; script-src * 'unsafe-inline'; style-src * 'unsafe-inline'; img-src * data:; connect-src *;"
     }
   },
   "bundle": {

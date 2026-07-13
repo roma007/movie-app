@@ -9,6 +9,7 @@ import {
   rowToVideoSource,
   rowToFavorite,
   rowToWatchHistory,
+  rowToCollectTask,
 } from '@movie-app/core';
 import type { DatabaseProvider } from '@movie-app/core';
 import type {
@@ -20,6 +21,7 @@ import type {
   WatchHistory,
   PaginatedResponse,
   ListParams,
+  CollectTask,
 } from '@movie-app/core';
 
 /**
@@ -31,16 +33,98 @@ import type {
  *   - 写入用 execute，对应移动端 runAsync
  */
 export class TauriSqlProvider implements DatabaseProvider {
-  private db: Database | null = null;
+  private db: InstanceType<typeof Database> | null = null;
+
+  private wrapWithRetry(db: any): any {
+    const originalExecute = db.execute.bind(db);
+    const originalSelect = db.select.bind(db);
+
+    const isLockError = (error: any): boolean => {
+      const msg = (error?.message || String(error)).toLowerCase();
+      return msg.includes('database is locked') || msg.includes('code: 5') || msg.includes('busy');
+    };
+
+    let inTransaction = false;
+
+    const executeWithRetry = async (sql: string, params?: any[]) => {
+      const trimmedSql = sql.trim().toUpperCase();
+      if (trimmedSql.startsWith('BEGIN')) {
+        inTransaction = true;
+      } else if (trimmedSql.startsWith('COMMIT') || trimmedSql.startsWith('ROLLBACK')) {
+        inTransaction = false;
+      }
+
+      if (inTransaction) {
+        return await originalExecute(sql, params);
+      }
+
+      let lastError: Error | null = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          return await originalExecute(sql, params);
+        } catch (error: any) {
+          lastError = error;
+          if (isLockError(error) && attempt < 4) {
+            const delay = Math.min(100 * Math.pow(2, attempt), 1500);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+          throw error;
+        }
+      }
+      throw lastError;
+    };
+
+    const selectWithRetry = async (sql: string, params?: any[]) => {
+      let lastError: Error | null = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          return await originalSelect(sql, params);
+        } catch (error: any) {
+          lastError = error;
+          if (isLockError(error) && attempt < 4) {
+            const delay = Math.min(100 * Math.pow(2, attempt), 1500);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+          throw error;
+        }
+      }
+      throw lastError;
+    };
+
+    return new Proxy(db, {
+      get(target, prop) {
+        if (prop === 'execute') return executeWithRetry;
+        if (prop === 'select') return selectWithRetry;
+        return (target as any)[prop];
+      },
+    });
+  }
 
   async init(): Promise<void> {
     if (this.db) return;
-    // Database.load 会自动运行 lib.rs 中注册的 migrations（建表 + FTS5 触发器）
-    this.db = await Database.load('sqlite:movieapp.db');
+    try {
+      const sqlModule = await import('@tauri-apps/plugin-sql');
+      const SqlDatabase = sqlModule.default || sqlModule;
+      const rawDb = await SqlDatabase.load('sqlite:movieapp.db');
+      this.db = this.wrapWithRetry(rawDb);
+      console.log('Database loaded successfully');
+    } catch (error) {
+      console.error('Failed to load database:', error);
+      throw error;
+    }
 
-    // PRAGMA（WAL 为持久设置；foreign_keys 需每连接设置）
-    await this.db.execute('PRAGMA journal_mode = WAL;');
-    await this.db.execute('PRAGMA foreign_keys = ON;');
+    await this.db!.execute('PRAGMA journal_mode = WAL;');
+    await this.db!.execute('PRAGMA foreign_keys = ON;');
+    await this.db!.execute('PRAGMA busy_timeout = 5000;');
+    await this.db!.execute('PRAGMA synchronous = NORMAL;');
+    await this.db!.execute('PRAGMA cache_size = -20000;');
+
+    await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_episode_media_id ON episode(media_id);');
+    await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source(episode_id);');
+    await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_favorite_media_id ON favorite(media_id);');
+    await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_watch_history_media_id ON watch_history(media_id);');
 
     await this.insertDefaultSources();
   }
@@ -93,7 +177,35 @@ export class TauriSqlProvider implements DatabaseProvider {
       whereClause += whereClause ? ' AND area = ?' : ' WHERE area = ?';
       queryParams.push(params.area);
     }
-    const orderBy = params.sort === 'view' ? 'view_count DESC' : 'updated_at DESC';
+    if (params.genre) {
+      whereClause += whereClause ? ' AND genre LIKE ?' : ' WHERE genre LIKE ?';
+      queryParams.push(`%${params.genre}%`);
+    }
+    if (params.subType) {
+      whereClause += whereClause ? ' AND json_extract(genre, \'$[0]\') = ?' : ' WHERE json_extract(genre, \'$[0]\') = ?';
+      queryParams.push(params.subType);
+    }
+    if (params.isShortDrama !== undefined) {
+      whereClause += whereClause ? ' AND is_short_drama = ?' : ' WHERE is_short_drama = ?';
+      queryParams.push(params.isShortDrama ? 1 : 0);
+    }
+
+    let orderBy: string;
+    switch (params.sort) {
+      case 'hot':
+        orderBy = 'view_count DESC, updated_at DESC';
+        break;
+      case 'rating':
+        orderBy = 'favorite_count DESC, view_count DESC';
+        break;
+      case 'year':
+        orderBy = 'year DESC, updated_at DESC';
+        break;
+      case 'latest':
+      default:
+        orderBy = 'updated_at DESC';
+        break;
+    }
 
     const countRows = await this.db!.select<{ count: number }[]>(
       `SELECT COUNT(*) as count FROM media${whereClause}`,
@@ -116,9 +228,9 @@ export class TauriSqlProvider implements DatabaseProvider {
       `INSERT INTO media (
         id, title, original_title, alias, type, year, area, genre, director, cast,
         description, poster_url, backdrop_url, status, fingerprint,
-        current_episodes, total_episodes, is_short_drama, view_count,
-        favorite_count, search_count, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        current_episodes, total_episodes, is_short_drama, duration_check_status, duration_retry_at,
+        view_count, favorite_count, search_count, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(fingerprint) DO UPDATE SET
         title = excluded.title,
         original_title = excluded.original_title,
@@ -134,6 +246,8 @@ export class TauriSqlProvider implements DatabaseProvider {
         current_episodes = excluded.current_episodes,
         total_episodes = excluded.total_episodes,
         is_short_drama = excluded.is_short_drama,
+        duration_check_status = excluded.duration_check_status,
+        duration_retry_at = excluded.duration_retry_at,
         updated_at = excluded.updated_at`,
       [
         media.id, media.title, media.originalTitle || null, media.alias || null,
@@ -142,7 +256,8 @@ export class TauriSqlProvider implements DatabaseProvider {
         media.description || null, media.posterUrl || null, media.backdropUrl || null,
         media.status || null, media.fingerprint,
         media.currentEpisodes || null, media.totalEpisodes || null,
-        media.isShortDrama ? 1 : 0, media.viewCount || 0, 0, 0,
+        media.isShortDrama ? 1 : 0, media.durationCheckStatus || null, media.durationRetryAt || null,
+        media.viewCount || 0, 0, 0,
         media.createdAt || now, now,
       ]
     );
@@ -156,22 +271,138 @@ export class TauriSqlProvider implements DatabaseProvider {
     await this.db!.execute('UPDATE media SET search_count = search_count + 1 WHERE id = ?', [id]);
   }
 
-  async searchMedia(keyword: string, page: number = 1, pageSize: number = 20): Promise<PaginatedResponse<Media>> {
+  async searchMedia(
+    keyword: string,
+    params: {
+      page?: number;
+      pageSize?: number;
+      type?: string;
+      year?: number;
+      area?: string;
+      genre?: string;
+    } = {}
+  ): Promise<PaginatedResponse<Media>> {
+    const page = params.page || 1;
+    const pageSize = params.pageSize || 20;
     const offset = (page - 1) * pageSize;
+
+    let whereClause = ' WHERE (m.title LIKE ? OR m.alias LIKE ? OR m.original_title LIKE ? OR m.director LIKE ? OR m.cast LIKE ?)';
+    const queryParams: any[] = [`%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`];
+
+    if (params.type) {
+      whereClause += ' AND m.type = ?';
+      queryParams.push(params.type);
+    }
+    if (params.year) {
+      whereClause += ' AND m.year = ?';
+      queryParams.push(params.year);
+    }
+    if (params.area) {
+      whereClause += ' AND m.area = ?';
+      queryParams.push(params.area);
+    }
+    if (params.genre) {
+      whereClause += ' AND m.genre LIKE ?';
+      queryParams.push(`%${params.genre}%`);
+    }
+
     const countRows = await this.db!.select<{ count: number }[]>(
-      `SELECT COUNT(*) as count FROM media_fts WHERE media_fts MATCH ?`, [keyword]
+      `SELECT COUNT(*) as count FROM media m${whereClause}`,
+      queryParams
     );
     const total = countRows[0]?.count || 0;
     const totalPages = Math.ceil(total / pageSize);
+
     const rows = await this.db!.select<any[]>(
       `SELECT m.* FROM media m
-       INNER JOIN media_fts fts ON m.rowid = fts.rowid
-       WHERE media_fts MATCH ?
-       ORDER BY rank
+       ${whereClause}
+       ORDER BY updated_at DESC
        LIMIT ? OFFSET ?`,
-      [keyword, pageSize, offset]
+      [...queryParams, pageSize, offset]
     );
+
     return { items: rows.map(rowToMedia), meta: { page, pageSize, total, totalPages } };
+  }
+
+  async getGenresByType(type?: string): Promise<string[]> {
+    let whereClause = 'WHERE genre IS NOT NULL AND genre != \'[]\'';
+    const params: any[] = [];
+    if (type) {
+      whereClause += ' AND type = ?';
+      params.push(type);
+    }
+    const rows = await this.db!.select<{ genre: string }[]>(
+      `SELECT DISTINCT genre FROM media ${whereClause}`,
+      params
+    );
+    const allGenres = new Set<string>();
+    for (const row of rows) {
+      try {
+        const genres = JSON.parse(row.genre);
+        if (Array.isArray(genres)) {
+          genres.forEach(g => allGenres.add(g));
+        }
+      } catch {
+        // ignore invalid JSON
+      }
+    }
+    return Array.from(allGenres).sort();
+  }
+
+  async getSubTypesByType(type?: string): Promise<string[]> {
+    let whereClause = 'WHERE genre IS NOT NULL AND genre != \'[]\' AND json_extract(genre, \'$[0]\') IS NOT NULL AND json_extract(genre, \'$[0]\') != \'\'';
+    const params: any[] = [];
+    if (type) {
+      whereClause += ' AND type = ?';
+      params.push(type);
+    }
+    const rows = await this.db!.select<{ sub_type: string }[]>(
+      `SELECT DISTINCT json_extract(genre, '$[0]') as sub_type FROM media ${whereClause} ORDER BY sub_type`,
+      params
+    );
+    return rows.map(row => row.sub_type);
+  }
+
+  async getYearsByType(type?: string): Promise<number[]> {
+    let whereClause = '';
+    const params: any[] = [];
+    if (type) {
+      whereClause = 'WHERE type = ?';
+      params.push(type);
+    }
+    const rows = await this.db!.select<{ year: number }[]>(
+      `SELECT DISTINCT year FROM media ${whereClause} ORDER BY year DESC`,
+      params
+    );
+    return rows.map(row => row.year);
+  }
+
+  async getAreasByType(type?: string): Promise<string[]> {
+    let whereClause = 'WHERE area IS NOT NULL';
+    const params: any[] = [];
+    if (type) {
+      whereClause += ' AND type = ?';
+      params.push(type);
+    }
+    const rows = await this.db!.select<{ area: string }[]>(
+      `SELECT DISTINCT area FROM media ${whereClause} ORDER BY area`,
+      params
+    );
+    return rows.map(row => row.area);
+  }
+
+  async hasShortDrama(type?: string): Promise<boolean> {
+    let whereClause = 'WHERE is_short_drama = 1';
+    const params: any[] = [];
+    if (type) {
+      whereClause += ' AND type = ?';
+      params.push(type);
+    }
+    const rows = await this.db!.select<{ count: number }[]>(
+      `SELECT COUNT(*) as count FROM media ${whereClause}`,
+      params
+    );
+    return (rows[0]?.count || 0) > 0;
   }
 
   // —— Episode DAO ——
@@ -203,6 +434,117 @@ export class TauriSqlProvider implements DatabaseProvider {
     await this.db!.execute('DELETE FROM episode WHERE media_id = ?', [mediaId]);
   }
 
+  async deleteAllMedia(): Promise<void> {
+    await this.db!.execute('DELETE FROM play_source');
+    await this.db!.execute('DELETE FROM episode');
+    await this.db!.execute('DELETE FROM media');
+    await this.db!.execute('DELETE FROM favorite');
+    await this.db!.execute('DELETE FROM watch_history');
+  }
+
+  async deletePlaySourcesBySourceId(sourceId: string): Promise<void> {
+    await this.db!.execute('DELETE FROM play_source WHERE source_id = ?', [sourceId]);
+    await this.db!.execute(`DELETE FROM episode WHERE NOT EXISTS (SELECT 1 FROM play_source WHERE play_source.episode_id = episode.id)`);
+    await this.db!.execute(`DELETE FROM media WHERE NOT EXISTS (SELECT 1 FROM episode WHERE episode.media_id = media.id)`);
+    await this.db!.execute(`DELETE FROM favorite WHERE NOT EXISTS (SELECT 1 FROM media WHERE media.id = favorite.media_id)`);
+    await this.db!.execute(`DELETE FROM watch_history WHERE NOT EXISTS (SELECT 1 FROM media WHERE media.id = watch_history.media_id)`);
+  }
+
+  async getMediaCountBySourceId(sourceId: string): Promise<number> {
+    const rows = await this.db!.select<{ count: number }[]>(
+      `SELECT COUNT(DISTINCT e.media_id) as count FROM episode e
+       WHERE e.id IN (SELECT DISTINCT episode_id FROM play_source WHERE source_id = ?)`,
+      [sourceId]
+    );
+    return rows[0]?.count || 0;
+  }
+
+  async getMediaCountBySourceIdMap(): Promise<Map<string, number>> {
+    const rows = await this.db!.select<{ sourceId: string; count: number }[]>(
+      `SELECT ps.source_id as sourceId, COUNT(DISTINCT e.media_id) as count
+       FROM episode e
+       JOIN play_source ps ON e.id = ps.episode_id
+       GROUP BY ps.source_id`
+    );
+    const map = new Map<string, number>();
+    for (const row of rows) {
+      map.set(row.sourceId, row.count);
+    }
+    return map;
+  }
+
+  async deleteMediaCompletely(mediaId: string): Promise<void> {
+    await this.db!.execute('DELETE FROM play_source WHERE episode_id IN (SELECT id FROM episode WHERE media_id = ?)', [mediaId]);
+    await this.db!.execute('DELETE FROM episode WHERE media_id = ?', [mediaId]);
+    await this.db!.execute('DELETE FROM favorite WHERE media_id = ?', [mediaId]);
+    await this.db!.execute('DELETE FROM watch_history WHERE media_id = ?', [mediaId]);
+    await this.db!.execute('DELETE FROM media WHERE id = ?', [mediaId]);
+  }
+
+  async deleteMediaWithoutPlaySource(): Promise<number> {
+    console.log('[deleteMediaWithoutPlaySource] started');
+    
+    const beforeRows = await this.db!.select<{ count: number }[]>('SELECT COUNT(*) as count FROM media');
+    const beforeCount = beforeRows[0]?.count || 0;
+    console.log(`[deleteMediaWithoutPlaySource] before media count: ${beforeCount}`);
+
+    const mediaWithoutPlaySource = await this.db!.select<{ id: string }[]>(
+      `SELECT m.id FROM media m 
+       WHERE NOT EXISTS (
+         SELECT 1 FROM episode e 
+         JOIN play_source ps ON e.id = ps.episode_id 
+         WHERE e.media_id = m.id
+       )`
+    );
+    
+    const countToDelete = mediaWithoutPlaySource.length;
+    console.log(`[deleteMediaWithoutPlaySource] found ${countToDelete} media without play source`);
+    
+    if (countToDelete === 0) {
+      console.log('[deleteMediaWithoutPlaySource] no media to delete, returning 0');
+      return 0;
+    }
+
+    const batchSize = 100;
+    for (let i = 0; i < mediaWithoutPlaySource.length; i += batchSize) {
+      const batch = mediaWithoutPlaySource.slice(i, i + batchSize);
+      const ids = batch.map(m => m.id);
+      
+      await this.db!.execute('BEGIN');
+      try {
+        await this.db!.execute(
+          `DELETE FROM media WHERE id IN (${ids.map(() => '?').join(',')})`,
+          ids
+        );
+        await this.db!.execute('COMMIT');
+        console.log(`[deleteMediaWithoutPlaySource] deleted batch ${Math.floor(i / batchSize) + 1}`);
+      } catch (error) {
+        await this.db!.execute('ROLLBACK');
+        console.error('[deleteMediaWithoutPlaySource] batch delete error:', error);
+        throw error;
+      }
+    }
+
+    await this.db!.execute('BEGIN');
+    try {
+      await this.db!.execute('DELETE FROM favorite WHERE NOT EXISTS (SELECT 1 FROM media WHERE media.id = favorite.media_id)');
+      await this.db!.execute('DELETE FROM watch_history WHERE NOT EXISTS (SELECT 1 FROM media WHERE media.id = watch_history.media_id)');
+      await this.db!.execute('COMMIT');
+      console.log('[deleteMediaWithoutPlaySource] cleaned up favorites and watch_history');
+    } catch (error) {
+      await this.db!.execute('ROLLBACK');
+      console.error('[deleteMediaWithoutPlaySource] cleanup error:', error);
+      throw error;
+    }
+
+    const afterRows = await this.db!.select<{ count: number }[]>('SELECT COUNT(*) as count FROM media');
+    const afterCount = afterRows[0]?.count || 0;
+    const deleted = beforeCount - afterCount;
+    console.log(`[deleteMediaWithoutPlaySource] after media count: ${afterCount}, deleted: ${deleted}`);
+
+    return deleted;
+  }
+
   async getSeasonsByMediaId(mediaId: string): Promise<number[]> {
     const rows = await this.db!.select<{ season_number: number }[]>(
       'SELECT DISTINCT season_number FROM episode WHERE media_id = ? ORDER BY season_number ASC',
@@ -229,12 +571,15 @@ export class TauriSqlProvider implements DatabaseProvider {
 
   async upsertPlaySource(playSource: PlaySource): Promise<void> {
     await this.db!.execute(
-      `INSERT INTO play_source (id, episode_id, source_id, source_name, url, quality)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO play_source (id, episode_id, source_id, source_name, url, quality, is_active, fail_count, last_fail_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          url = excluded.url,
          quality = excluded.quality`,
-      [playSource.id, playSource.episodeId, playSource.sourceId, playSource.sourceName || null, playSource.url, playSource.quality || null]
+      [
+        playSource.id, playSource.episodeId, playSource.sourceId, playSource.sourceName || null,
+        playSource.url, playSource.quality || null, 1, 0, null,
+      ]
     );
   }
 
@@ -242,6 +587,49 @@ export class TauriSqlProvider implements DatabaseProvider {
     await this.db!.execute(
       `DELETE FROM play_source WHERE episode_id IN (SELECT id FROM episode WHERE media_id = ?)`,
       [mediaId]
+    );
+  }
+
+  async deletePlaySourcesByMediaIdAndSourceId(mediaId: string, sourceId: string): Promise<void> {
+    await this.db!.execute(
+      `DELETE FROM play_source WHERE episode_id IN (SELECT id FROM episode WHERE media_id = ?) AND source_id = ?`,
+      [mediaId, sourceId]
+    );
+  }
+
+  async reportPlaySourceFail(sourceId: string): Promise<void> {
+    const FAIL_COUNT_WINDOW_MS = 24 * 60 * 60 * 1000;
+    const MAX_FAIL_COUNT = 5;
+    const FAIL_COOLDOWN_MS = 60 * 60 * 1000;
+
+    const now = new Date().toISOString();
+    const row = await this.db!.select<{ fail_count: number; last_fail_at: string; is_active: number }[]>(
+      'SELECT fail_count, last_fail_at, is_active FROM play_source WHERE id = ?',
+      [sourceId]
+    );
+
+    if (row.length === 0) return;
+
+    let currentFailCount = row[0].fail_count || 0;
+    const lastFailAt = row[0].last_fail_at;
+
+    if (lastFailAt) {
+      const timeSinceLastFail = Date.now() - new Date(lastFailAt).getTime();
+      if (timeSinceLastFail > FAIL_COUNT_WINDOW_MS) {
+        currentFailCount = 0;
+      }
+    }
+
+    const newFailCount = currentFailCount + 1;
+    const isActive = newFailCount < MAX_FAIL_COUNT ? 1 : 0;
+
+    await this.db!.execute(
+      `UPDATE play_source SET
+         fail_count = ?,
+         last_fail_at = ?,
+         is_active = ?
+       WHERE id = ?`,
+      [newFailCount, now, isActive, sourceId]
     );
   }
 
@@ -295,9 +683,53 @@ export class TauriSqlProvider implements DatabaseProvider {
     await this.db!.execute('UPDATE video_source SET priority = ? WHERE id = ?', [priority, id]);
   }
 
-  async updateSourceHealth(id: string, healthStatus: string): Promise<void> {
+  async updateSourceRateLimit(id: string, rateLimit: number): Promise<void> {
+    await this.db!.execute('UPDATE video_source SET rate_limit = ? WHERE id = ?', [rateLimit, id]);
+  }
+
+  async updateSourceHealth(id: string, data: {
+    healthStatus: string;
+    lastCheckAt?: string;
+    lastSuccessAt?: string;
+    failCount?: number;
+    avgResponseTime?: number;
+  }): Promise<void> {
     const now = new Date().toISOString();
-    await this.db!.execute('UPDATE video_source SET health_status = ?, last_check_at = ? WHERE id = ?', [healthStatus, now, id]);
+    const updates: string[] = [];
+    const params: any[] = [];
+    
+    updates.push('health_status = ?');
+    params.push(data.healthStatus);
+    
+    updates.push('last_check_at = ?');
+    params.push(data.lastCheckAt || now);
+    
+    if (data.lastSuccessAt) {
+      updates.push('last_success_at = ?');
+      params.push(data.lastSuccessAt);
+    }
+    
+    if (data.failCount !== undefined) {
+      updates.push('fail_count = ?');
+      params.push(data.failCount);
+    }
+    
+    if (data.avgResponseTime !== undefined) {
+      updates.push('avg_response_time = ?');
+      params.push(data.avgResponseTime);
+    }
+    
+    params.push(id);
+    
+    await this.db!.execute(`UPDATE video_source SET ${updates.join(', ')} WHERE id = ?`, params);
+  }
+
+  async incrementSourceRequestCount(id: string): Promise<void> {
+    await this.db!.execute('UPDATE video_source SET total_requests = total_requests + 1 WHERE id = ?', [id]);
+  }
+
+  async incrementSourceFailCount(id: string): Promise<void> {
+    await this.db!.execute('UPDATE video_source SET fail_count = fail_count + 1 WHERE id = ?', [id]);
   }
 
   // —— Favorite DAO ——
@@ -370,5 +802,192 @@ export class TauriSqlProvider implements DatabaseProvider {
 
   async deleteWatchHistory(mediaId: string): Promise<void> {
     await this.db!.execute('DELETE FROM watch_history WHERE media_id = ?', [mediaId]);
+  }
+
+  // —— SearchHistory DAO ——
+  async addSearchHistory(keyword: string): Promise<void> {
+    const now = new Date().toISOString();
+    const existing = await this.db!.select<any[]>('SELECT * FROM search_history WHERE keyword = ?', [keyword]);
+    if (existing.length > 0) {
+      await this.db!.execute('UPDATE search_history SET count = count + 1, updated_at = ? WHERE keyword = ?', [now, keyword]);
+    } else {
+      const id = `sh_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+      await this.db!.execute('INSERT INTO search_history (id, keyword, count, updated_at) VALUES (?, ?, 1, ?)', [id, keyword, now]);
+    }
+  }
+
+  async getSearchHistory(limit: number = 10): Promise<{ keyword: string; count: number }[]> {
+    return this.db!.select<{ keyword: string; count: number }[]>(
+      'SELECT keyword, count FROM search_history ORDER BY updated_at DESC LIMIT ?',
+      [limit]
+    );
+  }
+
+  async getHotSearches(limit: number = 10): Promise<{ keyword: string; count: number }[]> {
+    return this.db!.select<{ keyword: string; count: number }[]>(
+      'SELECT keyword, count FROM search_history ORDER BY count DESC LIMIT ?',
+      [limit]
+    );
+  }
+
+  async clearSearchHistory(): Promise<void> {
+    await this.db!.execute('DELETE FROM search_history');
+  }
+
+  async deleteSearchHistory(keyword: string): Promise<void> {
+    await this.db!.execute('DELETE FROM search_history WHERE keyword = ?', [keyword]);
+  }
+
+  async createCollectTask(task: CollectTask): Promise<void> {
+    await this.db!.execute(
+      'INSERT INTO collect_task (id, task_id, source_code, source_name, type, status, current_page, total_pages, collected_count, failed_count, error_message, error_type, last_error_page, failed_pages, created_at, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        task.id,
+        task.taskId,
+        task.sourceCode,
+        task.sourceName,
+        task.type,
+        task.status,
+        task.currentPage,
+        task.totalPages,
+        task.collectedCount,
+        task.failedCount,
+        task.errorMessage || null,
+        task.errorType || null,
+        task.lastErrorPage ?? null,
+        task.failedPages || null,
+        task.createdAt,
+        task.startedAt || null,
+        task.completedAt || null,
+      ]
+    );
+  }
+
+  async getCollectTaskById(taskId: string): Promise<CollectTask | null> {
+    const rows = await this.db!.select<any[]>(
+      'SELECT * FROM collect_task WHERE task_id = ?',
+      [taskId]
+    );
+    if (rows.length === 0) return null;
+    return rowToCollectTask(rows[0]);
+  }
+
+  async getAllCollectTasks(): Promise<CollectTask[]> {
+    const rows = await this.db!.select<any[]>(
+      'SELECT * FROM collect_task ORDER BY created_at DESC'
+    );
+    return rows.map(rowToCollectTask);
+  }
+
+  async getRunningTasksBySourceCode(sourceCode: string): Promise<CollectTask[]> {
+    const rows = await this.db!.select<any[]>(
+      "SELECT * FROM collect_task WHERE source_code = ? AND status IN ('PENDING', 'RUNNING') ORDER BY created_at DESC",
+      [sourceCode]
+    );
+    return rows.map(rowToCollectTask);
+  }
+
+  async updateCollectTask(taskId: string, updates: Partial<CollectTask>): Promise<void> {
+    const sqlParts: string[] = [];
+    const params: any[] = [];
+
+    if (updates.status !== undefined) {
+      sqlParts.push('status = ?');
+      params.push(updates.status);
+    }
+    if (updates.currentPage !== undefined) {
+      sqlParts.push('current_page = ?');
+      params.push(updates.currentPage);
+    }
+    if (updates.totalPages !== undefined) {
+      sqlParts.push('total_pages = ?');
+      params.push(updates.totalPages);
+    }
+    if (updates.collectedCount !== undefined) {
+      sqlParts.push('collected_count = ?');
+      params.push(updates.collectedCount);
+    }
+    if (updates.failedCount !== undefined) {
+      sqlParts.push('failed_count = ?');
+      params.push(updates.failedCount);
+    }
+    if (updates.errorMessage !== undefined) {
+      sqlParts.push('error_message = ?');
+      params.push(updates.errorMessage);
+    }
+    if (updates.errorType !== undefined) {
+      sqlParts.push('error_type = ?');
+      params.push(updates.errorType);
+    }
+    if (updates.lastErrorPage !== undefined) {
+      sqlParts.push('last_error_page = ?');
+      params.push(updates.lastErrorPage);
+    }
+    if (updates.failedPages !== undefined) {
+      sqlParts.push('failed_pages = ?');
+      params.push(updates.failedPages);
+    }
+    if (updates.startedAt !== undefined) {
+      sqlParts.push('started_at = ?');
+      params.push(updates.startedAt);
+    }
+    if (updates.completedAt !== undefined) {
+      sqlParts.push('completed_at = ?');
+      params.push(updates.completedAt);
+    }
+
+    if (sqlParts.length === 0) return;
+
+    params.push(taskId);
+    await this.db!.execute(`UPDATE collect_task SET ${sqlParts.join(', ')} WHERE task_id = ?`, params);
+  }
+
+  async deleteCollectTask(taskId: string): Promise<void> {
+    await this.db!.execute('DELETE FROM collect_task WHERE task_id = ?', [taskId]);
+  }
+
+  async deleteOldTasks(days: number): Promise<void> {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    await this.db!.execute('DELETE FROM collect_task WHERE created_at < ?', [cutoff]);
+  }
+
+  async resetStaleTasks(): Promise<number> {
+    const now = new Date().toISOString();
+    const result = await this.db!.execute(
+      `UPDATE collect_task SET
+         status = 'FAILED',
+         error_message = '应用重启，任务已中断',
+         error_type = 'CANCELLED',
+         completed_at = ?
+       WHERE status IN ('PENDING', 'RUNNING')`,
+      [now]
+    );
+    return result?.rowsAffected ?? 0;
+  }
+
+  async cancelCollectTask(taskId: string): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db!.execute(
+      `UPDATE collect_task SET
+         status = 'FAILED',
+         error_message = '用户已取消',
+         error_type = 'CANCELLED',
+         completed_at = ?
+       WHERE task_id = ?`,
+      [now, taskId]
+    );
+  }
+
+  async select<T>(sql: string, params?: any[]): Promise<T[]> {
+    return this.db!.select<T[]>(sql, params);
+  }
+
+  async selectOne<T>(sql: string, params?: any[]): Promise<T | null> {
+    const rows = await this.db!.select<T[]>(sql, params);
+    return rows[0] || null;
+  }
+
+  async execute(sql: string, params?: any[]): Promise<void> {
+    await this.db!.execute(sql, params);
   }
 }

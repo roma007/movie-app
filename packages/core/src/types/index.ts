@@ -19,6 +19,8 @@ export interface Media {
   currentEpisodes?: number;
   totalEpisodes?: number;
   isShortDrama: boolean;
+  durationCheckStatus?: 'SUMMARY' | 'PROBE' | 'FALLBACK' | null;
+  durationRetryAt?: string | null;
   viewCount: number;
   createdAt: string;
   updatedAt: string;
@@ -40,6 +42,9 @@ export interface PlaySource {
   sourceName?: string | null;
   url: string;
   quality?: string | null;
+  isActive?: boolean;
+  failCount?: number;
+  lastFailAt?: string | null;
 }
 
 export interface VideoSource {
@@ -53,6 +58,11 @@ export interface VideoSource {
   priority: number;
   healthStatus?: string | null;
   lastCheckAt?: string | null;
+  lastSuccessAt?: string | null;
+  failCount?: number;
+  totalRequests?: number;
+  avgResponseTime?: number;
+  mediaCount?: number;
 }
 
 export interface Favorite {
@@ -111,9 +121,37 @@ export interface PaginatedResponse<T> {
 export interface ListParams {
   page?: number;
   pageSize?: number;
-  sort?: string;
+  sort?: 'hot' | 'latest' | 'rating' | 'year';
   type?: string;
   year?: number;
   genre?: string;
+  subType?: string;
   area?: string;
+  isShortDrama?: boolean;
+}
+
+export type TaskStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+
+export type TaskType = 'INCREMENTAL' | 'FULL' | 'KEYWORD';
+
+export type TaskErrorType = 'NETWORK' | 'PARSE' | 'DB' | 'TIMEOUT' | 'CANCELLED' | 'UNKNOWN';
+
+export interface CollectTask {
+  id: string;
+  taskId: string;
+  sourceCode: string;
+  sourceName: string;
+  type: TaskType;
+  status: TaskStatus;
+  currentPage: number;
+  totalPages: number;
+  collectedCount: number;
+  failedCount: number;
+  errorMessage?: string | null;
+  errorType?: TaskErrorType | null;
+  lastErrorPage?: number | null;
+  failedPages?: string | null;
+  createdAt: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
 }

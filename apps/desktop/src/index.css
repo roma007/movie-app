@@ -1,39 +1,56 @@
 @import "tailwindcss";
 
-/* 暗色主题令牌（桌面端默认暗色，与移动端 #0f0f0f 配色一致）。
-   通过 @theme 暴露为 Tailwind 工具类：bg-background / text-foreground / bg-primary 等。 */
 @theme {
-  --color-background: #0f0f0f;
-  --color-foreground: #fafafa;
+  --color-primary: #4a9eff;
+  --color-primary-hover: #3a8ef0;
+  --color-primary-light: rgba(74, 158, 255, 0.1);
+  --color-primary-foreground: #ffffff;
 
+  --color-background: #0f0f0f;
+  --color-sidebar: #161616;
   --color-card: #1a1a1a;
-  --color-card-foreground: #fafafa;
+  --color-hover: #252525;
+
+  --color-foreground: #fafafa;
+  --color-muted-foreground: #a0a0a0;
+  --color-disabled-foreground: #666666;
+
+  --color-success: #22c55e;
+  --color-warning: #eab308;
+  --color-error: #ef4444;
+  --color-favorite: #e91e63;
+
+  --color-border: #2a2a2a;
+  --color-border-highlight: rgba(74, 158, 255, 0.6);
 
   --color-popover: #1a1a1a;
   --color-popover-foreground: #fafafa;
-
-  --color-primary: #4a9eff;
-  --color-primary-foreground: #ffffff;
-
   --color-secondary: #2a2a2a;
   --color-secondary-foreground: #fafafa;
-
-  --color-muted: #2a2a2a;
-  --color-muted-foreground: #888888;
-
   --color-accent: #2a2a2a;
   --color-accent-foreground: #fafafa;
-
   --color-destructive: #ef4444;
   --color-destructive-foreground: #fafafa;
-
-  --color-border: #2a2a2a;
   --color-input: #2a2a2a;
   --color-ring: #4a9eff;
 
-  --radius-lg: 0.75rem;
-  --radius-md: 0.5rem;
-  --radius-sm: 0.375rem;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  --font-family-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-base: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-modal: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 
 html,
@@ -46,23 +63,88 @@ body {
   margin: 0;
   background-color: var(--color-background);
   color: var(--color-foreground);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-family: var(--font-family-sans);
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* 滚动条（暗色） */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: #333333;
+  background: var(--color-border);
   border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
-  background: #444444;
+  background: var(--color-hover);
+}
+
+@keyframes pulse-skeleton {
+  0%,
+  100% {
+    background-color: var(--color-border);
+  }
+  50% {
+    background-color: var(--color-hover);
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-pulse-skeleton {
+  animation: pulse-skeleton 1.5s ease-in-out infinite;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+@layer utilities {
+  .text-primary {
+    color: var(--color-primary);
+  }
+
+  .bg-primary-light {
+    background-color: var(--color-primary-light);
+  }
+
+  .border-highlight {
+    border-color: var(--color-border-highlight);
+  }
+
+  .hover-bg-hover:hover {
+    background-color: var(--color-hover);
+  }
+
+  .card-shadow {
+    box-shadow: var(--shadow-card);
+  }
+
+  .modal-shadow {
+    box-shadow: var(--shadow-modal);
+  }
+
+  .overlay-shadow {
+    box-shadow: var(--shadow-overlay);
+  }
+}
+
+/* Vidstack 主题适配：品牌色对齐项目主色 */
+:where(media-player) {
+  --media-brand: var(--color-primary);
+  --media-font-family: var(--font-family-sans);
 }

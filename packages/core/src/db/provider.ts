@@ -7,6 +7,7 @@ import type {
   WatchHistory,
   PaginatedResponse,
   ListParams,
+  CollectTask,
 } from '../types';
 
 /**
@@ -23,7 +24,23 @@ export interface DatabaseProvider {
   upsertMedia(media: Media): Promise<void>;
   incrementViewCount(id: string): Promise<void>;
   incrementSearchCount(id: string): Promise<void>;
-  searchMedia(keyword: string, page?: number, pageSize?: number): Promise<PaginatedResponse<Media>>;
+  searchMedia(
+    keyword: string,
+    params?: {
+      page?: number;
+      pageSize?: number;
+      type?: string;
+      year?: number;
+      area?: string;
+      genre?: string;
+    }
+  ): Promise<PaginatedResponse<Media>>;
+
+  getGenresByType(type?: string): Promise<string[]>;
+  getSubTypesByType(type?: string): Promise<string[]>;
+  getYearsByType(type?: string): Promise<number[]>;
+  getAreasByType(type?: string): Promise<string[]>;
+  hasShortDrama(type?: string): Promise<boolean>;
 
   // —— Episode DAO ——
   getEpisodesByMediaId(mediaId: string, season?: number): Promise<Episode[]>;
@@ -32,11 +49,21 @@ export interface DatabaseProvider {
   deleteEpisodesByMediaId(mediaId: string): Promise<void>;
   getSeasonsByMediaId(mediaId: string): Promise<number[]>;
 
+  // —— Media 批量操作 ——
+  deleteAllMedia(): Promise<void>;
+  deletePlaySourcesBySourceId(sourceId: string): Promise<void>;
+  getMediaCountBySourceId(sourceId: string): Promise<number>;
+  getMediaCountBySourceIdMap(): Promise<Map<string, number>>;
+  deleteMediaCompletely(mediaId: string): Promise<void>;
+  deleteMediaWithoutPlaySource(): Promise<number>;
+
   // —— PlaySource DAO ——
   getPlaySourcesByEpisodeId(episodeId: string): Promise<PlaySource[]>;
   getPlaySourcesByMediaId(mediaId: string): Promise<PlaySource[]>;
   upsertPlaySource(playSource: PlaySource): Promise<void>;
   deletePlaySourcesByMediaId(mediaId: string): Promise<void>;
+  deletePlaySourcesByMediaIdAndSourceId(mediaId: string, sourceId: string): Promise<void>;
+  reportPlaySourceFail(sourceId: string): Promise<void>;
 
   // —— VideoSource DAO ——
   getAllVideoSources(): Promise<VideoSource[]>;
@@ -47,7 +74,16 @@ export interface DatabaseProvider {
   deleteVideoSource(id: string): Promise<void>;
   setVideoSourceEnabled(id: string, enabled: boolean): Promise<void>;
   updateSourcePriority(id: string, priority: number): Promise<void>;
-  updateSourceHealth(id: string, healthStatus: string): Promise<void>;
+  updateSourceRateLimit(id: string, rateLimit: number): Promise<void>;
+  updateSourceHealth(id: string, data: {
+    healthStatus: string;
+    lastCheckAt?: string;
+    lastSuccessAt?: string;
+    failCount?: number;
+    avgResponseTime?: number;
+  }): Promise<void>;
+  incrementSourceRequestCount(id: string): Promise<void>;
+  incrementSourceFailCount(id: string): Promise<void>;
 
   // —— Favorite DAO ——
   getAllFavorites(): Promise<Favorite[]>;
@@ -62,6 +98,29 @@ export interface DatabaseProvider {
   upsertWatchHistory(mediaId: string, episodeId: string | null, progress: number, duration: number): Promise<void>;
   clearWatchHistory(): Promise<void>;
   deleteWatchHistory(mediaId: string): Promise<void>;
+
+  // —— SearchHistory DAO ——
+  addSearchHistory(keyword: string): Promise<void>;
+  getSearchHistory(limit?: number): Promise<{ keyword: string; count: number }[]>;
+  getHotSearches(limit?: number): Promise<{ keyword: string; count: number }[]>;
+  clearSearchHistory(): Promise<void>;
+  deleteSearchHistory(keyword: string): Promise<void>;
+
+  // —— CollectTask DAO ——
+  createCollectTask(task: CollectTask): Promise<void>;
+  getCollectTaskById(taskId: string): Promise<CollectTask | null>;
+  getAllCollectTasks(): Promise<CollectTask[]>;
+  getRunningTasksBySourceCode(sourceCode: string): Promise<CollectTask[]>;
+  updateCollectTask(taskId: string, updates: Partial<CollectTask>): Promise<void>;
+  deleteCollectTask(taskId: string): Promise<void>;
+  deleteOldTasks(days: number): Promise<void>;
+  resetStaleTasks(): Promise<number>;
+  cancelCollectTask(taskId: string): Promise<void>;
+
+  // —— 通用 SQL ——
+  select<T>(sql: string, params?: any[]): Promise<T[]>;
+  selectOne<T>(sql: string, params?: any[]): Promise<T | null>;
+  execute(sql: string, params?: any[]): Promise<void>;
 
   // —— 生命周期 ——
   init(): Promise<void>;

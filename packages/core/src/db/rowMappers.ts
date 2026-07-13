@@ -6,6 +6,10 @@ import type {
   Favorite,
   WatchHistory,
   MediaType,
+  CollectTask,
+  TaskType,
+  TaskStatus,
+  TaskErrorType,
 } from '../types';
 
 /** row → 领域对象转换函数（两端共享，SQL 列名为 snake_case） */
@@ -30,6 +34,8 @@ export function rowToMedia(row: any): Media {
     currentEpisodes: row.current_episodes,
     totalEpisodes: row.total_episodes,
     isShortDrama: row.is_short_drama === 1,
+    durationCheckStatus: (row.duration_check_status || null) as 'SUMMARY' | 'PROBE' | 'FALLBACK' | null,
+    durationRetryAt: row.duration_retry_at || null,
     viewCount: row.view_count || 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -55,6 +61,9 @@ export function rowToPlaySource(row: any): PlaySource {
     sourceName: row.source_name,
     url: row.url,
     quality: row.quality,
+    isActive: row.is_active === 1,
+    failCount: row.fail_count || 0,
+    lastFailAt: row.last_fail_at || null,
   };
 }
 
@@ -70,6 +79,10 @@ export function rowToVideoSource(row: any): VideoSource {
     priority: row.priority,
     healthStatus: row.health_status,
     lastCheckAt: row.last_check_at,
+    lastSuccessAt: row.last_success_at || null,
+    failCount: row.fail_count || 0,
+    totalRequests: row.total_requests || 0,
+    avgResponseTime: row.avg_response_time || undefined,
   };
 }
 
@@ -89,5 +102,27 @@ export function rowToWatchHistory(row: any): WatchHistory {
     progress: row.progress || 0,
     duration: row.duration || 0,
     updatedAt: row.updated_at,
+  };
+}
+
+export function rowToCollectTask(row: any): CollectTask {
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    sourceCode: row.source_code,
+    sourceName: row.source_name,
+    type: row.type as TaskType,
+    status: row.status as TaskStatus,
+    currentPage: row.current_page,
+    totalPages: row.total_pages,
+    collectedCount: row.collected_count,
+    failedCount: row.failed_count || 0,
+    errorMessage: row.error_message || null,
+    errorType: (row.error_type || null) as TaskErrorType | null,
+    lastErrorPage: row.last_error_page ?? null,
+    failedPages: row.failed_pages || null,
+    createdAt: row.created_at,
+    startedAt: row.started_at || null,
+    completedAt: row.completed_at || null,
   };
 }

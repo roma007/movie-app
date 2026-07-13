@@ -13,6 +13,7 @@ import SettingsScreen from './src/pages/SettingsScreen';
 import DetailScreen from './src/pages/DetailScreen';
 import PlayScreen from './src/pages/PlayScreen';
 import SourceManagerScreen from './src/pages/SourceManagerScreen';
+import CollectConfigScreen from './src/pages/CollectConfigScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -105,6 +106,11 @@ export default function App() {
           <Stack.Screen
             name="SourceManager"
             component={SourceManagerScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="CollectConfig"
+            component={CollectConfigScreen}
             options={{ headerShown: false }}
           />
         </Stack.Navigator>

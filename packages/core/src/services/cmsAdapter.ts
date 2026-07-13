@@ -1,4 +1,4 @@
-import axios, { AxiosInstance } from 'axios';
+import { getHttpClient, type HttpClient } from '../utils/httpClient';
 import { TokenBucket } from '../utils/tokenBucket';
 import type { CMSMediaItem, CMSListResponse } from '../types';
 
@@ -6,19 +6,14 @@ const MAX_RETRIES = 3;
 
 export class CMSAdapter {
   private readonly baseUrl: string;
-  private readonly client: AxiosInstance;
+  private readonly client: HttpClient;
   private readonly bucket: TokenBucket;
   private readonly maxRetries: number;
 
   constructor(baseUrl: string, rateLimitLevel: number = 2) {
     this.baseUrl = baseUrl;
     this.maxRetries = MAX_RETRIES;
-    this.client = axios.create({
-      timeout: 15000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-    });
+    this.client = getHttpClient();
     const delayMs = this.levelToDelay(rateLimitLevel);
     this.bucket = new TokenBucket(1000 / delayMs);
   }
@@ -40,17 +35,21 @@ export class CMSAdapter {
   }
 
   private isRetryableError(error: unknown): boolean {
-    if (axios.isAxiosError(error)) {
-      const status = error.response?.status;
-      if (status && status >= 400 && status < 500) {
-        return false;
-      }
-      return !status || status >= 500 || error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT';
+    if (error instanceof Error) {
+      const message = error.message.toLowerCase();
+      return message.includes('timeout') || 
+             message.includes('network') || 
+             message.includes('econnaborted') || 
+             message.includes('etimedout') ||
+             message.includes('500') ||
+             message.includes('502') ||
+             message.includes('503') ||
+             message.includes('504');
     }
     return false;
   }
 
-  private async requestWithRetry(url: string): Promise<any> {
+  private async requestWithRetry(url: string, signal?: AbortSignal): Promise<any> {
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt < this.maxRetries; attempt++) {
@@ -75,24 +74,24 @@ export class CMSAdapter {
     throw lastError;
   }
 
-  async getList(page: number = 1, size: number = 20): Promise<CMSListResponse> {
+  async getList(page: number = 1, size: number = 20, signal?: AbortSignal): Promise<CMSListResponse> {
     const url = `${this.baseUrl}?ac=list&pg=${page}&limit=${size}`;
-    return this.requestWithRetry(url);
+    return this.requestWithRetry(url, signal);
   }
 
-  async search(keyword: string, page: number = 1): Promise<CMSListResponse> {
+  async search(keyword: string, page: number = 1, signal?: AbortSignal): Promise<CMSListResponse> {
     const encodedKeyword = encodeURIComponent(keyword);
     const url = `${this.baseUrl}?ac=videolist&wd=${encodedKeyword}&pg=${page}`;
-    return this.requestWithRetry(url);
+    return this.requestWithRetry(url, signal);
   }
 
-  async getDetail(ids: string): Promise<CMSListResponse> {
+  async getDetail(ids: string, signal?: AbortSignal): Promise<CMSListResponse> {
     const url = `${this.baseUrl}?ac=detail&ids=${ids}`;
-    return this.requestWithRetry(url);
+    return this.requestWithRetry(url, signal);
   }
 
-  async getTypes(): Promise<any> {
+  async getTypes(signal?: AbortSignal): Promise<any> {
     const url = `${this.baseUrl}?ac=types`;
-    return this.requestWithRetry(url);
+    return this.requestWithRetry(url, signal);
   }
 }

@@ -1,21 +1,24 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useAppStore } from '../useAppStore';
+import { getProvider } from '../init';
+import { VideoDurationService } from '@movie-app/core';
+import type { Episode } from '@movie-app/core';
 
 interface Props {
   route: any;
   navigation: any;
 }
 
-export default function DetailScreen({ route }: Props) {
+export default function DetailScreen({ route, navigation }: Props) {
   const { id } = route.params;
   const { currentMedia, episodes, seasons, isLoading, loadMediaDetail, loadEpisodes, loadSeasons } = useAppStore();
   const [currentSeason, setCurrentSeason] = useState(1);
+  const [episodeDurations, setEpisodeDurations] = useState<Record<string, number | null>>({});
 
   useEffect(() => {
     loadMediaDetail(id);
     loadSeasons(id);
-    loadEpisodes(id, 1);
   }, [id]);
 
   useEffect(() => {
@@ -23,6 +26,40 @@ export default function DetailScreen({ route }: Props) {
       setCurrentSeason(seasons[0]);
     }
   }, [seasons]);
+
+  useEffect(() => {
+    if (!id || currentSeason === 0) return;
+    loadEpisodes(id, currentSeason);
+  }, [id, currentSeason]);
+
+  useEffect(() => {
+    if (episodes.length === 0) return;
+    const durationService = new VideoDurationService();
+    const provider = getProvider();
+    const CONCURRENCY_LIMIT = 3;
+
+    const fetchDuration = async (ep: Episode) => {
+      try {
+        const sources = await provider.getPlaySourcesByEpisodeId(ep.id);
+        const m3u8Source = sources.find(s => s.url.endsWith('.m3u8') || s.url.toLowerCase().includes('m3u8'));
+        if (m3u8Source) {
+          const duration = await durationService.getDurationFromM3U8(m3u8Source.url);
+          setEpisodeDurations(prev => ({ ...prev, [ep.id]: duration }));
+        }
+      } catch {
+        setEpisodeDurations(prev => ({ ...prev, [ep.id]: null }));
+      }
+    };
+
+    const runInBatches = async () => {
+      for (let i = 0; i < episodes.length; i += CONCURRENCY_LIMIT) {
+        const batch = episodes.slice(i, i + CONCURRENCY_LIMIT);
+        await Promise.all(batch.map(fetchDuration));
+      }
+    };
+
+    runInBatches();
+  }, [episodes]);
 
   const handleSeasonChange = (season: number) => {
     setCurrentSeason(season);
@@ -105,13 +142,25 @@ export default function DetailScreen({ route }: Props) {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>剧集 ({episodes.length}集)</Text>
         <View style={styles.episodeGrid}>
-          {episodes.map((ep: any) => (
-            <TouchableOpacity key={ep.id} style={styles.episodeButton}>
-              <Text style={styles.episodeText}>
-                {ep.title || `第${ep.episodeNumber}集`}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          {episodes.map((ep: any) => {
+            const duration = episodeDurations[ep.id];
+            return (
+              <TouchableOpacity
+                key={ep.id}
+                style={styles.episodeButton}
+                onPress={() => navigation.navigate('Play', { episodeId: ep.id, title: currentMedia.title + (ep.title ? ` · ${ep.title}` : ` · 第${ep.episodeNumber}集`) })}
+              >
+                <Text style={styles.episodeText}>
+                  {ep.title || `第${ep.episodeNumber}集`}
+                </Text>
+                {duration !== null && (
+                  <Text style={styles.episodeDuration}>
+                    {Math.floor(duration / 60)}:{String(duration % 60).padStart(2, '0')}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
     </ScrollView>
@@ -140,5 +189,6 @@ const styles = StyleSheet.create({
   episodeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   episodeButton: { width: '22%', paddingVertical: 10, backgroundColor: '#1f1f1f', borderRadius: 6, alignItems: 'center' },
   episodeText: { color: '#ccc', fontSize: 13 },
+  episodeDuration: { color: '#666', fontSize: 11, marginTop: 4 },
   error: { color: '#ff6b6b', textAlign: 'center', marginTop: 50 },
 });

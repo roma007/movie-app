@@ -19,10 +19,13 @@ export {
   MIN_YEAR,
   type DefaultSourceConfig,
 } from './utils/constants';
+export { getHttpClient, setHttpClient, type HttpClient } from './utils/httpClient';
 
 // 服务
 export { CMSAdapter } from './services/cmsAdapter';
 export { CollectorService } from './services/collectorService';
+export { SystemConfigService, type CollectConfig } from './services/systemConfigService';
+export { VideoDurationService, setVideoFetchFn, getVideoFetchFn } from './services/videoDurationService';
 
 // 数据库抽象层
 export { PRAGMA_SQL, SCHEMA_SQL, INSERT_DEFAULT_SOURCE_SQL, COUNT_VIDEO_SOURCE_SQL } from './db/schema';
@@ -34,6 +37,7 @@ export {
   rowToVideoSource,
   rowToFavorite,
   rowToWatchHistory,
+  rowToCollectTask,
 } from './db/rowMappers';
 
 // 状态管理

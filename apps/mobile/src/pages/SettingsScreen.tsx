@@ -52,6 +52,9 @@ export default function SettingsScreen({ navigation }: Props) {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>数据管理</Text>
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('CollectConfig')}>
+          <Text style={styles.menuText}>采集配置</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.menuItem} onPress={handleClearHistory}>
           <Text style={styles.menuText}>清除观看历史</Text>
         </TouchableOpacity>

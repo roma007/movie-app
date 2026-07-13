@@ -1,3 +1,4 @@
+use tauri_plugin_http::init as init_http;
 use tauri_plugin_sql::{Migration, MigrationKind};
 
 /// 数据库 migrations：建表 SQL 与移动端 expo-sqlite 完全一致（两端共享 schema.ts）。
@@ -117,9 +118,108 @@ pub fn run() {
             sql: "ALTER TABLE video_source ADD COLUMN created_at TEXT;",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 3,
+            description: "create_system_config_table",
+            sql: "CREATE TABLE IF NOT EXISTS system_config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                value_type TEXT DEFAULT 'string',
+                remark TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            );",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 4,
+            description: "add_play_source_fail_columns",
+            sql: "ALTER TABLE play_source ADD COLUMN is_active INTEGER DEFAULT 1;
+                  ALTER TABLE play_source ADD COLUMN fail_count INTEGER DEFAULT 0;
+                  ALTER TABLE play_source ADD COLUMN last_fail_at TEXT;",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 5,
+            description: "create_search_history_table",
+            sql: "CREATE TABLE IF NOT EXISTS search_history (
+                id TEXT PRIMARY KEY,
+                keyword TEXT NOT NULL,
+                count INTEGER DEFAULT 1,
+                updated_at TEXT
+            );",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 6,
+            description: "add_video_source_stats_columns",
+            sql: "ALTER TABLE video_source ADD COLUMN fail_count INTEGER DEFAULT 0;
+                  ALTER TABLE video_source ADD COLUMN total_requests INTEGER DEFAULT 0;",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 7,
+            description: "add_video_source_health_columns",
+            sql: "ALTER TABLE video_source ADD COLUMN last_success_at TEXT;
+                  ALTER TABLE video_source ADD COLUMN avg_response_time INTEGER;",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 8,
+            description: "create_collect_task_table",
+            sql: "CREATE TABLE IF NOT EXISTS collect_task (
+                  id TEXT PRIMARY KEY,
+                  task_id TEXT UNIQUE NOT NULL,
+                  source_code TEXT NOT NULL,
+                  source_name TEXT NOT NULL,
+                  type TEXT NOT NULL,
+                  status TEXT NOT NULL DEFAULT 'PENDING',
+                  current_page INTEGER DEFAULT 0,
+                  total_pages INTEGER DEFAULT 0,
+                  collected_count INTEGER DEFAULT 0,
+                  error_message TEXT,
+                  created_at TEXT NOT NULL,
+                  started_at TEXT,
+                  completed_at TEXT
+                  );",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 9,
+            description: "add_failed_count_to_collect_task",
+            sql: "ALTER TABLE collect_task ADD COLUMN failed_count INTEGER DEFAULT 0;",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 10,
+            description: "add_duration_check_columns_to_media",
+            sql: "ALTER TABLE media ADD COLUMN duration_check_status TEXT;
+                  ALTER TABLE media ADD COLUMN duration_retry_at TEXT;",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 11,
+            description: "add_foreign_key_cascade_to_favorite_watch_history",
+            sql: "PRAGMA foreign_keys = ON;",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 12,
+            description: "add_error_type_and_last_error_page_to_collect_task",
+            sql: "ALTER TABLE collect_task ADD COLUMN error_type TEXT;
+                  ALTER TABLE collect_task ADD COLUMN last_error_page INTEGER;",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 13,
+            description: "add_failed_pages_to_collect_task",
+            sql: "ALTER TABLE collect_task ADD COLUMN failed_pages TEXT;",
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
+        .plugin(init_http())
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations("sqlite:movieapp.db", migrations)

@@ -17,6 +17,16 @@ export async function initApp(): Promise<void> {
     await _provider.init();
     _store = createAppStore(_provider);
     _collector = new CollectorService(_provider);
+
+    // 清理僵尸采集任务（应用重启后残留的 RUNNING/PENDING 任务）
+    try {
+      const staleCount = await _store.getState().resetStaleTasks();
+      if (staleCount > 0) {
+        console.log(`[INIT] 清理了 ${staleCount} 个僵尸采集任务`);
+      }
+    } catch (err) {
+      console.error('[INIT] 清理僵尸任务失败:', err);
+    }
   })();
   return _initPromise;
 }

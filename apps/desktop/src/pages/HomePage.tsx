@@ -1,70 +1,587 @@
-import { useEffect, useState } from 'react';
-import { useAppStore, getCollector } from '../useAppStore';
-import { MediaGrid } from '@/components/MediaCard';
+import { useEffect, useRef, useState } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import type { Media } from '@movie-app/core';
+import { useAppStore, getProvider } from '../useAppStore';
+import { MediaGrid, MediaCard } from '@/components/MediaCard';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
+import { LayoutGrid, List, ChevronLeft, ChevronRight, Search, Heart, Clock, ChevronRight as ChevronRightIcon } from 'lucide-react';
 
-const filters: { label: string; type?: string }[] = [
-  { label: '全部' },
-  { label: '电影', type: 'MOVIE' },
-  { label: '电视剧', type: 'TV' },
-  { label: '综艺', type: 'VARIETY' },
-  { label: '动漫', type: 'ANIME' },
-  { label: '纪录片', type: 'DOCUMENTARY' },
-];
+const pageSize = 30;
 
 export default function HomePage() {
-  const { mediaList, isLoading, loadMediaList } = useAppStore();
-  const [activeType, setActiveType] = useState<string | undefined>(undefined);
-  const [collecting, setCollecting] = useState(false);
+  const { mediaList, mediaMeta, isLoading, loadMediaList, searchMedia, getSubTypesByType, getYearsByType, getAreasByType, hasShortDrama, favorites, watchHistory, loadFavorites, loadWatchHistory } = useAppStore();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const [activeType, setActiveType] = useState<string | undefined>(() => {
+    const type = searchParams.get('type');
+    return type || undefined;
+  });
+  const [activeSubType, setActiveSubType] = useState<string | undefined>(() => {
+    const subType = searchParams.get('subType');
+    return subType || undefined;
+  });
+  const [activeYear, setActiveYear] = useState<number | undefined>(() => {
+    const year = searchParams.get('year');
+    return year ? Number(year) : undefined;
+  });
+  const [activeArea, setActiveArea] = useState<string | undefined>(() => {
+    const area = searchParams.get('area');
+    return area || undefined;
+  });
+  const [activeEpisodeType, setActiveEpisodeType] = useState<string | undefined>(() => {
+    const episodeType = searchParams.get('episodeType');
+    return episodeType === 'short' || episodeType === 'long' ? episodeType : undefined;
+  });
+  const [subTypes, setSubTypes] = useState<string[]>([]);
+  const [years, setYears] = useState<number[]>([]);
+  const [areas, setAreas] = useState<string[]>([]);
+  const [currentPage, setCurrentPage] = useState(() => {
+    const page = searchParams.get('page');
+    return page ? Math.max(1, Number(page)) : 1;
+  });
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [stats, setStats] = useState<{ todayCount: number; totalCount: number }>({ todayCount: 0, totalCount: 0 });
+  const [showShortDramaFilter, setShowShortDramaFilter] = useState(false);
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [isSearchLoading, setIsSearchLoading] = useState(false);
+  const [mediaMap, setMediaMap] = useState<Record<string, Media | null>>({});
+  const hasRestoredScroll = useRef(false);
+  const hasTriggeredLoad = useRef(false);
+
+  const isHomePage = !activeType;
 
   useEffect(() => {
-    loadMediaList({ page: 1, pageSize: 60, type: activeType });
-  }, [activeType]);
+    const type = searchParams.get('type');
+    const subType = searchParams.get('subType');
+    const year = searchParams.get('year');
+    const area = searchParams.get('area');
+    const page = searchParams.get('page');
+    const episodeType = searchParams.get('episodeType');
+    
+    setActiveType(type || undefined);
+    setActiveSubType(subType || undefined);
+    setActiveYear(year ? Number(year) : undefined);
+    setActiveArea(area || undefined);
+    setCurrentPage(page ? Math.max(1, Number(page)) : 1);
+    setActiveEpisodeType(episodeType === 'short' || episodeType === 'long' ? episodeType : undefined);
+  }, [searchParams]);
 
-  const handleCollectLatest = async () => {
-    setCollecting(true);
+  const saveScrollPosition = () => {
+    const main = document.getElementById('main-content');
+    sessionStorage.setItem('homeScrollY', String(main?.scrollTop ?? 0));
+  };
+
+  useEffect(() => {
+    if (!isHomePage) {
+      loadMediaList({ page: currentPage, pageSize, type: activeType, subType: activeSubType, year: activeYear, area: activeArea, isShortDrama: activeEpisodeType === 'short' ? true : activeEpisodeType === 'long' ? false : undefined });
+    }
+  }, [activeType, activeSubType, activeYear, activeArea, activeEpisodeType, currentPage, isHomePage]);
+
+  useEffect(() => {
+    if (!isHomePage) {
+      if (isLoading) {
+        hasTriggeredLoad.current = true;
+      }
+      if (!hasRestoredScroll.current && hasTriggeredLoad.current && !isLoading && mediaList.length > 0) {
+        hasRestoredScroll.current = true;
+        const saved = sessionStorage.getItem('homeScrollY');
+        if (saved) {
+          sessionStorage.removeItem('homeScrollY');
+          setTimeout(() => {
+            const main = document.getElementById('main-content');
+            if (main) main.scrollTop = Number(saved);
+          }, 50);
+        }
+      }
+    }
+  }, [isLoading, mediaList, isHomePage]);
+
+  useEffect(() => {
+    if (!isHomePage) {
+      fetchFilters();
+      fetchStats();
+      fetchShortDramaFlag();
+    } else {
+      fetchStats();
+    }
+  }, [activeType, isHomePage]);
+
+  useEffect(() => {
+    loadFavorites();
+    loadWatchHistory();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      const provider = getProvider();
+      const ids = [...new Set([...favorites.map((f) => f.mediaId), ...watchHistory.map((h) => h.mediaId)])];
+      const entries = await Promise.all(
+        ids.map(async (id) => [id, await provider.getMediaById(id)] as const)
+      );
+      setMediaMap(Object.fromEntries(entries));
+    })();
+  }, [favorites, watchHistory]);
+
+  const handleSearch = async () => {
+    const kw = searchKeyword.trim();
+    if (!kw) return;
+    setIsSearching(true);
+    setIsSearchLoading(true);
     try {
-      const collector = getCollector();
-      await collector.collectLatest(1, 20);
-      await loadMediaList({ page: 1, pageSize: 60, type: activeType });
-    } catch (err) {
-      console.error('采集失败:', err);
+      await searchMedia(kw);
     } finally {
-      setCollecting(false);
+      setIsSearchLoading(false);
     }
   };
 
+  const handleClearSearch = () => {
+    setSearchKeyword('');
+    setIsSearching(false);
+    setIsSearchLoading(false);
+    if (activeType) {
+      loadMediaList({ page: 1, pageSize, type: activeType, subType: activeSubType, year: activeYear, area: activeArea, isShortDrama: activeEpisodeType === 'short' ? true : activeEpisodeType === 'long' ? false : undefined });
+    }
+  };
+
+  const fetchFilters = async () => {
+    try {
+      const [subTypeList, yearList, areaList] = await Promise.all([
+        getSubTypesByType(activeType),
+        getYearsByType(activeType),
+        getAreasByType(activeType),
+      ]);
+      setSubTypes(subTypeList);
+      setYears(yearList);
+      setAreas(areaList);
+    } catch (err) {
+      console.error('获取筛选数据失败:', err);
+    }
+  };
+
+  const fetchShortDramaFlag = async () => {
+    try {
+      if (activeType === 'TV') {
+        const has = await hasShortDrama('TV');
+        setShowShortDramaFilter(has);
+      } else {
+        setShowShortDramaFilter(false);
+      }
+    } catch (err) {
+      console.error('获取短剧标志失败:', err);
+      setShowShortDramaFilter(false);
+    }
+  };
+
+  const fetchStats = async () => {
+    try {
+      const provider = getProvider();
+      const totalResult = await provider.selectOne<{ count: number }>('SELECT COUNT(*) as count FROM media');
+      const todayResult = await provider.selectOne<{ count: number }>("SELECT COUNT(*) as count FROM media WHERE date(updated_at) = date('now')");
+      setStats({
+        totalCount: totalResult?.count || 0,
+        todayCount: todayResult?.count || 0,
+      });
+    } catch (err) {
+      console.error('获取统计信息失败:', err);
+    }
+  };
+
+  const clearFilters = () => {
+    setActiveSubType(undefined);
+    setActiveYear(undefined);
+    setActiveArea(undefined);
+    setActiveEpisodeType(undefined);
+  };
+
+  const totalPages = mediaMeta?.totalPages || 1;
+
+  const handlePageChange = (page: number) => {
+    if (page < 1 || page > totalPages) return;
+    setCurrentPage(page);
+    sessionStorage.removeItem('homeScrollY');
+  };
+
+  const getPageNumbers = () => {
+    const pages: number[] = [];
+    const start = Math.max(1, currentPage - 2);
+    const end = Math.min(totalPages, start + 4);
+    for (let i = start; i <= end; i++) {
+      pages.push(i);
+    }
+    return pages;
+  };
+
+  const typeNames: Record<string, string> = {
+    MOVIE: '电影',
+    TV: '电视剧',
+    VARIETY: '综艺',
+    ANIME: '动漫',
+    DOCUMENTARY: '纪录片',
+  };
+
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-6 space-y-5 max-w-7xl mx-auto">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold">首页</h1>
-        <Button onClick={handleCollectLatest} disabled={collecting} variant="default" size="sm">
-          {collecting ? '采集中...' : '采集最新'}
-        </Button>
+        <div className="flex items-center gap-4">
+          <h1 className="text-2xl font-bold">{isHomePage ? '首页' : typeNames[activeType || '']}</h1>
+        </div>
+        {!isHomePage && (
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 border border-border rounded-md p-0.5">
+              <Button
+                variant={viewMode === 'grid' ? 'default' : 'ghost'}
+                size="sm"
+                className="h-7 px-2"
+                onClick={() => setViewMode('grid')}
+              >
+                <LayoutGrid className="size-3.5" />
+              </Button>
+              <Button
+                variant={viewMode === 'list' ? 'default' : 'ghost'}
+                size="sm"
+                className="h-7 px-2"
+                onClick={() => setViewMode('list')}
+              >
+                <List className="size-3.5" />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="flex gap-2 flex-wrap">
-        {filters.map((f) => (
-          <Button
-            key={f.label}
-            variant={activeType === f.type ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setActiveType(f.type)}
-          >
-            {f.label}
+      <div className="flex gap-2">
+        <Input
+          placeholder="搜索电影、电视剧、综艺..."
+          value={searchKeyword}
+          onChange={(e) => setSearchKeyword(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+          className="flex-1 bg-card border-border"
+        />
+        {isSearching ? (
+          <Button variant="outline" onClick={handleClearSearch} className="bg-secondary">
+            清除搜索
           </Button>
-        ))}
+        ) : (
+          <Button onClick={handleSearch} className="bg-primary hover:bg-primary-hover">
+            <Search className="size-4" />
+            搜索
+          </Button>
+        )}
       </div>
 
-      {isLoading ? (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-4">
-          {Array.from({ length: 12 }).map((_, i) => (
-            <Skeleton key={i} className="aspect-[2/3] rounded-lg" />
-          ))}
+      {isSearching ? (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-medium">搜索结果："{searchKeyword}"</h2>
+          </div>
+          {isSearchLoading ? (
+            <div className="flex items-center justify-center h-64 text-muted-foreground">
+              搜索中...
+            </div>
+          ) : mediaList.length > 0 ? (
+            <MediaGrid items={mediaList} />
+          ) : (
+            <div className="text-center text-muted-foreground py-8">
+              未找到相关内容
+            </div>
+          )}
+        </div>
+      ) : isHomePage ? (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Clock className="size-4 text-primary" />
+                <span className="font-medium">观看历史</span>
+                <span className="text-xs text-muted-foreground">({watchHistory.length})</span>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => navigate('/history')} className="text-primary">
+                更多 <ChevronRightIcon className="size-3" />
+              </Button>
+            </div>
+            {watchHistory.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">暂无观看历史</p>
+            ) : (
+              <div className="flex gap-3 overflow-x-auto pb-2">
+                {watchHistory.slice(0, 10).map((history, idx) => {
+                  const media = mediaMap[history.mediaId];
+                  if (!media) return null;
+                  return (
+                    <div key={`${history.mediaId}-${idx}`} className="shrink-0 w-24">
+                      <MediaCard media={media} navigateState={{}} onBeforeNavigate={() => {}} size="small" />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Heart className="size-4 text-favorite" />
+                <span className="font-medium">我的收藏</span>
+                <span className="text-xs text-muted-foreground">({favorites.length})</span>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => navigate('/favorites')} className="text-primary">
+                更多 <ChevronRightIcon className="size-3" />
+              </Button>
+            </div>
+            {favorites.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">暂无收藏</p>
+            ) : (
+              <div className="flex gap-3 overflow-x-auto pb-2">
+                {favorites.slice(0, 10).map((fav) => {
+                  const media = mediaMap[fav.mediaId];
+                  if (!media) return null;
+                  return (
+                    <div key={fav.mediaId} className="shrink-0 w-24">
+                      <MediaCard media={media} navigateState={{}} onBeforeNavigate={() => {}} size="small" />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       ) : (
-        <MediaGrid items={mediaList} />
+        <>
+          {(subTypes.length > 0 || years.length > 0 || areas.length > 0) && (
+            <div className="space-y-3 bg-card rounded-lg p-4 border border-border">
+              {(activeSubType || activeYear || activeArea || activeEpisodeType) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearFilters}
+                  className="mb-2"
+                >
+                  清除筛选
+                </Button>
+              )}
+
+              {subTypes.length > 0 && (
+                <div className="space-y-1">
+                  <span className="text-xs text-muted-foreground">类型</span>
+                  <div className="flex flex-wrap gap-1">
+                    <Button
+                      variant={!activeSubType ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setActiveSubType(undefined)}
+                      className="text-xs"
+                    >
+                      全部
+                    </Button>
+                    {subTypes.map((g) => (
+                      <Button
+                        key={g}
+                        variant={activeSubType === g ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setActiveSubType(g)}
+                        className="text-xs"
+                      >
+                        {g}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {years.length > 0 && (
+                <div className="space-y-1">
+                  <span className="text-xs text-muted-foreground">年份</span>
+                  <div className="flex flex-wrap gap-1">
+                    <Button
+                      variant={!activeYear ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setActiveYear(undefined)}
+                      className="text-xs"
+                    >
+                      全部
+                    </Button>
+                    {years.map((y) => (
+                      <Button
+                        key={y}
+                        variant={activeYear === y ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setActiveYear(y)}
+                        className="text-xs"
+                      >
+                        {y}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {areas.length > 0 && (
+                <div className="space-y-1">
+                  <span className="text-xs text-muted-foreground">地区</span>
+                  <div className="flex flex-wrap gap-1">
+                    <Button
+                      variant={!activeArea ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setActiveArea(undefined)}
+                      className="text-xs"
+                    >
+                      全部
+                    </Button>
+                    {areas.slice(0, 20).map((a) => (
+                      <Button
+                        key={a}
+                        variant={activeArea === a ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setActiveArea(a)}
+                        className="text-xs"
+                      >
+                        {a}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {showShortDramaFilter && (
+                <div className="space-y-1">
+                  <span className="text-xs text-muted-foreground">剧集</span>
+                  <div className="flex flex-wrap gap-1">
+                    <Button
+                      variant={!activeEpisodeType ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => {
+                        setActiveEpisodeType(undefined);
+                        setSearchParams(prev => { prev.delete('episodeType'); return prev; });
+                      }}
+                      className="text-xs"
+                    >
+                      全部
+                    </Button>
+                    <Button
+                      variant={activeEpisodeType === 'short' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => {
+                        setActiveEpisodeType('short');
+                        setSearchParams(prev => { prev.set('episodeType', 'short'); return prev; });
+                      }}
+                      className="text-xs"
+                    >
+                      短剧
+                    </Button>
+                    <Button
+                      variant={activeEpisodeType === 'long' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => {
+                        setActiveEpisodeType('long');
+                        setSearchParams(prev => { prev.set('episodeType', 'long'); return prev; });
+                      }}
+                      className="text-xs"
+                    >
+                      长剧
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {isLoading ? (
+            viewMode === 'grid' ? (
+              <div className="grid grid-cols-6 gap-4">
+                {Array.from({ length: 18 }).map((_, i) => (
+                  <Skeleton key={i} className="aspect-[2/3] rounded-lg animate-pulse-skeleton" />
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-border bg-card card-shadow overflow-hidden">
+                <div className="space-y-0">
+                  {Array.from({ length: 10 }).map((_, i) => (
+                    <Skeleton key={i} className="h-[60px] mx-5 my-0 rounded-none border-b border-border animate-pulse-skeleton" />
+                  ))}
+                </div>
+              </div>
+            )
+          ) : viewMode === 'grid' ? (
+            <MediaGrid 
+              items={mediaList} 
+              navigateState={{ page: currentPage, type: activeType, subType: activeSubType, year: activeYear, area: activeArea, episodeType: activeEpisodeType }}
+              onBeforeNavigate={saveScrollPosition}
+            />
+          ) : (
+            <div className="rounded-lg border border-border bg-card card-shadow overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-secondary/50">
+                  <tr>
+                    <th className="text-left px-5 py-3 font-semibold text-sm">影片名称</th>
+                    <th className="text-left px-5 py-3 font-semibold text-sm hidden sm:table-cell">影片类型</th>
+                    <th className="text-left px-5 py-3 font-semibold text-sm" style={{ width: '130px' }}>更新时间</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mediaList.map((m) => (
+                    <tr
+                      key={m.id}
+                      className="hover:bg-hover cursor-pointer border-b border-dashed border-border last:border-b-0 transition-colors"
+                      onClick={() => {
+                        saveScrollPosition();
+                        navigate(`/media/${m.id}`, { 
+                          state: { page: currentPage, type: activeType, subType: activeSubType, year: activeYear, area: activeArea, episodeType: activeEpisodeType } 
+                        });
+                      }}
+                    >
+                      <td className="px-5 py-3 leading-[30px]">
+                        <span className="text-sm font-medium">{m.title}</span>
+                        {m.status === 'ONGOING' && m.currentEpisodes && (
+                          <small className="text-error ml-2">更新至第{m.currentEpisodes}集</small>
+                        )}
+                        {m.status === 'COMPLETED' && (
+                          <small className="text-error ml-2">正片</small>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 hidden sm:table-cell text-muted-foreground leading-[30px]">
+                        {m.genres.join(',')}
+                      </td>
+                      <td className="px-5 py-3 text-error leading-[30px]">
+                        {new Date(m.updatedAt).toISOString().split('T')[0]}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-1 pt-2">
+              <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => handlePageChange(1)}>
+                首页
+              </Button>
+              <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => handlePageChange(currentPage - 1)}>
+                <ChevronLeft className="size-4" />
+              </Button>
+              {getPageNumbers().map((p) => (
+                <Button
+                  key={p}
+                  variant={p === currentPage ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handlePageChange(p)}
+                >
+                  {p}
+                </Button>
+              ))}
+              <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => handlePageChange(currentPage + 1)}>
+                <ChevronRight className="size-4" />
+              </Button>
+              <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => handlePageChange(totalPages)}>
+                尾页
+              </Button>
+              <span className="text-sm text-muted-foreground ml-2">
+                {currentPage}/{totalPages}
+              </span>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
