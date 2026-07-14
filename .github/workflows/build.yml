@@ -61,4 +61,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tauriScript: pnpm tauri
+          tagName: v__VERSION__
+          releaseName: "Movie App v__VERSION__"
+          releaseBody: "See the assets below to download and install."
+          releaseDraft: false
+          prerelease: false
           args: --target ${{ matrix.target }}
