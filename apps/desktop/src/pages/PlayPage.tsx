@@ -118,52 +118,50 @@ export default function PlayPage() {
         )}
       </div>
 
-      {sources.length > 1 && (
-        <div className="space-y-2">
-          <div className="text-sm text-muted-foreground">
-            {(() => {
-              const activeKey = activeSource ? `${activeSource.sourceName || ''}_${activeSource.quality || ''}` : '';
-              const count = sources.filter(s => `${s.sourceName || ''}_${s.quality || ''}` === activeKey).length;
-              const activeIdx = sources.findIndex(s => s.id === activeSource?.id);
-              const prevCount = sources.slice(0, activeIdx).filter(s => `${s.sourceName || ''}_${s.quality || ''}` === activeKey).length;
-              const suffix = count > 1 ? ` (${prevCount + 1})` : '';
-              return `播放线路（当前：${activeSource?.sourceName || '线路1'}${activeSource?.quality ? ` · ${activeSource.quality}` : ''}${suffix}）`;
-            })()}
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            {(() => {
-              const sourceKeyMap = new Map<string, number>();
-              sources.forEach(s => {
-                const key = `${s.sourceName || ''}_${s.quality || ''}`;
-                sourceKeyMap.set(key, (sourceKeyMap.get(key) || 0) + 1);
-              });
-              const keyIndexMap = new Map<string, number>();
-              return sources.map((s, i) => {
-                const key = `${s.sourceName || ''}_${s.quality || ''}`;
-                const count = sourceKeyMap.get(key) || 1;
-                const idx = (keyIndexMap.get(key) || 0) + 1;
-                keyIndexMap.set(key, idx);
-                const baseName = s.sourceName || `线路${i + 1}`;
-                const qualityStr = s.quality ? ` · ${s.quality}` : '';
-                const suffix = count > 1 ? ` (${idx})` : '';
-                return (
-                  <Button
-                    key={s.id}
-                    variant={s.isActive === false ? 'outline' : s.id === activeSource?.id ? 'default' : 'outline'}
-                    size="sm"
-                    disabled={s.isActive === false}
-                    className={`${s.isActive === false ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    onClick={() => handleSourceChange(s)}
-                  >
-                    {baseName}{qualityStr}{suffix}
-                    {s.isActive === false && ' (不可用)'}
-                  </Button>
-                );
-              });
-            })()}
-          </div>
+      <div className="space-y-2">
+        <div className="text-sm text-muted-foreground">
+          {sources.length > 0 ? (() => {
+            const activeKey = activeSource ? `${activeSource.sourceName || ''}_${activeSource.quality || ''}` : '';
+            const count = sources.filter(s => `${s.sourceName || ''}_${s.quality || ''}` === activeKey).length;
+            const activeIdx = sources.findIndex(s => s.id === activeSource?.id);
+            const prevCount = sources.slice(0, activeIdx).filter(s => `${s.sourceName || ''}_${s.quality || ''}` === activeKey).length;
+            const suffix = count > 1 ? ` (${prevCount + 1})` : '';
+            return `播放线路（当前：${activeSource?.sourceName || '线路1'}${activeSource?.quality ? ` · ${activeSource.quality}` : ''}${suffix}）`;
+          })() : '暂无播放线路'}
         </div>
-      )}
+        <div className="flex gap-2 flex-wrap">
+          {(() => {
+            const sourceKeyMap = new Map<string, number>();
+            sources.forEach(s => {
+              const key = `${s.sourceName || ''}_${s.quality || ''}`;
+              sourceKeyMap.set(key, (sourceKeyMap.get(key) || 0) + 1);
+            });
+            const keyIndexMap = new Map<string, number>();
+            return sources.map((s, i) => {
+              const key = `${s.sourceName || ''}_${s.quality || ''}`;
+              const count = sourceKeyMap.get(key) || 1;
+              const idx = (keyIndexMap.get(key) || 0) + 1;
+              keyIndexMap.set(key, idx);
+              const baseName = s.sourceName || `线路${i + 1}`;
+              const qualityStr = s.quality ? ` · ${s.quality}` : '';
+              const suffix = count > 1 ? ` (${idx})` : '';
+              return (
+                <Button
+                  key={s.id}
+                  variant={s.isActive === false ? 'outline' : s.id === activeSource?.id ? 'default' : 'outline'}
+                  size="sm"
+                  disabled={s.isActive === false}
+                  className={`${s.isActive === false ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  onClick={() => handleSourceChange(s)}
+                >
+                  {baseName}{qualityStr}{suffix}
+                  {s.isActive === false && ' (不可用)'}
+                </Button>
+              );
+            });
+          })()}
+        </div>
+      </div>
     </div>
   );
 }

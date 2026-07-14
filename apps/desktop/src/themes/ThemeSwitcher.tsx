@@ -23,13 +23,16 @@ export function ThemeSwitcher() {
                 : 'border-border bg-card hover:border-highlight'
             )}
           >
-            <div
-              className="w-8 h-8 rounded-full mb-2 ring-2"
-              style={{
-                backgroundColor: theme.colors.primary,
-                boxShadow: `0 0 0 2px ${theme.colors.card}`,
-              }}
-            />
+            <div className="flex gap-1 mb-2">
+              <div
+                className="w-4 h-4 rounded-full"
+                style={{ backgroundColor: theme.colors.background }}
+              />
+              <div
+                className="w-4 h-4 rounded-full"
+                style={{ backgroundColor: theme.colors.primary }}
+              />
+            </div>
             <span className="text-xs font-medium">{theme.name}</span>
             <span className="text-xs text-muted-foreground">{theme.description}</span>
             {currentTheme === theme.id && (

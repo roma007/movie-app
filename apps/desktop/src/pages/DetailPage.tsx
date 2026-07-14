@@ -164,18 +164,40 @@ export default function DetailPage() {
           <div className="flex-1 space-y-2">
             <h1 className="text-2xl font-normal">
               {media.title}
-              {media.status === 'ONGOING' && media.currentEpisodes && (
-                <small className="text-error text-base ml-2">更新至第{media.currentEpisodes}集</small>
-              )}
-              {media.status === 'COMPLETED' && (
-                <small className="text-error text-base ml-2">正片</small>
-              )}
             </h1>
             {media.alias && (
               <p className="text-sm"><span className="text-muted-foreground">又名：</span>{media.alias}</p>
             )}
-            <p className="text-sm"><span className="text-muted-foreground">导演：</span>{media.directors.join(',') || '未知'}</p>
-            <p className="text-sm"><span className="text-muted-foreground">主演：</span>{media.actors.join(',') || '未知'}</p>
+            <p className="text-sm">
+              <span className="text-muted-foreground">导演：</span>
+              {media.directors.length > 0 ? media.directors.map((d, i) => (
+                <span key={d}>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/search', { state: { keyword: d } })}
+                    className="hover:text-primary transition-colors cursor-pointer"
+                  >
+                    {d}
+                  </button>
+                  {i < media.directors.length - 1 && <span>,</span>}
+                </span>
+              )) : '未知'}
+            </p>
+            <p className="text-sm">
+              <span className="text-muted-foreground">主演：</span>
+              {media.actors.length > 0 ? media.actors.map((a, i) => (
+                <span key={a}>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/search', { state: { keyword: a } })}
+                    className="hover:text-primary transition-colors cursor-pointer"
+                  >
+                    {a}
+                  </button>
+                  {i < media.actors.length - 1 && <span>,</span>}
+                </span>
+              )) : '未知'}
+            </p>
             <p className="text-sm"><span className="text-muted-foreground">类型：</span>{media.genres.join(',')}</p>
             <p className="text-sm"><span className="text-muted-foreground">年份：</span>{media.year}</p>
             <p className="text-sm"><span className="text-muted-foreground">地区：</span>{media.area || '未知'}</p>

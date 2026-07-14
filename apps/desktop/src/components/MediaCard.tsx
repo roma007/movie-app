@@ -3,14 +3,6 @@ import type { Media } from '@movie-app/core';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
-const typeLabel: Record<string, string> = {
-  MOVIE: '电影',
-  TV: '电视剧',
-  VARIETY: '综艺',
-  ANIME: '动漫',
-  DOCUMENTARY: '纪录片',
-};
-
 export function MediaCard({ 
   media, 
   navigateState,
@@ -42,13 +34,13 @@ export function MediaCard({
               className="size-full object-cover group-hover:scale-105 transition-transform duration-300"
             />
           ) : (
-            <div className="size-full flex items-center justify-center text-muted-foreground text-[10px]">
+            <div className="size-full flex items-center justify-center text-muted-foreground text-xs">
               无封面
             </div>
           )}
         </div>
         <div className="px-1.5 py-1">
-          <div className="text-[10px] truncate">{media.title}</div>
+          <div className="text-xs truncate">{media.title}</div>
         </div>
       </div>
     );
@@ -75,22 +67,46 @@ export function MediaCard({
             无封面
           </div>
         )}
-        <Badge 
-          variant="secondary" 
-          className="absolute top-2 right-2 shrink-0 text-[10px] px-1.5 py-0.5 bg-black/60 backdrop-blur-sm border-none"
-        >
-          {typeLabel[media.type] || media.type}
-        </Badge>
+        {(media.status === 'ONGOING' || media.status === 'PUBLISHED') && media.type !== 'VARIETY' && media.currentEpisodes && (
+          <Badge 
+            variant="secondary" 
+            className="absolute top-2 left-2 shrink-0 text-xs px-2 py-1 bg-primary/80 backdrop-blur-sm border-none text-white"
+          >
+            更新至第{media.currentEpisodes}集
+          </Badge>
+        )}
+        {(media.status === 'ONGOING' || media.status === 'PUBLISHED') && media.type === 'VARIETY' && media.remarks && (
+          <Badge 
+            variant="secondary" 
+            className="absolute top-2 left-2 shrink-0 text-xs px-2 py-1 bg-primary/80 backdrop-blur-sm border-none text-white"
+          >
+            {media.remarks}
+          </Badge>
+        )}
+        {media.status === 'COMPLETED' && media.type !== 'VARIETY' && media.totalEpisodes && (
+          <Badge 
+            variant="secondary" 
+            className="absolute top-2 left-2 shrink-0 text-xs px-2 py-1 bg-muted-foreground/80 backdrop-blur-sm border-none text-white"
+          >
+            完结 全{media.totalEpisodes}集
+          </Badge>
+        )}
+        {media.status === 'COMPLETED' && media.type === 'VARIETY' && media.remarks && (
+          <Badge 
+            variant="secondary" 
+            className="absolute top-2 left-2 shrink-0 text-xs px-2 py-1 bg-muted-foreground/80 backdrop-blur-sm border-none text-white"
+          >
+            {media.remarks}
+          </Badge>
+        )}
       </div>
       <div className="p-2.5 space-y-1.5">
         <div className="text-sm font-medium truncate">{media.title}</div>
-        <div className="flex gap-1 flex-wrap">
-          {media.genres.slice(0, 2).map((g, i) => (
-            <Badge key={i} variant="outline" className="text-[10px] px-1.5 py-0.5">
-              {g}
-            </Badge>
-          ))}
-        </div>
+        {media.actors.length > 0 && (
+          <div className="text-xs text-muted-foreground truncate">
+            {media.actors.slice(0, 2).join(' / ')}
+          </div>
+        )}
         <div className="text-xs text-muted-foreground">
           {media.year} · {media.area || '未知'}
         </div>

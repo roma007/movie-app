@@ -216,6 +216,20 @@ pub fn run() {
             sql: "ALTER TABLE collect_task ADD COLUMN failed_pages TEXT;",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 14,
+            description: "add_reprobe_fields_to_collect_task",
+            sql: "ALTER TABLE collect_task ADD COLUMN probed_count INTEGER DEFAULT 0;
+                  ALTER TABLE collect_task ADD COLUMN short_drama_count INTEGER DEFAULT 0;
+                  ALTER TABLE collect_task ADD COLUMN long_drama_count INTEGER DEFAULT 0;",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 15,
+            description: "add_episode_duration_to_media",
+            sql: "ALTER TABLE media ADD COLUMN episode_duration INTEGER;",
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

@@ -26,15 +26,17 @@ export const SCHEMA_SQL = `
     poster_url TEXT,
     backdrop_url TEXT,
     status TEXT,
+    remarks TEXT,
     fingerprint TEXT UNIQUE,
     current_episodes INTEGER,
     total_episodes INTEGER,
     is_short_drama INTEGER DEFAULT 0,
     duration_check_status TEXT,
-    duration_retry_at TEXT,
+    episode_duration INTEGER,
     view_count INTEGER DEFAULT 0,
     favorite_count INTEGER DEFAULT 0,
     search_count INTEGER DEFAULT 0,
+    hidden INTEGER DEFAULT 0,
     created_at TEXT,
     updated_at TEXT
   );

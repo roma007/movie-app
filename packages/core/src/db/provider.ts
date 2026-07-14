@@ -8,6 +8,7 @@ import type {
   PaginatedResponse,
   ListParams,
   CollectTask,
+  TaskStatus,
 } from '../types';
 
 /**
@@ -37,7 +38,7 @@ export interface DatabaseProvider {
   ): Promise<PaginatedResponse<Media>>;
 
   getGenresByType(type?: string): Promise<string[]>;
-  getSubTypesByType(type?: string): Promise<string[]>;
+  getSubTypesByType(type?: string, includeHidden?: boolean): Promise<string[]>;
   getYearsByType(type?: string): Promise<number[]>;
   getAreasByType(type?: string): Promise<string[]>;
   hasShortDrama(type?: string): Promise<boolean>;
@@ -56,6 +57,9 @@ export interface DatabaseProvider {
   getMediaCountBySourceIdMap(): Promise<Map<string, number>>;
   deleteMediaCompletely(mediaId: string): Promise<void>;
   deleteMediaWithoutPlaySource(): Promise<number>;
+  hideMediaByGenres(genres: string[]): Promise<{ hidden: number }>;
+  unhideMediaByGenres(genres: string[]): Promise<{ unhidden: number }>;
+  getHiddenMediaCount(): Promise<number>;
 
   // —— PlaySource DAO ——
   getPlaySourcesByEpisodeId(episodeId: string): Promise<PlaySource[]>;
@@ -116,6 +120,16 @@ export interface DatabaseProvider {
   deleteOldTasks(days: number): Promise<void>;
   resetStaleTasks(): Promise<number>;
   cancelCollectTask(taskId: string): Promise<void>;
+
+  // —— Reprobe Task DAO ——
+  createReprobeTask(task: CollectTask): Promise<void>;
+  updateReprobeTaskProgress(taskId: string, updates: {
+    probedCount?: number;
+    shortDramaCount?: number;
+    longDramaCount?: number;
+    status?: TaskStatus;
+  }): Promise<void>;
+  getRunningReprobeTask(): Promise<CollectTask | null>;
 
   // —— 通用 SQL ——
   select<T>(sql: string, params?: any[]): Promise<T[]>;

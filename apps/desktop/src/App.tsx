@@ -5,6 +5,7 @@ import { Layout } from './components/Layout';
 import { AnnouncementDialog } from './components/AnnouncementDialog';
 import { ContextMenu } from './components/ContextMenu';
 import { ThemeProvider } from './themes/ThemeProvider';
+import { FontSizeProvider } from './themes/FontSizeProvider';
 import { ConfirmProvider } from './components/ConfirmProvider';
 import HomePage from './pages/HomePage';
 import SearchPage from './pages/SearchPage';
@@ -17,7 +18,9 @@ import TaskListPage from './pages/TaskListPage';
 import SettingsPage from './pages/SettingsPage';
 import CollectConfigPage from './pages/CollectConfigPage';
 import CollectGuidePage from './pages/CollectGuidePage';
+import VideoManagementPage from './pages/VideoManagementPage';
 import TestCollectPage from './pages/TestCollectPage';
+import HelpCenterPage from './pages/HelpCenterPage';
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -84,29 +87,33 @@ export default function App() {
 
   return (
     <ThemeProvider>
-      <ConfirmProvider>
-        <BrowserRouter>
-          <AnnouncementDialog />
-          <ContextMenu />
-          <Routes>
-            <Route element={<Layout />}>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/search" element={<SearchPage />} />
-              <Route path="/media/:id" element={<DetailPage />} />
-              <Route path="/play/:episodeId" element={<PlayPage />} />
-              <Route path="/favorites" element={<FavoritesPage />} />
-              <Route path="/history" element={<HistoryPage />} />
-              <Route path="/sources" element={<SourceManagerPage />} />
-              <Route path="/tasks" element={<TaskListPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/settings/collect" element={<CollectConfigPage />} />
-              <Route path="/settings/guide" element={<CollectGuidePage />} />
-              <Route path="/test-collect" element={<TestCollectPage />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Route>
-          </Routes>
-        </BrowserRouter>
-      </ConfirmProvider>
+      <FontSizeProvider>
+        <ConfirmProvider>
+          <BrowserRouter>
+            <AnnouncementDialog />
+            <ContextMenu />
+            <Routes>
+              <Route element={<Layout />}>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/search" element={<SearchPage />} />
+                <Route path="/media/:id" element={<DetailPage />} />
+                <Route path="/play/:episodeId" element={<PlayPage />} />
+                <Route path="/favorites" element={<FavoritesPage />} />
+                <Route path="/history" element={<HistoryPage />} />
+                <Route path="/sources" element={<SourceManagerPage />} />
+                <Route path="/tasks" element={<TaskListPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/settings/collect" element={<CollectConfigPage />} />
+                <Route path="/settings/guide" element={<CollectGuidePage />} />
+                <Route path="/settings/video" element={<VideoManagementPage />} />
+                <Route path="/test-collect" element={<TestCollectPage />} />
+                <Route path="/help" element={<HelpCenterPage />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Route>
+            </Routes>
+          </BrowserRouter>
+        </ConfirmProvider>
+      </FontSizeProvider>
     </ThemeProvider>
   );
 }

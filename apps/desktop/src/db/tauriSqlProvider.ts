@@ -121,6 +121,13 @@ export class TauriSqlProvider implements DatabaseProvider {
     await this.db!.execute('PRAGMA synchronous = NORMAL;');
     await this.db!.execute('PRAGMA cache_size = -20000;');
 
+    // Add hidden column if it doesn't exist (migration for existing DBs)
+    try {
+      await this.db!.execute('ALTER TABLE media ADD COLUMN hidden INTEGER DEFAULT 0');
+    } catch {
+      // Column already exists, ignore
+    }
+
     await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_episode_media_id ON episode(media_id);');
     await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source(episode_id);');
     await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_favorite_media_id ON favorite(media_id);');
@@ -163,30 +170,30 @@ export class TauriSqlProvider implements DatabaseProvider {
     const pageSize = params.pageSize || 20;
     const offset = (page - 1) * pageSize;
 
-    let whereClause = '';
+    let whereClause = ' WHERE (hidden IS NULL OR hidden = 0)';
     const queryParams: any[] = [];
     if (params.type) {
-      whereClause += ' WHERE type = ?';
+      whereClause += ' AND type = ?';
       queryParams.push(params.type);
     }
     if (params.year) {
-      whereClause += whereClause ? ' AND year = ?' : ' WHERE year = ?';
+      whereClause += ' AND year = ?';
       queryParams.push(params.year);
     }
     if (params.area) {
-      whereClause += whereClause ? ' AND area = ?' : ' WHERE area = ?';
+      whereClause += ' AND area = ?';
       queryParams.push(params.area);
     }
     if (params.genre) {
-      whereClause += whereClause ? ' AND genre LIKE ?' : ' WHERE genre LIKE ?';
+      whereClause += ' AND genre LIKE ?';
       queryParams.push(`%${params.genre}%`);
     }
     if (params.subType) {
-      whereClause += whereClause ? ' AND json_extract(genre, \'$[0]\') = ?' : ' WHERE json_extract(genre, \'$[0]\') = ?';
+      whereClause += ' AND json_extract(genre, \'$[0]\') = ?';
       queryParams.push(params.subType);
     }
     if (params.isShortDrama !== undefined) {
-      whereClause += whereClause ? ' AND is_short_drama = ?' : ' WHERE is_short_drama = ?';
+      whereClause += ' AND is_short_drama = ?';
       queryParams.push(params.isShortDrama ? 1 : 0);
     }
 
@@ -227,10 +234,10 @@ export class TauriSqlProvider implements DatabaseProvider {
     await this.db!.execute(
       `INSERT INTO media (
         id, title, original_title, alias, type, year, area, genre, director, cast,
-        description, poster_url, backdrop_url, status, fingerprint,
-        current_episodes, total_episodes, is_short_drama, duration_check_status, duration_retry_at,
-        view_count, favorite_count, search_count, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        description, poster_url, backdrop_url, status, remarks, fingerprint,
+        current_episodes, total_episodes, is_short_drama, duration_check_status, episode_duration,
+        view_count, favorite_count, search_count, hidden, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(fingerprint) DO UPDATE SET
         title = excluded.title,
         original_title = excluded.original_title,
@@ -243,21 +250,22 @@ export class TauriSqlProvider implements DatabaseProvider {
         poster_url = excluded.poster_url,
         backdrop_url = excluded.backdrop_url,
         status = excluded.status,
+        remarks = excluded.remarks,
         current_episodes = excluded.current_episodes,
         total_episodes = excluded.total_episodes,
         is_short_drama = excluded.is_short_drama,
         duration_check_status = excluded.duration_check_status,
-        duration_retry_at = excluded.duration_retry_at,
+        episode_duration = excluded.episode_duration,
         updated_at = excluded.updated_at`,
       [
         media.id, media.title, media.originalTitle || null, media.alias || null,
         media.type, media.year, media.area || null,
         JSON.stringify(media.genres), JSON.stringify(media.directors), JSON.stringify(media.actors),
         media.description || null, media.posterUrl || null, media.backdropUrl || null,
-        media.status || null, media.fingerprint,
+        media.status || null, media.remarks || null, media.fingerprint,
         media.currentEpisodes || null, media.totalEpisodes || null,
-        media.isShortDrama ? 1 : 0, media.durationCheckStatus || null, media.durationRetryAt || null,
-        media.viewCount || 0, 0, 0,
+        media.isShortDrama ? 1 : 0, media.durationCheckStatus || null, media.episodeDuration || null,
+        media.viewCount || 0, 0, 0, media.hidden ? 1 : 0,
         media.createdAt || now, now,
       ]
     );
@@ -286,7 +294,7 @@ export class TauriSqlProvider implements DatabaseProvider {
     const pageSize = params.pageSize || 20;
     const offset = (page - 1) * pageSize;
 
-    let whereClause = ' WHERE (m.title LIKE ? OR m.alias LIKE ? OR m.original_title LIKE ? OR m.director LIKE ? OR m.cast LIKE ?)';
+    let whereClause = ' WHERE (m.hidden IS NULL OR m.hidden = 0) AND (m.title LIKE ? OR m.alias LIKE ? OR m.original_title LIKE ? OR m.director LIKE ? OR m.cast LIKE ?)';
     const queryParams: any[] = [`%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`];
 
     if (params.type) {
@@ -325,7 +333,7 @@ export class TauriSqlProvider implements DatabaseProvider {
   }
 
   async getGenresByType(type?: string): Promise<string[]> {
-    let whereClause = 'WHERE genre IS NOT NULL AND genre != \'[]\'';
+    let whereClause = 'WHERE genre IS NOT NULL AND genre != \'[]\' AND (hidden IS NULL OR hidden = 0)';
     const params: any[] = [];
     if (type) {
       whereClause += ' AND type = ?';
@@ -349,8 +357,11 @@ export class TauriSqlProvider implements DatabaseProvider {
     return Array.from(allGenres).sort();
   }
 
-  async getSubTypesByType(type?: string): Promise<string[]> {
+  async getSubTypesByType(type?: string, includeHidden?: boolean): Promise<string[]> {
     let whereClause = 'WHERE genre IS NOT NULL AND genre != \'[]\' AND json_extract(genre, \'$[0]\') IS NOT NULL AND json_extract(genre, \'$[0]\') != \'\'';
+    if (!includeHidden) {
+      whereClause += ' AND (hidden IS NULL OR hidden = 0)';
+    }
     const params: any[] = [];
     if (type) {
       whereClause += ' AND type = ?';
@@ -406,10 +417,17 @@ export class TauriSqlProvider implements DatabaseProvider {
   }
 
   // —— Episode DAO ——
-  async getEpisodesByMediaId(mediaId: string, season: number = 1): Promise<Episode[]> {
+  async getEpisodesByMediaId(mediaId: string, season?: number): Promise<Episode[]> {
+    if (season !== undefined) {
+      const rows = await this.db!.select<any[]>(
+        'SELECT * FROM episode WHERE media_id = ? AND season_number = ? ORDER BY episode_number ASC',
+        [mediaId, season]
+      );
+      return rows.map(rowToEpisode);
+    }
     const rows = await this.db!.select<any[]>(
-      'SELECT * FROM episode WHERE media_id = ? AND season_number = ? ORDER BY episode_number ASC',
-      [mediaId, season]
+      'SELECT * FROM episode WHERE media_id = ? ORDER BY season_number ASC, episode_number ASC',
+      [mediaId]
     );
     return rows.map(rowToEpisode);
   }
@@ -543,6 +561,43 @@ export class TauriSqlProvider implements DatabaseProvider {
     console.log(`[deleteMediaWithoutPlaySource] after media count: ${afterCount}, deleted: ${deleted}`);
 
     return deleted;
+  }
+
+  async hideMediaByGenres(genres: string[]): Promise<{ hidden: number }> {
+    if (genres.length === 0) return { hidden: 0 };
+    const conditions = genres.map(() => 'genre LIKE ?');
+    const params = genres.map(g => `%${g}%`);
+    await this.db!.execute(
+      `UPDATE media SET hidden = 1 WHERE ${conditions.join(' OR ')}`,
+      params
+    );
+    const rows = await this.db!.select<{ count: number }[]>(
+      `SELECT COUNT(*) as count FROM media WHERE hidden = 1 AND ${conditions.join(' OR ')}`,
+      params
+    );
+    return { hidden: rows[0]?.count || 0 };
+  }
+
+  async unhideMediaByGenres(genres: string[]): Promise<{ unhidden: number }> {
+    if (genres.length === 0) return { unhidden: 0 };
+    const conditions = genres.map(() => 'genre LIKE ?');
+    const params = genres.map(g => `%${g}%`);
+    await this.db!.execute(
+      `UPDATE media SET hidden = 0 WHERE ${conditions.join(' OR ')}`,
+      params
+    );
+    const rows = await this.db!.select<{ count: number }[]>(
+      `SELECT COUNT(*) as count FROM media WHERE hidden = 0 AND ${conditions.join(' OR ')}`,
+      params
+    );
+    return { unhidden: rows[0]?.count || 0 };
+  }
+
+  async getHiddenMediaCount(): Promise<number> {
+    const rows = await this.db!.select<{ count: number }[]>(
+      'SELECT COUNT(*) as count FROM media WHERE hidden = 1'
+    );
+    return rows[0]?.count || 0;
   }
 
   async getSeasonsByMediaId(mediaId: string): Promise<number[]> {
@@ -976,6 +1031,68 @@ export class TauriSqlProvider implements DatabaseProvider {
        WHERE task_id = ?`,
       [now, taskId]
     );
+  }
+
+  async createReprobeTask(task: CollectTask): Promise<void> {
+    await this.db!.execute(
+      'INSERT INTO collect_task (id, task_id, source_code, source_name, type, status, current_page, total_pages, collected_count, failed_count, probed_count, short_drama_count, long_drama_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        task.id,
+        task.taskId,
+        task.sourceCode,
+        task.sourceName,
+        task.type,
+        task.status,
+        task.currentPage,
+        task.totalPages,
+        task.collectedCount,
+        task.failedCount,
+        task.probedCount || 0,
+        task.shortDramaCount || 0,
+        task.longDramaCount || 0,
+        task.createdAt,
+      ]
+    );
+  }
+
+  async updateReprobeTaskProgress(taskId: string, updates: {
+    probedCount?: number;
+    shortDramaCount?: number;
+    longDramaCount?: number;
+    status?: string;
+  }): Promise<void> {
+    const sqlParts: string[] = [];
+    const params: any[] = [];
+
+    if (updates.probedCount !== undefined) {
+      sqlParts.push('probed_count = ?');
+      params.push(updates.probedCount);
+    }
+    if (updates.shortDramaCount !== undefined) {
+      sqlParts.push('short_drama_count = ?');
+      params.push(updates.shortDramaCount);
+    }
+    if (updates.longDramaCount !== undefined) {
+      sqlParts.push('long_drama_count = ?');
+      params.push(updates.longDramaCount);
+    }
+    if (updates.status !== undefined) {
+      sqlParts.push('status = ?');
+      params.push(updates.status);
+    }
+
+    if (sqlParts.length === 0) return;
+
+    params.push(taskId);
+    await this.db!.execute(`UPDATE collect_task SET ${sqlParts.join(', ')} WHERE task_id = ?`, params);
+  }
+
+  async getRunningReprobeTask(): Promise<CollectTask | null> {
+    const rows = await this.db!.select<any[]>(
+      "SELECT * FROM collect_task WHERE type = 'REPROBE' AND status IN ('PENDING', 'RUNNING') ORDER BY created_at DESC LIMIT 1"
+    );
+    if (rows.length === 0) return null;
+    return rowToCollectTask(rows[0]);
   }
 
   async select<T>(sql: string, params?: any[]): Promise<T[]> {

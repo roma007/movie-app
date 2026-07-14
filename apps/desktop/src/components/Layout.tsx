@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Link, Outlet } from 'react-router-dom';
 import {
   Home,
   Settings,
@@ -126,7 +126,7 @@ export function Layout() {
           <footer className="shrink-0 border-t border-border px-6 py-3 text-xs text-muted-foreground">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <a href="https://www.mdzyapi.com/caiji/" target="_blank" className="hover:text-foreground transition-colors">帮助中心</a>
+                <Link to="/help" className="hover:text-foreground transition-colors">帮助中心</Link>
                 <span className="text-border">|</span>
                 <span>关于我们</span>
                 <span className="text-border">|</span>

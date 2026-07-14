@@ -15,13 +15,15 @@ export interface Media {
   posterUrl?: string | null;
   backdropUrl?: string | null;
   status?: 'PUBLISHED' | 'ONGOING' | 'COMPLETED';
+  remarks?: string | null;
   fingerprint: string;
   currentEpisodes?: number;
   totalEpisodes?: number;
   isShortDrama: boolean;
   durationCheckStatus?: 'SUMMARY' | 'PROBE' | 'FALLBACK' | null;
-  durationRetryAt?: string | null;
+  episodeDuration?: number | null;
   viewCount: number;
+  hidden?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -132,7 +134,7 @@ export interface ListParams {
 
 export type TaskStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
 
-export type TaskType = 'INCREMENTAL' | 'FULL' | 'KEYWORD';
+export type TaskType = 'INCREMENTAL' | 'FULL' | 'KEYWORD' | 'REPROBE';
 
 export type TaskErrorType = 'NETWORK' | 'PARSE' | 'DB' | 'TIMEOUT' | 'CANCELLED' | 'UNKNOWN';
 
@@ -151,6 +153,9 @@ export interface CollectTask {
   errorType?: TaskErrorType | null;
   lastErrorPage?: number | null;
   failedPages?: string | null;
+  probedCount?: number;
+  shortDramaCount?: number;
+  longDramaCount?: number;
   createdAt: string;
   startedAt?: string | null;
   completedAt?: string | null;

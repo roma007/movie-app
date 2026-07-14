@@ -49,9 +49,7 @@ export default function SourceManagerPage() {
     removeVideoSource,
     toggleSourceEnabled,
     reorderSource,
-    deleteAllMedia,
     deletePlaySourcesBySourceId,
-    deleteMediaWithoutPlaySource,
   } = useAppStore();
 
   const [pendingCollect, setPendingCollect] = useState<Map<string, 'increment' | 'full'>>(new Map());
@@ -226,47 +224,6 @@ export default function SourceManagerPage() {
     }
   };
 
-  const handleDeleteAllMedia = async () => {
-    const ok = await confirm({
-      title: '删除所有视频',
-      description: '确定要删除所有视频吗？此操作无法撤销，所有播放源、剧集、收藏和观看历史都将被删除。',
-      confirmText: '删除',
-      variant: 'destructive',
-    });
-    if (!ok) return;
-    try {
-      await deleteAllMedia();
-      await loadVideoSources();
-      toast('所有视频已删除');
-    } catch (err: any) {
-      toast(`删除失败: ${err.message}`, 'error');
-    }
-  };
-
-  const handleDeleteMediaWithoutPlaySource = async () => {
-    const ok = await confirm({
-      title: '删除无播放源视频',
-      description: '确定要删除所有没有播放源的视频吗？此操作无法撤销。',
-      confirmText: '删除',
-      variant: 'destructive',
-    });
-    if (!ok) return;
-    try {
-      const deletedCount = await deleteMediaWithoutPlaySource();
-      await loadVideoSources();
-      toast(`已删除 ${deletedCount} 个没有播放源的视频`);
-      
-      const remaining = await deleteMediaWithoutPlaySource();
-      if (remaining > 0) {
-        toast(`警告: 仍有 ${remaining} 个无播放源视频未删除`, 'error');
-      } else {
-        toast('验证通过: 已无无播放源视频', 'success');
-      }
-    } catch (err: any) {
-      toast(`删除失败: ${err.message}`, 'error');
-    }
-  };
-
   const handleAdd = () => {
     const code = addForm.code.trim();
     if (!code || !addForm.name.trim() || !addForm.baseUrl.trim()) {
@@ -333,8 +290,6 @@ export default function SourceManagerPage() {
     return { label: '状态稳定，保持速率', color: '#22c55e' };
   };
 
-  const totalMediaCount = videoSources.reduce((sum: number, s: VideoSource) => sum + (s.mediaCount || 0), 0);
-
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-4 px-6 py-4 border-b border-border bg-background">
@@ -353,21 +308,6 @@ export default function SourceManagerPage() {
           >
             <ClipboardList className="size-4 mr-2" />
             采集任务列表
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleDeleteAllMedia}
-            disabled={totalMediaCount === 0}
-          >
-            <Trash2 className="size-4 mr-2" />
-            删除所有视频 ({totalMediaCount})
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleDeleteMediaWithoutPlaySource}
-          >
-            <Trash2 className="size-4 mr-2" />
-            删除无播放源视频
           </Button>
           <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
             <DialogContent className="w-full max-w-[45vw]">

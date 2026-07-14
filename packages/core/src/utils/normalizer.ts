@@ -283,19 +283,27 @@ export class DataNormalizer {
     return `variety:${normalizedTitle}:${year}:s${season}`;
   }
 
-  extractDurationFromSummary(summary: string): number | null {
+  /**
+   * 将 {N} 占位符模板转换为正则表达式。
+   * {N} → (\d+)，支持多个 {N}（如范围模式 {N}-{N}分钟）。
+   * 空格部分转换为 \s* 以容忍文本中的弹性空格。
+   */
+  private templateToRegex(template: string): RegExp {
+    const parts = template.split('{N}');
+    const escaped = parts.map(p => {
+      const e = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return e.replace(/ /g, '\\s*');
+    });
+    const pattern = escaped.join('(\\d+)');
+    return new RegExp(pattern, 'i');
+  }
+
+  extractDurationFromSummary(summary: string, patterns?: string[]): number | null {
     if (!summary) return null;
 
-    const patterns = [
-      /(\d+)\-(\d+)\s*分钟/i,
-      /(\d+)\s*min/i,
-      /(\d+)\s*分钟\/集/i,
-      /每集\s*(\d+)\s*分钟/i,
-      /单集\s*(\d+)\s*分钟/i,
-      /(\d+)\s*分钟/i,
-    ];
+    const regexPatterns = (patterns || []).map(p => this.templateToRegex(p));
 
-    for (const pattern of patterns) {
+    for (const pattern of regexPatterns) {
       const match = summary.match(pattern);
       if (match) {
         const num1 = parseInt(match[1], 10);
@@ -310,25 +318,22 @@ export class DataNormalizer {
     return null;
   }
 
-  isShortDramaByDuration(episodeDurationMinutes: number): boolean {
-    return episodeDurationMinutes < 30;
+  isShortDramaByDuration(episodeDurationMinutes: number, threshold: number = 30): boolean {
+    return episodeDurationMinutes < threshold;
   }
 
-  isShortDramaByMeta(genres: string[], summary: string, title: string): boolean {
-    const shortDramaKeywords = ['短剧', '微短剧', '竖屏', '短劇', '微短劇', '竪屏'];
-    const summaryKeywords = ['竖屏短剧', '微短剧', '竖屏剧', '短剧集', '竪屏短劇', '微短劇'];
-    const titleKeywords = [
-      '系统', '重生', '穿越', '仙帝', '神级', '全服', '全民',
-      '末世', '诡异', '觉醒', '转职', '签到', '无敌', '最强',
-      '大佬', '逆袭', '赘婿', '神医', '战神', '兵王', '仙尊',
-      '魔尊', '妖尊', '奶爸', '弃少', '狂婿', '龙婿', '医神',
-      '药王', '厨神', '仙医', '毒医', '透视', '鉴宝', '赌石',
-      '风水', '盗墓', '探险', '寻宝', '秘境', '禁地', '深渊',
-      '位面', '化龙', '成神', '成圣', '成魔', '逆天', '绝世',
-      '万古', '不朽', '永恒', '至尊', '诸天', '万界', '太古',
-      '洪荒', '穿越时空', '穿越成', '回到', '重生之', '重生后',
-      '重生为', '末世之', '全球', '玄幻', '修仙', '开局', '终结',
-    ];
+  isShortDramaByMeta(genres: string[], summary: string, title: string, keywords?: string[]): boolean {
+    const metaKeywords = keywords || [];
+    const shortDramaKeywords = metaKeywords.filter(k =>
+      ['短剧', '微短剧', '竖屏', '短劇', '微短劇', '竪屏',
+       '竖屏短剧', '竖屏剧', '短剧集', '竪屏短劇', '微短劇'].includes(k)
+    );
+    const summaryKeywords = metaKeywords.filter(k =>
+      ['竖屏短剧', '微短剧', '竖屏剧', '短剧集', '竪屏短劇', '微短劇'].includes(k)
+    );
+    const titleKeywords = metaKeywords.filter(k =>
+      !shortDramaKeywords.includes(k) && !summaryKeywords.includes(k)
+    );
 
     for (const genre of genres) {
       for (const keyword of shortDramaKeywords) {

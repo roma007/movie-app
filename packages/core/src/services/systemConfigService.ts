@@ -18,6 +18,37 @@ export interface CollectConfig {
   concurrency: number;
 }
 
+export interface ShortDramaConfig {
+  summaryPatterns: string[];
+  durationThresholdMinutes: number;
+  metaKeywords: string[];
+  probeEpisodeCount: number;
+}
+
+const DEFAULT_SHORT_DRAMA_CONFIG: ShortDramaConfig = {
+  summaryPatterns: [
+    '{N}分钟',
+    '{N}min',
+    '{N}-{N}分钟',
+  ],
+  durationThresholdMinutes: 30,
+  metaKeywords: [
+    '短剧', '微短剧', '竖屏', '短劇', '微短劇', '竪屏',
+    '竖屏短剧', '竖屏剧', '短剧集', '竪屏短劇', '微短劇',
+    '系统', '重生', '穿越', '仙帝', '神级', '全服', '全民',
+    '末世', '诡异', '觉醒', '转职', '签到', '无敌', '最强',
+    '大佬', '逆袭', '赘婿', '神医', '战神', '兵王', '仙尊',
+    '魔尊', '妖尊', '奶爸', '弃少', '狂婿', '龙婿', '医神',
+    '药王', '厨神', '仙医', '毒医', '透视', '鉴宝', '赌石',
+    '风水', '盗墓', '探险', '寻宝', '秘境', '禁地', '深渊',
+    '位面', '化龙', '成神', '成圣', '成魔', '逆天', '绝世',
+    '万古', '不朽', '永恒', '至尊', '诸天', '万界', '太古',
+    '洪荒', '穿越时空', '穿越成', '回到', '重生之', '重生后',
+    '重生为', '末世之', '全球', '玄幻', '修仙', '开局', '终结',
+  ],
+  probeEpisodeCount: 8,
+};
+
 const DEFAULT_COLLECT_CONFIG: CollectConfig = {
   minYear: 2025,
   blacklistKeywords: [
@@ -157,5 +188,25 @@ export class SystemConfigService {
 
   async deleteConfig(key: string): Promise<void> {
     await this.db.execute('DELETE FROM system_config WHERE key = ?', [key]);
+  }
+
+  async getShortDramaConfig(): Promise<ShortDramaConfig> {
+    const stored = await this.getJSON<Partial<ShortDramaConfig>>('shortDrama.config', {});
+    return {
+      summaryPatterns: stored.summaryPatterns ?? DEFAULT_SHORT_DRAMA_CONFIG.summaryPatterns,
+      durationThresholdMinutes: stored.durationThresholdMinutes ?? DEFAULT_SHORT_DRAMA_CONFIG.durationThresholdMinutes,
+      metaKeywords: stored.metaKeywords ?? DEFAULT_SHORT_DRAMA_CONFIG.metaKeywords,
+      probeEpisodeCount: stored.probeEpisodeCount ?? DEFAULT_SHORT_DRAMA_CONFIG.probeEpisodeCount,
+    };
+  }
+
+  async setShortDramaConfig(config: Partial<ShortDramaConfig>): Promise<void> {
+    const current = await this.getShortDramaConfig();
+    const merged = { ...current, ...config };
+    await this.setJSON('shortDrama.config', merged);
+  }
+
+  static getDefaultShortDramaConfig(): ShortDramaConfig {
+    return { ...DEFAULT_SHORT_DRAMA_CONFIG };
   }
 }

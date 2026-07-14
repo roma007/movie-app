@@ -5,7 +5,7 @@ import { useConfirm } from '@/components/ConfirmProvider';
 import { getProvider } from '../init';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Trash2, Play } from 'lucide-react';
+import { Trash2, Play, ArrowLeft } from 'lucide-react';
 import type { Media } from '@movie-app/core';
 
 export default function HistoryPage() {
@@ -44,7 +44,12 @@ export default function HistoryPage() {
   return (
     <div className="p-6 space-y-5 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">观看历史</h1>
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="hover:text-primary">
+            <ArrowLeft className="size-4" /> 返回
+          </Button>
+          <h1 className="text-2xl font-bold">观看历史</h1>
+        </div>
         {watchHistory.length > 0 && (
           <Button variant="outline" size="sm" onClick={handleClear} className="text-error hover:text-error">
             <Trash2 className="size-4" /> 清除全部

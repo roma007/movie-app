@@ -16,6 +16,16 @@ export function ContextMenu() {
   const handleContextMenu = useCallback((e: MouseEvent) => {
     e.preventDefault();
     setPosition({ x: e.clientX, y: e.clientY });
+    const selection = window.getSelection();
+    const hasSelection = !!selection && selection.toString().length > 0;
+    let isEditable = false;
+    if (hasSelection && selection && selection.rangeCount > 0) {
+      const node = selection.getRangeAt(0).startContainer;
+      const el = node.nodeType === Node.ELEMENT_NODE
+        ? node as Element
+        : node.parentElement;
+      isEditable = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || (el as HTMLElement).isContentEditable);
+    }
     setMenuItems([
       {
         label: '刷新',
@@ -25,8 +35,8 @@ export function ContextMenu() {
       {
         label: '复制',
         icon: <Copy className="w-3.5 h-3.5" />,
+        disabled: !hasSelection,
         onClick: () => {
-          const selection = window.getSelection();
           if (selection && selection.toString()) {
             navigator.clipboard.writeText(selection.toString()).catch(() => {});
           }
@@ -36,8 +46,8 @@ export function ContextMenu() {
       {
         label: '删除',
         icon: <Trash2 className="w-3.5 h-3.5" />,
+        disabled: !isEditable,
         onClick: () => {
-          const selection = window.getSelection();
           if (selection && selection.rangeCount > 0) {
             const range = selection.getRangeAt(0);
             range.deleteContents();

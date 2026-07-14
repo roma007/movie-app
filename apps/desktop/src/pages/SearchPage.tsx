@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAppStore, getCollector, getProvider } from '../useAppStore';
 import { MediaGrid } from '@/components/MediaCard';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, Clock, Flame, Trash2, X } from 'lucide-react';
+import { Search, Clock, Flame, Trash2, X, ArrowLeft } from 'lucide-react';
 
 export default function SearchPage() {
   const { mediaList, isLoading, searchMedia } = useAppStore();
   const location = useLocation();
+  const navigate = useNavigate();
   const [keyword, setKeyword] = useState('');
   const [searchHistory, setSearchHistory] = useState<{ keyword: string; count: number }[]>([]);
   const [hotSearches, setHotSearches] = useState<{ keyword: string; count: number }[]>([]);
@@ -67,7 +68,13 @@ export default function SearchPage() {
 
   return (
     <div className="p-6 space-y-5 max-w-7xl mx-auto">
-      <h1 className="text-2xl font-bold">搜索</h1>
+      <div className="flex items-center gap-4">
+        <Button variant="ghost" onClick={() => navigate(-1)} className="hover:text-primary">
+          <ArrowLeft className="size-4 mr-2" />
+          返回
+        </Button>
+        <h1 className="text-2xl font-bold">搜索</h1>
+      </div>
 
       <div className="flex gap-2">
         <Input

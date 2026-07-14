@@ -5,6 +5,7 @@ import { SOURCE_ID_TO_NAME_MAP, PLAY_SOURCE_TYPE_MAP } from '../utils/constants'
 import type { DatabaseProvider } from '../db/provider';
 import type { CMSMediaItem, Media, Episode, PlaySource, CollectTask, TaskStatus, TaskErrorType } from '../types';
 import { SystemConfigService } from './systemConfigService';
+import type { ShortDramaConfig } from './systemConfigService';
 import { VideoDurationService } from './videoDurationService';
 
 function generateId(): string {
@@ -148,9 +149,18 @@ export class CollectorService {
       const area = await normalizer.normalizeArea(item.vod_area);
       const description = await normalizer.normalizeDescription(item.vod_content);
 
+      let hidden = existing?.hidden ?? false;
+      if (!existing && genres.length > 0) {
+        const hiddenSubtype = await this.db.selectOne<{ sub_type: string }>(
+          `SELECT json_extract(genre, '$[0]') as sub_type FROM media WHERE hidden = 1 AND json_extract(genre, '$[0]') = ? LIMIT 1`,
+          [genres[0]]
+        );
+        if (hiddenSubtype) hidden = true;
+      }
+
       let isShortDrama = false;
       let durationCheckStatus: 'SUMMARY' | 'PROBE' | 'FALLBACK' | null = null;
-      let durationRetryAt: string | null = null;
+      let episodeDurationSec: number | null = null;
 
       if (needsShortDramaCheck(mediaType)) {
         // 如果已有确定性判断结果（SUMMARY 或 PROBE），保留不重新判断
@@ -158,11 +168,14 @@ export class CollectorService {
         if (existingStatus === 'SUMMARY' || existingStatus === 'PROBE') {
           isShortDrama = existing?.isShortDrama ?? false;
           durationCheckStatus = existingStatus;
+          episodeDurationSec = existing?.episodeDuration ?? null;
         } else {
-          const result = await this.determineShortDrama(genres, description || '', title, epGroups);
+          const configService = new SystemConfigService(this.db);
+          const config = await configService.getShortDramaConfig();
+          const result = await this.determineShortDrama(genres, description || '', title, epGroups, config);
           isShortDrama = result.isShortDrama;
           durationCheckStatus = result.status;
-          durationRetryAt = result.retryAt;
+          episodeDurationSec = result.episodeDuration;
         }
       }
 
@@ -201,13 +214,15 @@ export class CollectorService {
         posterUrl: item.vod_pic || null,
         backdropUrl: null,
         status,
+        remarks: remarks || null,
         fingerprint,
         currentEpisodes,
         totalEpisodes,
         isShortDrama,
         durationCheckStatus,
-        durationRetryAt,
+        episodeDuration: episodeDurationSec,
         viewCount: existing?.viewCount || 0,
+        hidden,
         createdAt: existing?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -293,68 +308,61 @@ export class CollectorService {
   /**
    * 三级降级长短剧判断：
    * 第1级：从简介提取时长（extractDurationFromSummary）→ isShortDramaByDuration
-   * 第2级：实际探测前5集视频时长（m3u8 #EXTINF 累加）→ isShortDramaByDuration
-   * 第3级：元数据关键词兜底（isShortDramaByMeta），标记 FALLBACK 并设置 10 分钟后重试
-   *
-   * 核心判定规则：单集时长 < 30 分钟 → 短剧
+   * 第2级：实际探测前N集视频时长（m3u8 #EXTINF 累加）→ isShortDramaByDuration
+   * 第3级：元数据关键词兜底（isShortDramaByMeta），标记 FALLBACK
    */
   private async determineShortDrama(
     genres: string[],
     summary: string,
     title: string,
-    epGroups: { title: string; url: string }[][]
+    epGroups: { title: string; url: string }[][],
+    config: ShortDramaConfig
   ): Promise<{
     isShortDrama: boolean;
     status: 'SUMMARY' | 'PROBE' | 'FALLBACK';
-    retryAt: string | null;
+    episodeDuration: number | null;
   }> {
     // 第1级：从简介提取时长
-    const summaryDuration = normalizer.extractDurationFromSummary(summary);
+    const summaryDuration = normalizer.extractDurationFromSummary(summary, config.summaryPatterns);
     if (summaryDuration !== null) {
-      console.log(`[长短剧判断] 第1级(简介)命中: ${summaryDuration}分钟 → ${normalizer.isShortDramaByDuration(summaryDuration) ? '短剧' : '长剧'}`);
+      console.log(`[长短剧判断] 第1级(简介)命中: ${summaryDuration}分钟 → ${normalizer.isShortDramaByDuration(summaryDuration, config.durationThresholdMinutes) ? '短剧' : '长剧'}`);
       return {
-        isShortDrama: normalizer.isShortDramaByDuration(summaryDuration),
+        isShortDrama: normalizer.isShortDramaByDuration(summaryDuration, config.durationThresholdMinutes),
         status: 'SUMMARY',
-        retryAt: null,
+        episodeDuration: summaryDuration * 60,
       };
     }
 
-    // 第2级：实际探测视频时长（取前5集）
-    const probeUrls: string[] = [];
+    // 第2级：实际探测视频时长（逐集探测，成功1集即停）
     if (epGroups.length > 0) {
       const firstGroup = epGroups[0];
-      for (let i = 0; i < Math.min(8, firstGroup.length); i++) {
-        probeUrls.push(firstGroup[i].url);
-      }
-    }
+      const probeCount = Math.min(config.probeEpisodeCount, firstGroup.length);
+      console.log(`[长短剧判断] 第1级未命中，尝试第2级(实际探测) 最多${probeCount}集`);
 
-    if (probeUrls.length > 0) {
-      console.log(`[长短剧判断] 第1级未命中，尝试第2级(实际探测) ${probeUrls.length} 集`);
       const durationService = new VideoDurationService();
-      const durations = await durationService.getDurationsFromUrls(probeUrls);
-      const validDurations = durations.filter((d): d is number => d !== null);
-
-      if (validDurations.length > 0) {
-        const avgDurationSec = validDurations.reduce((a, b) => a + b, 0) / validDurations.length;
-        const avgDurationMin = avgDurationSec / 60;
-        console.log(`[长短剧判断] 第2级(探测)命中: ${validDurations.length}/${probeUrls.length}集成功, 平均${avgDurationMin.toFixed(1)}分钟 → ${normalizer.isShortDramaByDuration(avgDurationMin) ? '短剧' : '长剧'}`);
-        return {
-          isShortDrama: normalizer.isShortDramaByDuration(avgDurationMin),
-          status: 'PROBE',
-          retryAt: null,
-        };
+      for (let i = 0; i < probeCount; i++) {
+        const probeLog = (msg: string) => this.logToDb(`[M3U8探测详情] "${title}" ${msg}`);
+        const duration = await durationService.getDurationFromM3U8(firstGroup[i].url, probeLog);
+        if (duration !== null) {
+          const durationMin = duration / 60;
+          console.log(`[长短剧判断] 第2级(探测)命中: 第${i + 1}集成功, ${durationMin.toFixed(1)}分钟 → ${normalizer.isShortDramaByDuration(durationMin, config.durationThresholdMinutes) ? '短剧' : '长剧'}`);
+          return {
+            isShortDrama: normalizer.isShortDramaByDuration(durationMin, config.durationThresholdMinutes),
+            status: 'PROBE',
+            episodeDuration: duration,
+          };
+        }
       }
-      console.log(`[长短剧判断] 第2级(探测)失败: ${probeUrls.length}集全部探测失败`);
+      console.log(`[长短剧判断] 第2级(探测)失败: ${probeCount}集全部探测失败`);
     }
 
     // 第3级：元数据关键词兜底
-    const isShort = normalizer.isShortDramaByMeta(genres, summary, title);
-    const retryAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10分钟后重试
-    console.log(`[长短剧判断] 第3级(关键词兜底): ${isShort ? '短剧' : '长剧'}, 10分钟后重试`);
+    const isShort = normalizer.isShortDramaByMeta(genres, summary, title, config.metaKeywords);
+    console.log(`[长短剧判断] 第3级(关键词兜底): ${isShort ? '短剧' : '长剧'}`);
     return {
       isShortDrama: isShort,
       status: 'FALLBACK',
-      retryAt,
+      episodeDuration: null,
     };
   }
 
@@ -502,8 +510,8 @@ export class CollectorService {
         'INSERT INTO system_config (key, value, value_type, remark, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
         [`log_${Date.now()}`, message, 'string', level, now, now]
       );
-    } catch {
-      // 忽略日志写入失败
+    } catch (err) {
+      console.error(`[logToDb] 日志写入失败: ${message}`, err);
     }
   }
 
@@ -929,11 +937,11 @@ export class CollectorService {
     mediaId: string,
     isShortDrama: boolean,
     status: 'SUMMARY' | 'PROBE' | 'FALLBACK',
-    retryAt: string | null
+    episodeDuration: number | null
   ): Promise<void> {
     await this.db.execute(
-      `UPDATE media SET is_short_drama = ?, duration_check_status = ?, duration_retry_at = ?, updated_at = ? WHERE id = ?`,
-      [isShortDrama ? 1 : 0, status, retryAt, new Date().toISOString(), mediaId]
+      `UPDATE media SET is_short_drama = ?, duration_check_status = ?, episode_duration = ?, updated_at = ? WHERE id = ?`,
+      [isShortDrama ? 1 : 0, status, episodeDuration, new Date().toISOString(), mediaId]
     );
   }
 
@@ -1008,9 +1016,8 @@ export class CollectorService {
 
   /**
    * 批量重新探测媒体的长短剧判断。
-   * 查询所有 type='TV' 且 duration_check_status 为 FALLBACK 或 NULL 的媒体，
-   * 重新探测实际视频时长并更新数据库。
-   * 返回进度回调，用于实时更新UI。
+   * @param allMedia 为 true 时查询所有 TV 媒体（全量），否则仅查询 FALLBACK 或 NULL 的（批量）
+   * 如果 episode_duration 已有值且 > 0，直接使用，跳过 M3U8 探测。
    */
   async batchReprobeMedia(
     onProgress: (progress: {
@@ -1020,7 +1027,10 @@ export class CollectorService {
       shortDrama: number;
       failed: number;
       currentMediaTitle: string;
-    }) => void
+    }) => void,
+    taskId?: string,
+    abortSignal?: AbortSignal,
+    allMedia?: boolean
   ): Promise<{
     total: number;
     longDrama: number;
@@ -1028,15 +1038,23 @@ export class CollectorService {
     failed: number;
     failedItems: { id: string; title: string }[];
   }> {
-    // 查询所有需要重新探测的媒体
+    const configService = new SystemConfigService(this.db);
+    const config = await configService.getShortDramaConfig();
+
+    const whereClause = allMedia
+      ? `type = 'TV'`
+      : `type = 'TV' AND (duration_check_status = 'FALLBACK' OR duration_check_status IS NULL)`;
+
     const mediaList = await this.db.select<{
       id: string;
       title: string;
+      episode_duration: number | null;
     }>(
-      `SELECT id, title FROM media WHERE type = 'TV' AND (duration_check_status = 'FALLBACK' OR duration_check_status IS NULL)`,
+      `SELECT id, title, episode_duration FROM media WHERE ${whereClause}`,
       []
     );
 
+    console.log(`[批量重新探测] mediaList 查询结果: ${JSON.stringify(mediaList.map(m => ({ title: m.title, episode_duration: m.episode_duration })))}`);
     const total = mediaList.length;
     let processed = 0;
     let longDrama = 0;
@@ -1047,10 +1065,17 @@ export class CollectorService {
     const durationService = new VideoDurationService();
 
     console.log(`[批量重新探测] 开始批量重新探测，共 ${total} 部媒体`);
+    await this.logToDb(`[M3U8探测详情] 开始批量重新探测，共 ${total} 部媒体`);
 
     for (const media of mediaList) {
+      console.log(`[批量重新探测] 处理: ${media.title}, episode_duration=${media.episode_duration}`);
+      console.log(`[批量重新探测] DB 连接状态: ${this.db ? '存在' : '不存在'}`);
+      if (abortSignal?.aborted) {
+        console.log(`[批量重新探测] 任务被取消`);
+        break;
+      }
+
       const mediaStart = Date.now();
-      // 更新进度
       onProgress({
         total,
         processed,
@@ -1061,63 +1086,104 @@ export class CollectorService {
       });
 
       try {
-        // 获取该剧的前8集
+        // 如果 episode_duration 已有值且 > 0，直接使用
+        if (media.episode_duration && media.episode_duration > 0) {
+          console.log(`[批量重新探测] "${media.title}" episode_duration=${media.episode_duration} > 0，复用已有时长`);
+          const avgDurationMin = media.episode_duration / 60;
+          const isShortDrama = normalizer.isShortDramaByDuration(avgDurationMin, config.durationThresholdMinutes);
+          await this.updateMediaDurationStatus(media.id, isShortDrama, 'PROBE', media.episode_duration);
+          if (isShortDrama) {
+            shortDrama++;
+          } else {
+            longDrama++;
+          }
+          console.log(`[批量重新探测] "${media.title}" → ${isShortDrama ? '短剧' : '长剧'} (复用已有时长${avgDurationMin.toFixed(1)}分钟, ${Date.now() - mediaStart}ms)`);
+          processed++;
+          if (taskId) {
+            try {
+              await this.db.updateReprobeTaskProgress(taskId, { probedCount: processed, shortDramaCount: shortDrama, longDramaCount: longDrama });
+            } catch (err) {
+              console.error(`[批量重新探测] 更新任务进度失败:`, err);
+            }
+          }
+          continue;
+        }
+
+        // 无 episode_duration，需要探测（逐集探测，成功1集即停）
+        console.log(`[批量重新探测] "${media.title}" 无 episode_duration，开始查询剧集`);
         const episodes = await this.db.getEpisodesByMediaId(media.id);
+        console.log(`[批量重新探测] "${media.title}" 查到 ${episodes.length} 集`);
         if (episodes.length === 0) {
           console.log(`[批量重新探测] "${media.title}" 无剧集数据，跳过`);
+          await this.logToDb(`[M3U8探测详情] "${media.title}" 无剧集数据，跳过`);
           failedItems.push({ id: media.id, title: media.title });
           failed++;
           processed++;
           continue;
         }
 
-        // 探测前8集，每集尝试多个播放源（第一个源失败则尝试下一个）
-        const probeEpisodeCount = Math.min(8, episodes.length);
-        const durations: number[] = [];
+        const probeEpisodeCount = Math.min(config.probeEpisodeCount, episodes.length);
+        console.log(`[批量重新探测] "${media.title}" 将探测 ${probeEpisodeCount} 集`);
         let totalSourcesTried = 0;
+        let successDuration: number | null = null;
 
         for (let i = 0; i < probeEpisodeCount; i++) {
-          const sources = await this.db.getPlaySourcesByEpisodeId(episodes[i].id);
-          if (sources.length === 0) continue;
+          if (abortSignal?.aborted) {
+            console.log(`[批量重新探测] 任务被取消`);
+            break;
+          }
 
-          // 依次尝试该集的每个播放源
-          let episodeDuration: number | null = null;
+          console.log(`[批量重新探测] "${media.title}" 正在查询第 ${i + 1} 集的播放源`);
+          const sources = await this.db.getPlaySourcesByEpisodeId(episodes[i].id);
+          console.log(`[批量重新探测] "${media.title}" 第 ${i + 1} 集有 ${sources.length} 个播放源`);
+          if (sources.length === 0) {
+            console.log(`[批量重新探测] "${media.title}" 第${i + 1}集 无播放源`);
+            await this.logToDb(`[M3U8探测详情] "${media.title}" 第${i + 1}集 无播放源`);
+            continue;
+          }
+
+          console.log(`[批量重新探测] "${media.title}" 第${i + 1}集 共${sources.length}个播放源`);
+          await this.logToDb(`[M3U8探测详情] "${media.title}" 第${i + 1}集 共${sources.length}个播放源`);
+
           for (const source of sources) {
             totalSourcesTried++;
-            const result = await durationService.getDurationFromM3U8(source.url);
+            console.log(`[批量重新探测] "${media.title}" 尝试探测源: ${source.url.substring(0, 50)}...`);
+            const probeLog = (msg: string) => {
+              console.log(`[批量重新探测] "${media.title}" 探测日志: ${msg}`);
+              return this.logToDb(`[M3U8探测详情] "${media.title}" ${msg}`);
+            };
+            const result = await durationService.getDurationFromM3U8(source.url, probeLog);
+            console.log(`[批量重新探测] "${media.title}" 探测结果: ${result}`);
             if (result !== null) {
-              episodeDuration = result;
-              break; // 成功了，不再尝试其他源
+              successDuration = result;
+              break;
             }
           }
 
-          if (episodeDuration !== null) {
-            durations.push(episodeDuration);
-          }
+          if (successDuration !== null) break;
         }
 
-        if (durations.length > 0) {
-          // 探测成功：计算平均时长，判定长短剧，更新为 PROBE 状态
-          const avgDurationSec = durations.reduce((a, b) => a + b, 0) / durations.length;
-          const avgDurationMin = avgDurationSec / 60;
-          const isShortDrama = normalizer.isShortDramaByDuration(avgDurationMin);
+        if (abortSignal?.aborted) {
+          console.log(`[批量重新探测] 任务被取消`);
+          break;
+        }
 
-          await this.updateMediaDurationStatus(
-            media.id,
-            isShortDrama,
-            'PROBE',
-            null
-          );
+        if (successDuration !== null) {
+          const durationMin = successDuration / 60;
+          const isShortDrama = normalizer.isShortDramaByDuration(durationMin, config.durationThresholdMinutes);
+
+          await this.updateMediaDurationStatus(media.id, isShortDrama, 'PROBE', successDuration);
+          await this.logToDb(`[M3U8探测详情] "${media.title}" → ${isShortDrama ? '短剧' : '长剧'} (${durationMin.toFixed(1)}分钟, ${Date.now() - mediaStart}ms)`);
 
           if (isShortDrama) {
             shortDrama++;
-            console.log(`[批量重新探测] "${media.title}" → 短剧 (PROBE, 平均${avgDurationMin.toFixed(1)}分钟, ${durations.length}/${probeEpisodeCount}集成功, 尝试${totalSourcesTried}个源, ${Date.now() - mediaStart}ms)`);
+            console.log(`[批量重新探测] "${media.title}" → 短剧 (PROBE, ${durationMin.toFixed(1)}分钟, 尝试${totalSourcesTried}个源, ${Date.now() - mediaStart}ms)`);
           } else {
             longDrama++;
-            console.log(`[批量重新探测] "${media.title}" → 长剧 (PROBE, 平均${avgDurationMin.toFixed(1)}分钟, ${durations.length}/${probeEpisodeCount}集成功, 尝试${totalSourcesTried}个源, ${Date.now() - mediaStart}ms)`);
+            console.log(`[批量重新探测] "${media.title}" → 长剧 (PROBE, ${durationMin.toFixed(1)}分钟, 尝试${totalSourcesTried}个源, ${Date.now() - mediaStart}ms)`);
           }
         } else {
-          // 探测失败：不更新数据库，保持原状态，留在队列等下次自动重试
+          await this.logToDb(`[M3U8探测详情] "${media.title}" 全部失败 (${probeEpisodeCount}集, ${totalSourcesTried}个源, ${Date.now() - mediaStart}ms)`, 'error');
           console.log(`[批量重新探测] "${media.title}" 探测失败 (${probeEpisodeCount}集全部失败, 尝试${totalSourcesTried}个源, ${Date.now() - mediaStart}ms)，保持原状态`);
           failedItems.push({ id: media.id, title: media.title });
           failed++;
@@ -1129,11 +1195,22 @@ export class CollectorService {
       }
 
       processed++;
+
+      if (taskId) {
+        try {
+          await this.db.updateReprobeTaskProgress(taskId, {
+            probedCount: processed,
+            shortDramaCount: shortDrama,
+            longDramaCount: longDrama,
+          });
+        } catch (err) {
+          console.error(`[批量重新探测] 更新任务进度失败:`, err);
+        }
+      }
     }
 
     console.log(`[批量重新探测] 完成: 总计 ${total}, 短剧 ${shortDrama}, 长剧 ${longDrama}, 失败 ${failed}`);
 
-    // 最终更新进度
     onProgress({
       total,
       processed,
@@ -1150,5 +1227,171 @@ export class CollectorService {
       failed,
       failedItems,
     };
+  }
+
+  /**
+   * 获取所有电视剧数量（用于全量重新探测）。
+   */
+  async getFullReprobeMediaCount(): Promise<number> {
+    const result = await this.db.selectOne<{ count: number }>(
+      `SELECT COUNT(*) as count FROM media WHERE type = 'TV'`,
+      []
+    );
+    return result?.count || 0;
+  }
+
+  /**
+   * 全量重新探测：清除所有电视剧的判断结果，保留已有的 episode_duration。
+   * 然后调用 batchReprobeMedia 重新探测所有电视剧。
+   */
+  async fullReprobeAllMedia(
+    onProgress: (progress: {
+      total: number;
+      processed: number;
+      longDrama: number;
+      shortDrama: number;
+      failed: number;
+      currentMediaTitle: string;
+    }) => void,
+    taskId?: string,
+    abortSignal?: AbortSignal
+  ): Promise<{
+    total: number;
+    longDrama: number;
+    shortDrama: number;
+    failed: number;
+    failedItems: { id: string; title: string }[];
+  }> {
+    const now = new Date().toISOString();
+    // 重置所有电视剧的判断结果
+    // episode_duration 已有值且 > 0 的保留，否则重置为 NULL
+    await this.db.execute(
+      `UPDATE media SET is_short_drama = 0, duration_check_status = NULL,
+       episode_duration = CASE WHEN episode_duration IS NOT NULL AND episode_duration > 0 THEN episode_duration ELSE NULL END,
+       updated_at = ? WHERE type = 'TV'`,
+      [now]
+    );
+    console.log(`[全量重新探测] 已重置所有电视剧的判断结果`);
+
+    // 调用 batchReprobeMedia，allMedia=true 查询所有 TV
+    return this.batchReprobeMedia(onProgress, taskId, abortSignal, true);
+  }
+
+  /**
+   * 启动批量重新探测任务（仅 FALLBACK/NULL 状态）。
+   */
+  async startReprobeTask(): Promise<string> {
+    return this.startReprobeTaskInternal('批量重新探测', false);
+  }
+
+  /**
+   * 启动全量重新探测任务（所有电视剧）。
+   */
+  async startFullReprobeTask(): Promise<string> {
+    return this.startReprobeTaskInternal('全量重新探测', true);
+  }
+
+  private async startReprobeTaskInternal(sourceName: string, fullReprobe: boolean): Promise<string> {
+    const runningTask = await this.db.getRunningReprobeTask();
+    if (runningTask) {
+      throw new Error('已有运行中的探测任务，请等待完成或取消后再试');
+    }
+
+    const taskId = `reprobe_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+    const now = new Date().toISOString();
+
+    const task: CollectTask = {
+      id: generateId(),
+      taskId,
+      sourceCode: 'REPROBE',
+      sourceName,
+      type: 'REPROBE',
+      status: 'PENDING',
+      currentPage: 0,
+      totalPages: 0,
+      collectedCount: 0,
+      failedCount: 0,
+      probedCount: 0,
+      shortDramaCount: 0,
+      longDramaCount: 0,
+      createdAt: now,
+    };
+
+    await this.db.createReprobeTask(task);
+
+    const abortController = new AbortController();
+    this.activeAbortControllers.set(taskId, abortController);
+
+    this.runReprobeTask(taskId, abortController.signal, fullReprobe).catch(err => {
+      console.error(`[重新探测] 任务执行异常:`, err);
+    });
+
+    return taskId;
+  }
+
+  /**
+   * 执行探测任务的内部方法。
+   */
+  private async runReprobeTask(taskId: string, abortSignal: AbortSignal, fullReprobe: boolean = false): Promise<void> {
+    try {
+      await this.db.updateReprobeTaskProgress(taskId, { status: 'RUNNING' });
+      await this.db.updateCollectTask(taskId, {
+        startedAt: new Date().toISOString(),
+      });
+
+      const result = fullReprobe
+        ? await this.fullReprobeAllMedia(
+            () => {},
+            taskId,
+            abortSignal
+          )
+        : await this.batchReprobeMedia(
+            () => {},
+            taskId,
+            abortSignal
+          );
+
+      // 检查是否被取消
+      if (abortSignal.aborted) {
+        await this.db.updateReprobeTaskProgress(taskId, { status: 'FAILED' });
+        await this.db.updateCollectTask(taskId, {
+          errorMessage: '用户已取消',
+          errorType: 'CANCELLED',
+          completedAt: new Date().toISOString(),
+        });
+      } else {
+        // 任务完成
+        await this.db.updateReprobeTaskProgress(taskId, {
+          status: 'COMPLETED',
+          probedCount: result.total,
+          shortDramaCount: result.shortDrama,
+          longDramaCount: result.longDrama,
+        });
+        await this.db.updateCollectTask(taskId, {
+          completedAt: new Date().toISOString(),
+        });
+      }
+    } catch (error) {
+      console.error(`[批量重新探测] 任务执行失败:`, error);
+      await this.db.updateReprobeTaskProgress(taskId, { status: 'FAILED' });
+      await this.db.updateCollectTask(taskId, {
+        errorMessage: error instanceof Error ? error.message : String(error),
+        errorType: classifyError(error),
+        completedAt: new Date().toISOString(),
+      });
+    } finally {
+      this.activeAbortControllers.delete(taskId);
+    }
+  }
+
+  /**
+   * 取消正在运行的探测任务。
+   */
+  cancelReprobeTask(taskId: string): void {
+    const controller = this.activeAbortControllers.get(taskId);
+    if (controller) {
+      controller.abort();
+      this.activeAbortControllers.delete(taskId);
+    }
   }
 }

@@ -50,8 +50,8 @@ function SliderRow({ label, value, min, max, step, unit, defaultValue, onChange 
         }}
       />
       <div className="flex justify-between mt-0.5">
-        <span className="text-[10px] text-white/40">{min}{unit}</span>
-        <span className="text-[10px] text-white/40">{max}{unit}</span>
+        <span className="text-xs text-white/40">{min}{unit}</span>
+        <span className="text-xs text-white/40">{max}{unit}</span>
       </div>
     </div>
   );

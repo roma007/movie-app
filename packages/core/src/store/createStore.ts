@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { DatabaseProvider } from '../db/provider';
 import type { Media, VideoSource, Favorite, WatchHistory, PaginatedMeta, CollectTask } from '../types';
-import type { CollectConfig } from '../services/systemConfigService';
+import type { CollectConfig, ShortDramaConfig } from '../services/systemConfigService';
 
 export interface AppState {
   mediaList: Media[];
@@ -16,6 +16,7 @@ export interface AppState {
   isLoading: boolean;
   error: string | null;
   collectConfig: CollectConfig | null;
+  shortDramaConfig: ShortDramaConfig | null;
   collectTasks: CollectTask[];
   reprobeProgress: {
     total: number;
@@ -27,10 +28,11 @@ export interface AppState {
   } | null;
   reprobeMediaCount: number;
   reprobeMediaList: { id: string; title: string }[];
+  runningReprobeTask: CollectTask | null;
 
   loadMediaList: (params?: any) => Promise<void>;
   getGenresByType: (type?: string) => Promise<string[]>;
-  getSubTypesByType: (type?: string) => Promise<string[]>;
+  getSubTypesByType: (type?: string, includeHidden?: boolean) => Promise<string[]>;
   getYearsByType: (type?: string) => Promise<number[]>;
   getAreasByType: (type?: string) => Promise<string[]>;
   loadMediaDetail: (id: string) => Promise<void>;
@@ -66,6 +68,10 @@ export interface AppState {
   loadCollectConfig: () => Promise<void>;
   updateCollectConfig: (config: Partial<CollectConfig>) => Promise<void>;
 
+  loadShortDramaConfig: () => Promise<void>;
+  updateShortDramaConfig: (config: Partial<ShortDramaConfig>) => Promise<void>;
+  getDefaultShortDramaConfig: () => ShortDramaConfig;
+
   collectLatest: () => Promise<void>;
   collectByKeyword: (keyword: string) => Promise<void>;
   collectAll: () => Promise<{ totalCollected: number; totalPages: number }>;
@@ -93,10 +99,18 @@ hasShortDrama: (type?: string) => Promise<boolean>;
     failed: number;
     failedItems: { id: string; title: string }[];
   }>;
+  getFullReprobeMediaCount: () => Promise<number>;
+  startReprobeTask: () => Promise<string>;
+  startFullReprobeTask: () => Promise<string>;
+  cancelReprobeTask: (taskId: string) => Promise<void>;
+  loadRunningReprobeTask: () => Promise<void>;
 
   deleteAllMedia: () => Promise<void>;
   deletePlaySourcesBySourceId: (sourceId: string) => Promise<void>;
   deleteMediaWithoutPlaySource: () => Promise<number>;
+  hideMediaByGenres: (genres: string[]) => Promise<{ hidden: number }>;
+  unhideMediaByGenres: (genres: string[]) => Promise<{ unhidden: number }>;
+  getHiddenMediaCount: () => Promise<number>;
 
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
@@ -126,10 +140,12 @@ export function createAppStore(db: DatabaseProvider) {
     isLoading: false,
     error: null,
     collectConfig: null,
+    shortDramaConfig: null,
     collectTasks: [],
     reprobeProgress: null,
     reprobeMediaCount: 0,
     reprobeMediaList: [],
+    runningReprobeTask: null,
 
     loadMediaList: async (params = {}) => {
       console.log(`[STORE] loadMediaList called with params:`, params);
@@ -151,8 +167,8 @@ export function createAppStore(db: DatabaseProvider) {
       return await db.getGenresByType(type);
     },
 
-    getSubTypesByType: async (type?: string) => {
-      return await db.getSubTypesByType(type);
+    getSubTypesByType: async (type?: string, includeHidden?: boolean) => {
+      return await db.getSubTypesByType(type, includeHidden);
     },
 
     getYearsByType: async (type?: string) => {
@@ -370,6 +386,28 @@ export function createAppStore(db: DatabaseProvider) {
       }
     },
 
+    loadShortDramaConfig: async () => {
+      try {
+        const config = await configService.getShortDramaConfig();
+        set({ shortDramaConfig: config });
+      } catch (err: any) {
+        set({ error: err.message });
+      }
+    },
+
+    updateShortDramaConfig: async (config: Partial<ShortDramaConfig>) => {
+      try {
+        await configService.setShortDramaConfig(config);
+        await get().loadShortDramaConfig();
+      } catch (err: any) {
+        set({ error: err.message });
+      }
+    },
+
+    getDefaultShortDramaConfig: () => {
+      return SystemConfigService.getDefaultShortDramaConfig();
+    },
+
     collectLatest: async () => {
       set({ isLoading: true, error: null });
       try {
@@ -564,6 +602,63 @@ export function createAppStore(db: DatabaseProvider) {
       }
     },
 
+    startReprobeTask: async () => {
+      try {
+        const taskId = await collectorService.startReprobeTask();
+        await get().loadRunningReprobeTask();
+        return taskId;
+      } catch (err: any) {
+        console.error('[STORE] 启动探测任务失败:', err);
+        throw err;
+      }
+    },
+
+    startFullReprobeTask: async () => {
+      try {
+        const taskId = await collectorService.startFullReprobeTask();
+        await get().loadRunningReprobeTask();
+        return taskId;
+      } catch (err: any) {
+        console.error('[STORE] 启动全量探测任务失败:', err);
+        throw err;
+      }
+    },
+
+    getFullReprobeMediaCount: async () => {
+      try {
+        return await collectorService.getFullReprobeMediaCount();
+      } catch (err: any) {
+        console.error('[STORE] 获取全量探测数量失败:', err);
+        return 0;
+      }
+    },
+
+    cancelReprobeTask: async (taskId: string) => {
+      try {
+        collectorService.cancelReprobeTask(taskId);
+        // 更新数据库状态
+        await db.updateReprobeTaskProgress(taskId, { status: 'FAILED' });
+        await db.updateCollectTask(taskId, {
+          errorMessage: '用户已取消',
+          errorType: 'CANCELLED',
+          completedAt: new Date().toISOString(),
+        });
+        // 清除运行中的任务
+        set({ runningReprobeTask: null });
+      } catch (err: any) {
+        console.error('[STORE] 取消探测任务失败:', err);
+      }
+    },
+
+    loadRunningReprobeTask: async () => {
+      try {
+        const task = await db.getRunningReprobeTask();
+        set({ runningReprobeTask: task });
+      } catch (err: any) {
+        console.error('[STORE] 加载运行中的探测任务失败:', err);
+      }
+    },
+
     deleteAllMedia: async () => {
       await db.deleteAllMedia();
       set({ mediaList: [], currentMedia: null, episodes: [], playSources: [] });
@@ -578,6 +673,22 @@ export function createAppStore(db: DatabaseProvider) {
       await get().loadMediaList();
       await get().loadVideoSources();
       return deletedCount;
+    },
+
+    hideMediaByGenres: async (genres: string[]) => {
+      const result = await db.hideMediaByGenres(genres);
+      await get().loadMediaList();
+      return result;
+    },
+
+    unhideMediaByGenres: async (genres: string[]) => {
+      const result = await db.unhideMediaByGenres(genres);
+      await get().loadMediaList();
+      return result;
+    },
+
+    getHiddenMediaCount: async () => {
+      return await db.getHiddenMediaCount();
     },
 
     setLoading: (loading: boolean) => set({ isLoading: loading }),

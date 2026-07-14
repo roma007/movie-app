@@ -24,7 +24,7 @@ export { getHttpClient, setHttpClient, type HttpClient } from './utils/httpClien
 // 服务
 export { CMSAdapter } from './services/cmsAdapter';
 export { CollectorService } from './services/collectorService';
-export { SystemConfigService, type CollectConfig } from './services/systemConfigService';
+export { SystemConfigService, type CollectConfig, type ShortDramaConfig } from './services/systemConfigService';
 export { VideoDurationService, setVideoFetchFn, getVideoFetchFn } from './services/videoDurationService';
 
 // 数据库抽象层

@@ -28,12 +28,18 @@ export class VideoDurationService {
    * - media playlist：累加所有 #EXTINF 行的时长
    * - master playlist：取第一个 variant playlist 的 URL 递归请求
    */
-  async getDurationFromM3U8(url: string): Promise<number | null> {
+  async getDurationFromM3U8(url: string, logger?: (msg: string) => void): Promise<number | null> {
     const start = Date.now();
+    const log = (msg: string) => {
+      console.log(msg);
+      logger?.(msg);
+    };
     try {
       const fetchFn = videoFetchFn || fetch.bind(globalThis);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+      log(`[M3U8探测] 开始请求 ${url.slice(0, 100)}`);
 
       const response = await fetchFn(url, {
         headers: {
@@ -46,15 +52,17 @@ export class VideoDurationService {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        console.log(`[M3U8探测] HTTP ${response.status} (${Date.now() - start}ms) ${url.slice(0, 80)}`);
+        log(`[M3U8探测] HTTP ${response.status} (${Date.now() - start}ms) ${url.slice(0, 100)}`);
         return null;
       }
 
       const buffer = await response.text();
       if (!buffer) {
-        console.log(`[M3U8探测] 空内容 (${Date.now() - start}ms) ${url.slice(0, 80)}`);
+        log(`[M3U8探测] 空内容 (${Date.now() - start}ms) ${url.slice(0, 100)}`);
         return null;
       }
+
+      log(`[M3U8探测] 收到 ${buffer.length} 字节 (${Date.now() - start}ms) ${url.slice(0, 100)}`);
 
       // 先尝试直接解析 #EXTINF（media playlist）
       let totalDuration = 0;
@@ -71,7 +79,7 @@ export class VideoDurationService {
       }
 
       if (hasExtInf && totalDuration > 0) {
-        console.log(`[M3U8探测] 成功 ${(totalDuration / 60).toFixed(1)}分钟 (${Date.now() - start}ms) ${url.slice(0, 80)}`);
+        log(`[M3U8探测] 成功 ${(totalDuration / 60).toFixed(1)}分钟 (${Date.now() - start}ms) ${url.slice(0, 100)}`);
         return Math.round(totalDuration);
       }
 
@@ -79,20 +87,20 @@ export class VideoDurationService {
       for (const line of lines) {
         const trimmed = line.trim();
         if (trimmed && !trimmed.startsWith('#')) {
-          // 这是一个 variant playlist URL
           const variantUrl = trimmed.startsWith('http')
             ? trimmed
             : new URL(trimmed, url).href;
-          return this.getDurationFromM3U8(variantUrl);
+          log(`[M3U8探测] master playlist → 变体 ${variantUrl.slice(0, 100)}`);
+          return this.getDurationFromM3U8(variantUrl, logger);
         }
       }
 
-      console.log(`[M3U8探测] 无EXTINF (${Date.now() - start}ms) ${url.slice(0, 80)}`);
+      log(`[M3U8探测] 无EXTINF也无变体 (${Date.now() - start}ms) ${url.slice(0, 100)}`);
       return null;
     } catch (err: any) {
       const elapsed = Date.now() - start;
       const reason = err?.name === 'AbortError' ? 'timeout(30s)' : err?.message || 'unknown';
-      console.log(`[M3U8探测] 失败 ${reason} (${elapsed}ms) ${url.slice(0, 80)}`);
+      log(`[M3U8探测] 失败 ${reason} (${elapsed}ms) ${url.slice(0, 100)}`);
       return null;
     }
   }
