@@ -26,14 +26,17 @@ function logToConsole(message: string): void {
 async function createTauriHttpClient(): Promise<HttpClient> {
   logToConsole('>>> createTauriHttpClient started');
   
+  let clientType = 'unknown';
+  
   try {
     logToConsole('>>> Trying to import @tauri-apps/plugin-http');
     const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http');
     logToConsole('>>> Successfully imported @tauri-apps/plugin-http');
+    clientType = 'tauri';
     
     return {
       async get(url: string, options?: { headers?: Record<string, string>; timeout?: number }) {
-        logToConsole(`HTTP GET: ${url}`);
+        logToConsole(`HTTP GET (tauri): ${url}`);
         
         const response = await tauriFetch(url, {
           method: 'GET',
@@ -44,8 +47,14 @@ async function createTauriHttpClient(): Promise<HttpClient> {
           connectTimeout: options?.timeout || 15000,
         });
         
+        logToConsole(`HTTP RESPONSE (tauri): status=${response.status}, ok=${response.ok}`);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const data = await response.json();
-        logToConsole(`HTTP RESPONSE: ${response.status}, list length: ${data.list?.length || 0}`);
+        logToConsole(`HTTP DATA (tauri): parsed OK, list length: ${data.list?.length || 0}`);
         
         return {
           data,
@@ -54,12 +63,14 @@ async function createTauriHttpClient(): Promise<HttpClient> {
       },
     };
   } catch (error) {
-    logToConsole(`>>> Tauri HTTP 插件加载失败: ${error instanceof Error ? error.message : String(error)}`);
-    logToConsole('>>> Falling back to native fetch');
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    logToConsole(`>>> Tauri HTTP 插件加载失败: ${errorMsg}`);
+    logToConsole('>>> Falling back to native fetch (may have CORS issues)');
+    clientType = 'native-fetch';
     
     return {
       async get(url: string, options?: { headers?: Record<string, string>; timeout?: number }) {
-        logToConsole(`HTTP GET (native): ${url}`);
+        logToConsole(`HTTP GET (native-fetch): ${url}`);
         
         const controller = new AbortController();
         const timeout = options?.timeout || 15000;
@@ -77,12 +88,19 @@ async function createTauriHttpClient(): Promise<HttpClient> {
           
           clearTimeout(timeoutId);
           
+          logToConsole(`HTTP RESPONSE (native-fetch): status=${response.status}, type=${response.type}, ok=${response.ok}`);
+          
+          if (response.type === 'opaque') {
+            logToConsole('HTTP ERROR (native-fetch): CORS blocked - opaque response');
+            throw new Error('CORS blocked - 无法访问外部API。请检查网络连接或防火墙设置。');
+          }
+          
           if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
           }
           
           const data = await response.json();
-          logToConsole(`HTTP RESPONSE (native): ${response.status}`);
+          logToConsole(`HTTP DATA (native-fetch): parsed OK`);
           
           return {
             data,
@@ -90,11 +108,21 @@ async function createTauriHttpClient(): Promise<HttpClient> {
           };
         } catch (error) {
           clearTimeout(timeoutId);
-          logToConsole(`HTTP ERROR (native): ${error instanceof Error ? error.message : String(error)}`);
+          const fetchErrorMsg = error instanceof Error ? error.message : String(error);
+          logToConsole(`HTTP ERROR (native-fetch): ${fetchErrorMsg}`);
+          
+          if (fetchErrorMsg.includes('CORS') || fetchErrorMsg.includes('opaque')) {
+            throw new Error('CORS错误 - 无法访问外部API。这通常是因为Tauri HTTP插件加载失败。请尝试重新安装应用。');
+          }
+          if (fetchErrorMsg.includes('Failed to fetch') || fetchErrorMsg.includes('NetworkError')) {
+            throw new Error('网络错误 - 无法连接到服务器。请检查网络连接。');
+          }
           throw error;
         }
       },
     };
+  } finally {
+    logToConsole(`>>> HTTP Client type: ${clientType}`);
   }
 }
 

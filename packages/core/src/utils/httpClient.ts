@@ -27,11 +27,11 @@ export function setHttpClient(client: HttpClient): void {
 }
 
 function createDefaultHttpClient(): HttpClient {
-  console.log('=== 使用原生 fetch ===');
+  console.log('[HTTP Client] 使用原生 fetch (可能有CORS限制)');
   
   return {
     async get(url: string, options?: HttpOptions): Promise<HttpResponse> {
-      console.log(`HTTP GET: ${url}`);
+      console.log(`[HTTP Client] GET: ${url}`);
       
       const controller = new AbortController();
       const timeout = options?.timeout || 15000;
@@ -59,9 +59,11 @@ function createDefaultHttpClient(): HttpClient {
         
         clearTimeout(timeoutId);
         
+        console.log(`[HTTP Client] Response: status=${response.status}, type=${response.type}, ok=${response.ok}`);
+        
         if (response.type === 'opaque') {
-          console.warn('HTTP RESPONSE: opaque (CORS blocked)');
-          throw new Error('CORS blocked - opaque response');
+          console.error('[HTTP Client] CORS错误: 收到不透明响应，无法读取数据');
+          throw new Error('CORS blocked - 无法访问外部API。请检查网络连接或防火墙设置。');
         }
         
         if (!response.ok) {
@@ -69,7 +71,7 @@ function createDefaultHttpClient(): HttpClient {
         }
         
         const data = await response.json();
-        console.log(`HTTP RESPONSE: ${response.status}, data length: ${JSON.stringify(data).length}`);
+        console.log(`[HTTP Client] 成功: ${response.status}, 数据长度: ${JSON.stringify(data).length}`);
         
         return {
           data,
@@ -77,7 +79,19 @@ function createDefaultHttpClient(): HttpClient {
         };
       } catch (error) {
         clearTimeout(timeoutId);
-        console.error(`HTTP ERROR (native fetch): ${error instanceof Error ? error.message : String(error)}`);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error(`[HTTP Client] 错误: ${errorMsg}`);
+        
+        // 提供更友好的错误信息
+        if (errorMsg.includes('CORS') || errorMsg.includes('opaque')) {
+          throw new Error('CORS错误 - 无法访问外部API。Tauri HTTP插件可能未正确加载。');
+        }
+        if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+          throw new Error('网络错误 - 无法连接到服务器。请检查网络连接。');
+        }
+        if (errorMsg.includes('abort') || errorMsg.includes('timeout')) {
+          throw new Error('请求超时 - 服务器响应时间过长。');
+        }
         throw error;
       }
     },

@@ -31,6 +31,7 @@ import { Switch } from '@/components/ui/switch';
 import { useAppStore } from '../useAppStore';
 import { useConfirm } from '@/components/ConfirmProvider';
 import { useToast } from '@/components/Layout';
+import { getHttpClient } from '@movie-app/core';
 import type { VideoSource, CollectTask } from '@movie-app/core';
 
 export default function SourceManagerPage() {
@@ -116,17 +117,28 @@ export default function SourceManagerPage() {
     if (checkingSource === source.code) return;
     setCheckingSource(source.code);
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
-      const response = await fetch(source.baseUrl, { signal: controller.signal });
-      clearTimeout(timeout);
-      if (response.ok) {
+      const httpClient = getHttpClient();
+      const response = await httpClient.get(source.baseUrl, { timeout: 10000 });
+      if (response.status >= 200 && response.status < 300) {
         toast(`「${source.name}」连接正常`);
       } else {
-        toast(`「${source.name}」连接失败: ${response.status}`, 'error');
+        toast(`「${source.name}」连接失败: HTTP ${response.status}`, 'error');
       }
     } catch (err: any) {
-      toast(`「${source.name}」连接失败: ${err.message}`, 'error');
+      const errorMsg = err.message || String(err);
+      console.error(`[SourceCheck] ${source.name} 检查失败:`, errorMsg);
+      
+      // 提供更详细的错误信息
+      let userMsg = `「${source.name}」连接失败: ${errorMsg}`;
+      if (errorMsg.includes('CORS') || errorMsg.includes('opaque')) {
+        userMsg = `「${source.name}」CORS错误 - 无法访问外部API。Tauri HTTP插件可能未正确加载。`;
+      } else if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+        userMsg = `「${source.name}」网络错误 - 无法连接到服务器。`;
+      } else if (errorMsg.includes('timeout') || errorMsg.includes('abort')) {
+        userMsg = `「${source.name}」连接超时 - 服务器响应时间过长。`;
+      }
+      
+      toast(userMsg, 'error');
     } finally {
       setCheckingSource(null);
     }

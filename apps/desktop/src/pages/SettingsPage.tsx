@@ -1,13 +1,16 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ThemeSwitcher } from '../themes/ThemeSwitcher';
 import { useFontSizeStore } from '../themes/fontSizeStore';
-import { Database, ChevronRight, Info, BookOpen, Type, Video } from 'lucide-react';
+import { Database, ChevronRight, Info, BookOpen, Type, Video, FileText } from 'lucide-react';
+import { DiagnosticLogViewer } from '@/components/DiagnosticLogViewer';
 
 export default function SettingsPage() {
   const navigate = useNavigate();
   const { currentFontSize, fontSizes, setFontSize } = useFontSizeStore();
+  const [showDiagnosticLogs, setShowDiagnosticLogs] = useState(false);
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -78,6 +81,24 @@ export default function SettingsPage() {
           </div>
           <ChevronRight className="size-4 text-muted-foreground" />
         </button>
+      </Card>
+
+      <Card className="p-4 bg-card border-border">
+        <button
+          className="flex items-center justify-between w-full text-left hover:bg-secondary/50 transition-colors -mx-4 px-4 py-2"
+          onClick={() => setShowDiagnosticLogs(!showDiagnosticLogs)}
+        >
+          <div className="flex items-center gap-3">
+            <FileText className="size-4 text-muted-foreground" />
+            <span>诊断日志</span>
+          </div>
+          <ChevronRight className={`size-4 text-muted-foreground transition-transform ${showDiagnosticLogs ? 'rotate-90' : ''}`} />
+        </button>
+        {showDiagnosticLogs && (
+          <div className="mt-4">
+            <DiagnosticLogViewer />
+          </div>
+        )}
       </Card>
 
       <Card className="p-4 bg-card border-border">

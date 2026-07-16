@@ -464,8 +464,23 @@ export function createAppStore(db: DatabaseProvider) {
         await get().loadVideoSources();
         return { success: true, taskId: result.taskId, collected: result.collected };
       } catch (err: any) {
-        set({ error: err.message });
-        return { success: false, taskId: '', collected: 0, error: err.message };
+        const errorMsg = err.message || String(err);
+        console.error(`[Store] collectSourceLatest 失败:`, errorMsg);
+        set({ error: errorMsg });
+        
+        // 提供更详细的错误信息
+        let detailedError = errorMsg;
+        if (errorMsg.includes('CORS') || errorMsg.includes('opaque')) {
+          detailedError = 'CORS错误 - 无法访问外部API。Tauri HTTP插件可能未正确加载。';
+        } else if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+          detailedError = '网络错误 - 无法连接到服务器。请检查网络连接。';
+        } else if (errorMsg.includes('timeout') || errorMsg.includes('abort')) {
+          detailedError = '请求超时 - 服务器响应时间过长。';
+        } else if (errorMsg.includes('连续') && errorMsg.includes('失败')) {
+          detailedError = `采集任务因连续失败而中断: ${errorMsg}`;
+        }
+        
+        return { success: false, taskId: '', collected: 0, error: detailedError };
       }
     },
 
@@ -476,8 +491,23 @@ export function createAppStore(db: DatabaseProvider) {
         await get().loadVideoSources();
         return { success: true, taskId: result.taskId, collected: result.collected, pages: result.pages };
       } catch (err: any) {
-        set({ error: err.message });
-        return { success: false, taskId: '', collected: 0, pages: 0, error: err.message };
+        const errorMsg = err.message || String(err);
+        console.error(`[Store] collectSourceAll 失败:`, errorMsg);
+        set({ error: errorMsg });
+        
+        // 提供更详细的错误信息
+        let detailedError = errorMsg;
+        if (errorMsg.includes('CORS') || errorMsg.includes('opaque')) {
+          detailedError = 'CORS错误 - 无法访问外部API。Tauri HTTP插件可能未正确加载。';
+        } else if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+          detailedError = '网络错误 - 无法连接到服务器。请检查网络连接。';
+        } else if (errorMsg.includes('timeout') || errorMsg.includes('abort')) {
+          detailedError = '请求超时 - 服务器响应时间过长。';
+        } else if (errorMsg.includes('连续') && errorMsg.includes('失败')) {
+          detailedError = `采集任务因连续失败而中断: ${errorMsg}`;
+        }
+        
+        return { success: false, taskId: '', collected: 0, pages: 0, error: detailedError };
       }
     },
 

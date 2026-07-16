@@ -24,7 +24,14 @@ function classifyError(err: unknown): TaskErrorType {
   if (msg.includes('timeout') || msg.includes('etimedout') || msg.includes('econnaborted') || msg.includes('超时')) {
     return 'TIMEOUT';
   }
+  // 网络错误包括CORS、连接失败等
   if (msg.includes('network') || msg.includes('econnreset') || msg.includes('enotfound') || msg.includes('econnrefused')) {
+    return 'NETWORK';
+  }
+  if (msg.includes('cors') || msg.includes('opaque') || msg.includes('blocked')) {
+    return 'NETWORK';
+  }
+  if (msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('network error')) {
     return 'NETWORK';
   }
   if (msg.includes('500') || msg.includes('502') || msg.includes('503') || msg.includes('504')) {
@@ -373,7 +380,7 @@ export class CollectorService {
     page: number = 1,
     pageSize: number = 20,
     signal?: AbortSignal
-  ): Promise<{ media: Media[]; total: number; pagecount: number; failedCount: number }> {
+  ): Promise<{ media: Media[]; total: number; pagecount: number; failedCount: number; error?: string; errorType?: TaskErrorType }> {
     const configService = new SystemConfigService(this.db);
     const config = await configService.getCollectConfig();
 
@@ -390,10 +397,23 @@ export class CollectorService {
       console.log(`[Collector] getList response: code=${response.code}, total=${response.total}, list.length=${response.list?.length || 0}`);
     } catch (err) {
       await this.db.incrementSourceFailCount(sourceId);
-      const errorMsg = `[Collector] getList failed: ${err instanceof Error ? err.message : String(err)}`;
-      console.error(errorMsg);
-      await this.logToDb(errorMsg, 'error');
-      return { media: [], total: 0, pagecount: 0, failedCount: 0 };
+      const errInstance = err instanceof Error ? err : new Error(String(err));
+      const errorMsg = `[Collector] getList failed: ${errInstance.message}`;
+      const errorType = classifyError(err);
+      console.error(`[Collector] getList 失败 (${errorType}):`, errorMsg);
+      await this.logToDb(`${errorMsg} [类型: ${errorType}]`, 'error');
+      
+      // 提供更详细的错误信息
+      let detailedError = errInstance.message;
+      if (errInstance.message.includes('CORS') || errInstance.message.includes('opaque')) {
+        detailedError = 'CORS错误 - 无法访问外部API。Tauri HTTP插件可能未正确加载。';
+      } else if (errInstance.message.includes('Failed to fetch') || errInstance.message.includes('NetworkError')) {
+        detailedError = '网络错误 - 无法连接到服务器。请检查网络连接。';
+      } else if (errInstance.message.includes('timeout') || errInstance.message.includes('abort')) {
+        detailedError = '请求超时 - 服务器响应时间过长。';
+      }
+      
+      return { media: [], total: 0, pagecount: 0, failedCount: 0, error: detailedError, errorType };
     }
 
     const list = response.list || [];
