@@ -160,3 +160,13 @@ export interface CollectTask {
   startedAt?: string | null;
   completedAt?: string | null;
 }
+
+export interface CollectionLog {
+  id: string;
+  timestamp: string;
+  level: 'info' | 'error' | 'warn';
+  message: string;
+  taskId?: string;
+  sourceCode?: string;
+  sourceName?: string;
+}

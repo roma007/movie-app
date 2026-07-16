@@ -3,7 +3,7 @@ import { normalizer, DEFAULT_MIN_YEAR } from '../utils/normalizer';
 import { mapType, isBlacklisted, refineTypeByEpisodes, isVersionTitle, needsShortDramaCheck } from '../utils/typeMapper';
 import { SOURCE_ID_TO_NAME_MAP, PLAY_SOURCE_TYPE_MAP } from '../utils/constants';
 import type { DatabaseProvider } from '../db/provider';
-import type { CMSMediaItem, Media, Episode, PlaySource, CollectTask, TaskStatus, TaskErrorType } from '../types';
+import type { CMSMediaItem, Media, Episode, PlaySource, CollectTask, TaskStatus, TaskErrorType, CollectionLog } from '../types';
 import { SystemConfigService } from './systemConfigService';
 import type { ShortDramaConfig } from './systemConfigService';
 import { VideoDurationService } from './videoDurationService';
@@ -82,8 +82,26 @@ function parsePlayInfo(
  */
 export class CollectorService {
   private activeAbortControllers = new Map<string, AbortController>();
+  private onLogCallback?: (log: CollectionLog) => void;
 
   constructor(private db: DatabaseProvider) {}
+
+  setOnLogCallback(callback: (log: CollectionLog) => void): void {
+    this.onLogCallback = callback;
+  }
+
+  private emitLog(level: 'info' | 'error' | 'warn', message: string, sourceCode?: string, sourceName?: string, taskId?: string): void {
+    const log: CollectionLog = {
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      timestamp: new Date().toISOString(),
+      level,
+      message,
+      sourceCode,
+      sourceName,
+      taskId,
+    };
+    this.onLogCallback?.(log);
+  }
 
   cancelTask(taskId: string): void {
     const controller = this.activeAbortControllers.get(taskId);
@@ -739,6 +757,7 @@ export class CollectorService {
 
     try {
       await this.db.updateCollectTask(taskId, { status: 'RUNNING' as TaskStatus, startedAt: now, currentPage: startPage });
+      this.emitLog('info', `开始增量采集 [${source.name}]，最多${config.incrementalMaxPages}页`, sourceCode, source.name, taskId);
 
       while (page <= config.incrementalMaxPages) {
         const iterationStart = Date.now();
@@ -766,6 +785,8 @@ export class CollectorService {
             failedCount: failed,
           });
 
+          this.emitLog('info', `第${page}页完成: 新增${media.length}条${failedCount > 0 ? `，失败${failedCount}条` : ''}`, sourceCode, source.name, taskId);
+
           if (page >= pagecount) break;
           totalRuntimeMs += Date.now() - iterationStart;
           page++;
@@ -776,6 +797,7 @@ export class CollectorService {
           const errMsg = `[Collector] 增量采集第${page}页失败: ${err instanceof Error ? err.message : String(err)}`;
           console.error(errMsg);
           await this.logToDb(errMsg, 'error');
+          this.emitLog('error', `第${page}页失败: ${err instanceof Error ? err.message : String(err)}`, sourceCode, source.name, taskId);
           lastErrorMsg = errMsg;
           lastErrorType = errType;
           failed++;
@@ -801,6 +823,7 @@ export class CollectorService {
           status: 'COMPLETED' as TaskStatus,
           completedAt: new Date().toISOString(),
         });
+        this.emitLog('info', `增量采集完成 [${source.name}]: 共采集${collected}条，失败${failed}条`, sourceCode, source.name, taskId);
       }
 
       this.activeAbortControllers.delete(taskId);
@@ -808,14 +831,16 @@ export class CollectorService {
     } catch (err) {
       this.activeAbortControllers.delete(taskId);
       const errType = (err as any).errorType || classifyError(err);
+      const finalErrMsg = err instanceof Error ? err.message : String(err);
       await this.db.updateCollectTask(taskId, {
         status: 'FAILED' as TaskStatus,
         currentPage: page,
-        errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 500),
+        errorMessage: finalErrMsg.slice(0, 500),
         errorType: errType,
         lastErrorPage: page,
         completedAt: new Date().toISOString(),
       });
+      this.emitLog('error', `增量采集失败 [${source.name}]: ${finalErrMsg}`, sourceCode, source.name, taskId);
       throw err;
     }
   }
@@ -865,6 +890,7 @@ export class CollectorService {
 
     try {
       await this.db.updateCollectTask(taskId, { status: 'RUNNING' as TaskStatus, startedAt: now });
+      this.emitLog('info', `开始全量采集 [${source.name}]，最多${config.maxPages}页`, sourceCode, source.name, taskId);
 
       while (page <= config.maxPages) {
         const iterationStart = Date.now();
@@ -894,6 +920,8 @@ export class CollectorService {
             failedCount: failed,
           });
 
+          this.emitLog('info', `第${page}页完成: 新增${media.length}条${failedCount > 0 ? `，失败${failedCount}条` : ''}`, sourceCode, source.name, taskId);
+
           if (page >= pagecount) break;
           totalRuntimeMs += Date.now() - iterationStart;
           page++;
@@ -904,6 +932,7 @@ export class CollectorService {
           const errMsg = `[Collector] 全量采集第${page}页失败: ${err instanceof Error ? err.message : String(err)}`;
           console.error(errMsg);
           await this.logToDb(errMsg, 'error');
+          this.emitLog('error', `第${page}页失败: ${err instanceof Error ? err.message : String(err)}`, sourceCode, source.name, taskId);
           lastErrorMsg = errMsg;
           lastErrorType = errType;
           failed++;
@@ -929,6 +958,7 @@ export class CollectorService {
           status: 'COMPLETED' as TaskStatus,
           completedAt: new Date().toISOString(),
         });
+        this.emitLog('info', `全量采集完成 [${source.name}]: 共采集${collected}条，失败${failed}条`, sourceCode, source.name, taskId);
       }
 
       this.activeAbortControllers.delete(taskId);
@@ -936,14 +966,16 @@ export class CollectorService {
     } catch (err) {
       this.activeAbortControllers.delete(taskId);
       const errType = (err as any).errorType || classifyError(err);
+      const finalErrMsg = err instanceof Error ? err.message : String(err);
       await this.db.updateCollectTask(taskId, {
         status: 'FAILED' as TaskStatus,
         currentPage: page,
-        errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 500),
+        errorMessage: finalErrMsg.slice(0, 500),
         errorType: errType,
         lastErrorPage: page,
         completedAt: new Date().toISOString(),
       });
+      this.emitLog('error', `全量采集失败 [${source.name}]: ${finalErrMsg}`, sourceCode, source.name, taskId);
       throw err;
     }
   }

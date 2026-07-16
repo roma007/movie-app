@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { DatabaseProvider } from '../db/provider';
-import type { Media, VideoSource, Favorite, WatchHistory, PaginatedMeta, CollectTask } from '../types';
+import type { Media, VideoSource, Favorite, WatchHistory, PaginatedMeta, CollectTask, CollectionLog } from '../types';
 import type { CollectConfig, ShortDramaConfig } from '../services/systemConfigService';
 
 export interface AppState {
@@ -114,6 +114,10 @@ hasShortDrama: (type?: string) => Promise<boolean>;
 
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
+
+  collectionLogs: CollectionLog[];
+  addCollectionLog: (log: CollectionLog) => void;
+  clearCollectionLogs: () => void;
 }
 
 import { SystemConfigService } from '../services/systemConfigService';
@@ -127,7 +131,7 @@ export function createAppStore(db: DatabaseProvider) {
   const configService = new SystemConfigService(db);
   const collectorService = new CollectorService(db);
 
-  return create<AppState>((set, get) => ({
+  const store = create<AppState>((set, get) => ({
     mediaList: [],
     mediaMeta: null,
     currentMedia: null,
@@ -146,6 +150,7 @@ export function createAppStore(db: DatabaseProvider) {
     reprobeMediaCount: 0,
     reprobeMediaList: [],
     runningReprobeTask: null,
+    collectionLogs: [],
 
     loadMediaList: async (params = {}) => {
       console.log(`[STORE] loadMediaList called with params:`, params);
@@ -723,7 +728,21 @@ export function createAppStore(db: DatabaseProvider) {
 
     setLoading: (loading: boolean) => set({ isLoading: loading }),
     setError: (error: string | null) => set({ error }),
+
+    addCollectionLog: (log: CollectionLog) => {
+      set((state) => ({
+        collectionLogs: [...state.collectionLogs.slice(-499), log],
+      }));
+    },
+    clearCollectionLogs: () => set({ collectionLogs: [] }),
   }));
+
+  // 设置 CollectorService 的日志回调，将日志推送到 store
+  collectorService.setOnLogCallback((log) => {
+    store.getState().addCollectionLog(log);
+  });
+
+  return store;
 }
 
 export type AppStore = ReturnType<typeof createAppStore>;
