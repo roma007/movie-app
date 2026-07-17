@@ -745,11 +745,9 @@ export class CollectorService {
     let failed = 0;
     let page = startPage;
     let cancelled = false;
-    let consecutiveFailures = 0;
     let lastErrorMsg: string | null = null;
     let lastErrorType: TaskErrorType = 'UNKNOWN';
     let totalRuntimeMs = 0;
-    const MAX_CONSECUTIVE_FAILURES = 3;
     const controller = new AbortController();
     this.activeAbortControllers.set(taskId, controller);
 
@@ -776,7 +774,6 @@ export class CollectorService {
           const { media, pagecount, failedCount } = result;
           collected += media.length;
           failed += failedCount;
-          consecutiveFailures = 0;
           await this.db.updateCollectTask(taskId, {
             currentPage: page,
             totalPages: config.incrementalMaxPages,
@@ -791,7 +788,6 @@ export class CollectorService {
           page++;
         } catch (err) {
           totalRuntimeMs += Date.now() - iterationStart;
-          consecutiveFailures++;
           const errType = classifyError(err);
           const errMsg = `[Collector] 增量采集第${page}页失败: ${err instanceof Error ? err.message : String(err)}`;
           console.error(errMsg);
@@ -808,11 +804,6 @@ export class CollectorService {
             lastErrorPage: page,
           });
 
-          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-            const fuseError = new Error(`连续${MAX_CONSECUTIVE_FAILURES}页失败，已熔断: ${lastErrorMsg}`);
-            (fuseError as any).errorType = lastErrorType;
-            throw fuseError;
-          }
           page++;
         }
       }
@@ -879,11 +870,9 @@ export class CollectorService {
     let pages = 0;
     let page = startPage;
     let cancelled = false;
-    let consecutiveFailures = 0;
     let lastErrorMsg: string | null = null;
     let lastErrorType: TaskErrorType = 'UNKNOWN';
     let totalRuntimeMs = 0;
-    const MAX_CONSECUTIVE_FAILURES = 3;
     const controller = new AbortController();
     this.activeAbortControllers.set(taskId, controller);
 
@@ -911,7 +900,6 @@ export class CollectorService {
           collected += media.length;
           failed += failedCount;
           pages++;
-          consecutiveFailures = 0;
 
           await this.db.updateCollectTask(taskId, {
             currentPage: page,
@@ -927,7 +915,6 @@ export class CollectorService {
           page++;
         } catch (err) {
           totalRuntimeMs += Date.now() - iterationStart;
-          consecutiveFailures++;
           const errType = classifyError(err);
           const errMsg = `[Collector] 全量采集第${page}页失败: ${err instanceof Error ? err.message : String(err)}`;
           console.error(errMsg);
@@ -944,11 +931,6 @@ export class CollectorService {
             lastErrorPage: page,
           });
 
-          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-            const fuseError = new Error(`连续${MAX_CONSECUTIVE_FAILURES}页失败，已熔断: ${lastErrorMsg}`);
-            (fuseError as any).errorType = lastErrorType;
-            throw fuseError;
-          }
           page++;
         }
       }
