@@ -278,6 +278,19 @@ export class TauriSqlProvider implements DatabaseProvider {
     );
   }
 
+  async updateMediaStatusAndEpisodes(
+    mediaId: string,
+    status: string,
+    currentEpisodes: number | null,
+    totalEpisodes: number | null,
+    updatedAt: string
+  ): Promise<void> {
+    await this.db!.execute(
+      `UPDATE media SET status = ?, current_episodes = ?, total_episodes = ?, updated_at = ? WHERE id = ?`,
+      [status, currentEpisodes, totalEpisodes, updatedAt, mediaId]
+    );
+  }
+
   async incrementViewCount(id: string): Promise<void> {
     await this.db!.execute('UPDATE media SET view_count = view_count + 1 WHERE id = ?', [id]);
   }

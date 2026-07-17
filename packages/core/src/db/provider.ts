@@ -23,6 +23,13 @@ export interface DatabaseProvider {
   getMediaByFingerprint(fingerprint: string): Promise<Media | null>;
   listMedia(params?: ListParams): Promise<PaginatedResponse<Media>>;
   upsertMedia(media: Media): Promise<void>;
+  updateMediaStatusAndEpisodes(
+    mediaId: string,
+    status: string,
+    currentEpisodes: number | null,
+    totalEpisodes: number | null,
+    updatedAt: string
+  ): Promise<void>;
   incrementViewCount(id: string): Promise<void>;
   incrementSearchCount(id: string): Promise<void>;
   searchMedia(

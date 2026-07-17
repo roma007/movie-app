@@ -250,7 +250,19 @@ export class CollectorService {
       };
 
       currentMediaId = media.id;
-      await this.db.upsertMedia(media);
+      if (existing) {
+        // 多源合并：状态取更"完结"的，集数取更大的
+        const statusPriority: Record<string, number> = { COMPLETED: 3, ONGOING: 2, PUBLISHED: 1 };
+        const bestStatus = (statusPriority[status] || 0) > (statusPriority[existing.status || ''] || 0) ? status : (existing.status || status);
+        const bestEpisodes = Math.max(currentEpisodes || 0, existing.currentEpisodes || 0);
+        const bestTotal = Math.max(totalEpisodes || 0, existing.totalEpisodes || 0);
+
+        if (bestStatus !== existing.status || bestEpisodes !== existing.currentEpisodes || bestTotal !== existing.totalEpisodes) {
+          await this.db.updateMediaStatusAndEpisodes(mediaId, bestStatus, bestEpisodes, bestTotal, new Date().toISOString());
+        }
+      } else {
+        await this.db.upsertMedia(media);
+      }
       mediaWritten = true;
       await this.db.deletePlaySourcesByMediaIdAndSourceId(mediaId, sourceId);
 
