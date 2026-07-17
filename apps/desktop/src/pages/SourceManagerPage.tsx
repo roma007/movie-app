@@ -617,9 +617,11 @@ export default function SourceManagerPage() {
 
       {/* 实时日志面板 */}
       <div className="border-t border-border bg-background">
-        <button
-          className="flex items-center justify-between w-full px-6 py-3 hover:bg-secondary/50 transition-colors"
+        <div
+          className="flex items-center justify-between w-full px-6 py-3 hover:bg-secondary/50 transition-colors cursor-pointer"
           onClick={() => setShowLogPanel(!showLogPanel)}
+          role="button"
+          tabIndex={0}
         >
           <div className="flex items-center gap-2">
             <ScrollText className="size-4 text-muted-foreground" />
@@ -650,7 +652,7 @@ export default function SourceManagerPage() {
               <ChevronUp className="size-4 text-muted-foreground" />
             )}
           </div>
-        </button>
+        </div>
         
         {showLogPanel && (
           <div className="px-6 pb-4">

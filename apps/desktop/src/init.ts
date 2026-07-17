@@ -12,7 +12,7 @@ async function logToDb(message: string, level: 'info' | 'error' = 'info'): Promi
     const now = new Date().toISOString();
     await _provider.execute(
       'INSERT INTO system_config (key, value, value_type, remark, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [`log_${Date.now()}`, message, 'string', level, now, now]
+      [`log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, message, 'string', level, now, now]
     );
   } catch {
     // 忽略日志写入失败
