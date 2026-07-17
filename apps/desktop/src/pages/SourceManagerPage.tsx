@@ -576,9 +576,11 @@ export default function SourceManagerPage() {
                   {/* 显示该视频源的最近错误 */}
                   {!collecting && (() => {
                     const recentError = getRecentErrorForSource(source.code);
-                    const failedTask = collectTasks.find(
-                      (t: CollectTask) => t.sourceCode === source.code && t.status === 'FAILED'
+                    const sourceTasks = collectTasks.filter(
+                      (t: CollectTask) => t.sourceCode === source.code && (t.status === 'FAILED' || t.status === 'COMPLETED')
                     );
+                    const latestTask = sourceTasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+                    const failedTask = latestTask?.status === 'FAILED' ? latestTask : null;
                     if (!recentError && !failedTask) return null;
                     const errorMsg = recentError?.message || failedTask?.errorMessage || '';
                     if (!errorMsg) return null;
