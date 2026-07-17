@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect, createContext, useContext, useCallback, type ReactNode } from 'react';
+import { getVersion } from '@tauri-apps/api/app';
 
 const navItems = [
   { to: '/', label: '首页', icon: Home },
@@ -85,6 +86,12 @@ function ToastProvider({ children }: { children: ReactNode }) {
 }
 
 export function Layout() {
+  const [appVersion, setAppVersion] = useState('1.0.0');
+
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => {});
+  }, []);
+
   return (
     <ToastProvider>
       <div className="flex h-full">
@@ -115,7 +122,7 @@ export function Layout() {
             ))}
           </nav>
           <div className="px-5 py-3 text-xs text-muted-foreground border-t border-border">
-            版本 1.0.0
+            版本 {appVersion}
           </div>
         </aside>
 

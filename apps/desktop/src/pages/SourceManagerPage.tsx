@@ -56,6 +56,7 @@ export default function SourceManagerPage() {
     toggleSourceEnabled,
     reorderSource,
     deletePlaySourcesBySourceId,
+    updateSourceRateLimit,
   } = useAppStore();
 
   const [pendingCollect, setPendingCollect] = useState<Map<string, 'increment' | 'full'>>(new Map());
@@ -426,6 +427,15 @@ export default function SourceManagerPage() {
 
                     <div className="flex items-center gap-6">
                       <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-xl font-bold"
+                          disabled={(source.rateLimit || 0) <= 1}
+                          onClick={() => updateSourceRateLimit(source.id, Math.max(1, (source.rateLimit || 5) - 1))}
+                        >
+                          -
+                        </Button>
                         {[2, 4, 6, 8, 10].map((threshold) => (
                           <div
                             key={threshold}
@@ -434,6 +444,15 @@ export default function SourceManagerPage() {
                           />
                         ))}
                         <span className="text-xs text-muted-foreground ml-1">{source.rateLimit || 0}</span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-xl font-bold"
+                          disabled={(source.rateLimit || 0) >= 10}
+                          onClick={() => updateSourceRateLimit(source.id, Math.min(10, (source.rateLimit || 5) + 1))}
+                        >
+                          +
+                        </Button>
                       </div>
 
                       <Badge variant="outline" className="text-xs" style={{ color: health.color }}>

@@ -12,9 +12,6 @@ function generateId(): string {
   return `id_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 }
 
-/** 任务级超时阈值（30 分钟） */
-const TASK_TIMEOUT_MS = 30 * 60 * 1000;
-
 /** 根据错误特征归类错误类型，用于前端按类型筛选/展示 */
 function classifyError(err: unknown): TaskErrorType {
   const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
@@ -768,10 +765,6 @@ export class CollectorService {
           break;
         }
 
-        if (totalRuntimeMs > TASK_TIMEOUT_MS) {
-          throw new Error(`任务超时（已运行${Math.round(totalRuntimeMs / 60000)}分钟），自动终止`);
-        }
-
         try {
           const { media, pagecount, failedCount } = await this.collectFromSource(source.id, source.baseUrl, source.rateLimit, page, 20, controller.signal);
 
@@ -899,11 +892,6 @@ export class CollectorService {
         if (!existing) {
           cancelled = true;
           break;
-        }
-
-        // 任务级超时检查（基于实际运行时长，排除系统休眠时间）
-        if (totalRuntimeMs > TASK_TIMEOUT_MS) {
-          throw new Error(`任务超时（已运行${Math.round(totalRuntimeMs / 60000)}分钟），自动终止`);
         }
 
         try {
