@@ -581,6 +581,7 @@ export default function SourceManagerPage() {
                     );
                     const latestTask = sourceTasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
                     const failedTask = latestTask?.status === 'FAILED' ? latestTask : null;
+                    if (latestTask?.status === 'COMPLETED') return null;
                     if (!recentError && !failedTask) return null;
                     const errorMsg = recentError?.message || failedTask?.errorMessage || '';
                     if (!errorMsg) return null;
