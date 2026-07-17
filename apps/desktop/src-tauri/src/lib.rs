@@ -232,8 +232,8 @@ pub fn run() {
         },
         Migration {
             version: 16,
-            description: "add_remarks_to_media (moved to TypeScript init)",
-            sql: "SELECT 1;",
+            description: "add_remarks_to_media",
+            sql: "ALTER TABLE media ADD COLUMN remarks TEXT;",
             kind: MigrationKind::Up,
         },
     ];
