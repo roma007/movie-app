@@ -128,6 +128,13 @@ export class TauriSqlProvider implements DatabaseProvider {
       // Column already exists, ignore
     }
 
+    // Add remarks column if it doesn't exist (migration for existing DBs)
+    try {
+      await this.db!.execute('ALTER TABLE media ADD COLUMN remarks TEXT');
+    } catch {
+      // Column already exists, ignore
+    }
+
     await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_episode_media_id ON episode(media_id);');
     await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source(episode_id);');
     await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_favorite_media_id ON favorite(media_id);');

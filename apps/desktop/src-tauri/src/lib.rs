@@ -230,12 +230,6 @@ pub fn run() {
             sql: "ALTER TABLE media ADD COLUMN episode_duration INTEGER;",
             kind: MigrationKind::Up,
         },
-        Migration {
-            version: 16,
-            description: "add_remarks_to_media",
-            sql: "ALTER TABLE media ADD COLUMN remarks TEXT;",
-            kind: MigrationKind::Up,
-        },
     ];
 
     tauri::Builder::default()

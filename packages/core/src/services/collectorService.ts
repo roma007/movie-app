@@ -418,7 +418,6 @@ export class CollectorService {
       console.error(`[Collector] getList 失败 (${errorType}):`, errorMsg);
       await this.logToDb(`${errorMsg} [类型: ${errorType}]`, 'error');
       
-      // 提供更详细的错误信息
       let detailedError = errInstance.message;
       if (errInstance.message.includes('CORS') || errInstance.message.includes('opaque')) {
         detailedError = 'CORS错误 - 无法访问外部API。Tauri HTTP插件可能未正确加载。';
@@ -427,6 +426,8 @@ export class CollectorService {
       } else if (errInstance.message.includes('timeout') || errInstance.message.includes('abort')) {
         detailedError = '请求超时 - 服务器响应时间过长。';
       }
+
+      this.emitLog('error', detailedError);
       
       return { media: [], total: 0, pagecount: 0, failedCount: 0, error: detailedError, errorType };
     }
@@ -766,8 +767,13 @@ export class CollectorService {
         }
 
         try {
-          const { media, pagecount, failedCount } = await this.collectFromSource(source.id, source.baseUrl, source.rateLimit, page, 20, controller.signal);
+          const result = await this.collectFromSource(source.id, source.baseUrl, source.rateLimit, page, 20, controller.signal);
 
+          if (result.error) {
+            throw new Error(result.error);
+          }
+
+          const { media, pagecount, failedCount } = result;
           collected += media.length;
           failed += failedCount;
           consecutiveFailures = 0;
@@ -895,7 +901,13 @@ export class CollectorService {
         }
 
         try {
-          const { media, pagecount, failedCount } = await this.collectFromSource(source.id, source.baseUrl, source.rateLimit, page, 20, controller.signal);
+          const result = await this.collectFromSource(source.id, source.baseUrl, source.rateLimit, page, 20, controller.signal);
+
+          if (result.error) {
+            throw new Error(result.error);
+          }
+
+          const { media, pagecount, failedCount } = result;
           collected += media.length;
           failed += failedCount;
           pages++;
