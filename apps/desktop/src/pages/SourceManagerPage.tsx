@@ -489,9 +489,9 @@ export default function SourceManagerPage() {
                       size="sm"
                       className="h-7 px-2 text-xs"
                       onClick={() => handleCollect(source, 'increment')}
-                      disabled={collecting}
+                      disabled={collecting || isPending}
                     >
-                      {collecting && collectingType === 'increment' ? (
+                      {(collecting || isPending) && collectingType === 'increment' ? (
                         <><Loader2 className="size-3.5 mr-1 animate-spin" /> 采集中 {progress}%</>
                       ) : (
                         <><Play className="size-3.5 mr-1" /> 增量</>
@@ -503,9 +503,9 @@ export default function SourceManagerPage() {
                       size="sm"
                       className="h-7 px-2 text-xs"
                       onClick={() => handleCollect(source, 'full')}
-                      disabled={collecting}
+                      disabled={collecting || isPending}
                     >
-                      {collecting && collectingType === 'full' ? (
+                      {(collecting || isPending) && collectingType === 'full' ? (
                         <><Loader2 className="size-3.5 mr-1 animate-spin" /> 采集中 {progress}%</>
                       ) : (
                         <><RefreshCw className="size-3.5 mr-1" /> 全量</>
