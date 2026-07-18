@@ -115,21 +115,30 @@ export default function DetailPage() {
     return <div className="p-6 text-error">加载失败</div>;
   }
 
+  const typeRouteMap: Record<string, string> = {
+    MOVIE: '/movie',
+    TV: '/tv',
+    VARIETY: '/variety',
+    ANIME: '/anime',
+    DOCUMENTARY: '/documentary',
+  };
+
   const getBackUrl = () => {
     if (prevState) {
       const params = new URLSearchParams();
-      params.set('type', media.type);
       if (prevState.page) params.set('page', String(prevState.page));
       if (prevState.subType) params.set('subType', prevState.subType);
       if (prevState.year) params.set('year', String(prevState.year));
       if (prevState.area) params.set('area', prevState.area);
       if (prevState.episodeType) params.set('episodeType', prevState.episodeType);
-      return `/?${params.toString()}`;
+      const base = prevState.type ? (typeRouteMap[prevState.type] || '/') : '/';
+      const qs = params.toString();
+      return qs ? `${base}?${qs}` : base;
     }
     return -1 as any;
   };
 
-  const getTypeListUrl = () => `/?type=${media.type}`;
+  const getTypeListUrl = () => typeRouteMap[media.type] || '/';
 
   return (
     <div className="p-6 space-y-5 max-w-7xl mx-auto">

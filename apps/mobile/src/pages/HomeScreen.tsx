@@ -40,6 +40,9 @@ export default function HomeScreen() {
   const [historyMediaList, setHistoryMediaList] = useState<Media[]>([]);
 
   const isLoadingRef = useRef(false);
+  const flatListRef = useRef<FlatList>(null);
+  const scrollPositions = useRef<Record<string, number>>({});
+  const scrollOffsetRef = useRef(0);
 
   const loadList = useCallback(async (pageNum: number, replace: boolean) => {
     if (isLoadingRef.current) return;
@@ -96,6 +99,7 @@ export default function HomeScreen() {
 
   const handleTypeChange = (type: string) => {
     if (type === activeType) return;
+    scrollPositions.current[activeType] = scrollOffsetRef.current;
     setActiveType(type);
     setSelectedSubType('');
     setSelectedYear(undefined);
@@ -108,6 +112,17 @@ export default function HomeScreen() {
   useEffect(() => {
     loadList(1, true);
   }, [activeType, selectedSubType, selectedYear, selectedArea]);
+
+  useEffect(() => {
+    if (!isLoading && allMedia.length > 0) {
+      const savedOffset = scrollPositions.current[activeType];
+      if (savedOffset !== undefined && savedOffset > 0) {
+        setTimeout(() => {
+          flatListRef.current?.scrollToOffset({ offset: savedOffset, animated: false });
+        }, 50);
+      }
+    }
+  }, [isLoading, allMedia, activeType]);
 
   useEffect(() => {
     if (activeType !== '') return;
@@ -260,6 +275,7 @@ export default function HomeScreen() {
 
   return (
     <FlatList
+      ref={flatListRef}
       style={styles.container}
       data={allMedia}
       renderItem={({ item }) => (
@@ -280,6 +296,8 @@ export default function HomeScreen() {
       onRefresh={handleRefresh}
       contentContainerStyle={styles.listContent}
       showsVerticalScrollIndicator={false}
+      onScroll={(event) => { scrollOffsetRef.current = event.nativeEvent.contentOffset.y; }}
+      scrollEventThrottle={16}
     />
   );
 }

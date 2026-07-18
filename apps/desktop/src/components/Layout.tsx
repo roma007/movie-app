@@ -17,11 +17,11 @@ import { getVersion } from '@tauri-apps/api/app';
 
 const navItems = [
   { to: '/', label: '首页', icon: Home },
-  { to: '/?type=MOVIE', label: '电影', icon: Film },
-  { to: '/?type=TV', label: '电视剧', icon: Tv },
-  { to: '/?type=VARIETY', label: '综艺', icon: Music },
-  { to: '/?type=ANIME', label: '动漫', icon: BookOpen },
-  { to: '/?type=DOCUMENTARY', label: '纪录片', icon: Camera },
+  { to: '/movie', label: '电影', icon: Film },
+  { to: '/tv', label: '电视剧', icon: Tv },
+  { to: '/variety', label: '综艺', icon: Music },
+  { to: '/anime', label: '动漫', icon: BookOpen },
+  { to: '/documentary', label: '纪录片', icon: Camera },
   { to: '/settings', label: '设置', icon: Settings },
 ];
 
@@ -105,16 +105,12 @@ export function Layout() {
               <NavLink
                 key={to}
                 to={to}
-                className={({ isActive, isPending }) => {
-                  if (isPending) return cn('flex items-center gap-3 px-5 py-2.5 text-sm transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-hover border-l-2 border-transparent');
-                  const isExactMatch = window.location.pathname + window.location.search === to;
-                  return cn(
-                    'flex items-center gap-3 px-5 py-2.5 text-sm transition-all duration-200',
-                    isExactMatch
-                      ? 'bg-primary-light text-primary border-l-2 border-primary'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-hover border-l-2 border-transparent'
-                  );
-                }}
+                className={({ isActive }) => cn(
+                  'flex items-center gap-3 px-5 py-2.5 text-sm transition-all duration-200 border-l-2',
+                  isActive
+                    ? 'bg-primary-light text-primary border-primary'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-hover border-transparent'
+                )}
               >
                 <Icon className="size-4" />
                 {label}
