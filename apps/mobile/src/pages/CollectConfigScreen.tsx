@@ -16,6 +16,8 @@ export default function CollectConfigScreen({ navigation }: Props) {
     retryTimes: '3',
     pageSize: '20',
     maxPages: '10',
+    incrementalMaxPages: '100',
+    maxIncrementalHours: '720',
     concurrency: '1',
   });
 
@@ -32,6 +34,8 @@ export default function CollectConfigScreen({ navigation }: Props) {
         retryTimes: String(collectConfig.retryTimes),
         pageSize: String(collectConfig.pageSize),
         maxPages: String(collectConfig.maxPages),
+        incrementalMaxPages: String(collectConfig.incrementalMaxPages),
+        maxIncrementalHours: String(collectConfig.maxIncrementalHours),
         concurrency: String(collectConfig.concurrency),
       });
     }
@@ -50,6 +54,8 @@ export default function CollectConfigScreen({ navigation }: Props) {
       retryTimes: Math.min(10, Math.max(0, parseInt(localConfig.retryTimes) || 3)),
       pageSize: Math.min(100, Math.max(5, parseInt(localConfig.pageSize) || 20)),
       maxPages: Math.min(200, Math.max(1, parseInt(localConfig.maxPages) || 10)),
+      incrementalMaxPages: Math.min(200, Math.max(1, parseInt(localConfig.incrementalMaxPages) || 100)),
+      maxIncrementalHours: Math.max(0, parseInt(localConfig.maxIncrementalHours) || 720),
       concurrency: Math.min(20, Math.max(1, parseInt(localConfig.concurrency) || 1)),
     });
 
@@ -68,8 +74,10 @@ export default function CollectConfigScreen({ navigation }: Props) {
       rateLimitPerSecond: '2',
       retryTimes: '3',
       pageSize: '20',
-      maxPages: '10',
-      concurrency: '1',
+      maxPages: '100',
+      incrementalMaxPages: '100',
+      maxIncrementalHours: '720',
+      concurrency: '6',
     });
   };
 
@@ -139,6 +147,28 @@ export default function CollectConfigScreen({ navigation }: Props) {
             onChangeText={(text) => setLocalConfig({ ...localConfig, maxPages: text })}
           />
           <Text style={styles.hint}>全量采集时最多翻页数量（1-200）</Text>
+        </View>
+
+        <View style={styles.formItem}>
+          <Text style={styles.label}>增量采集最大页数</Text>
+          <TextInput
+            style={styles.input}
+            keyboardType="numeric"
+            value={localConfig.incrementalMaxPages}
+            onChangeText={(text) => setLocalConfig({ ...localConfig, incrementalMaxPages: text })}
+          />
+          <Text style={styles.hint}>增量采集安全上限（1-200）</Text>
+        </View>
+
+        <View style={styles.formItem}>
+          <Text style={styles.label}>增量最大追溯时间（小时）</Text>
+          <TextInput
+            style={styles.input}
+            keyboardType="numeric"
+            value={localConfig.maxIncrementalHours}
+            onChangeText={(text) => setLocalConfig({ ...localConfig, maxIncrementalHours: text })}
+          />
+          <Text style={styles.hint}>0=不限，断点续采时 h 的最大值</Text>
         </View>
 
         <View style={styles.formItem}>

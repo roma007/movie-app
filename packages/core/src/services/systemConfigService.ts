@@ -16,6 +16,7 @@ export interface CollectConfig {
   pageSize: number;
   maxPages: number;
   incrementalMaxPages: number;
+  maxIncrementalHours: number;
   concurrency: number;
 }
 
@@ -68,6 +69,7 @@ const DEFAULT_COLLECT_CONFIG: CollectConfig = {
   pageSize: 20,
   maxPages: 100,
   incrementalMaxPages: 100,
+  maxIncrementalHours: 720,
   concurrency: 6,
 };
 
@@ -79,6 +81,7 @@ const CONFIG_REMARKS: Record<string, string> = {
   'collect.pageSize': '每页大小',
   'collect.maxPages': '全量采集最大页数',
   'collect.incrementalMaxPages': '增量采集最大页数',
+  'collect.maxIncrementalHours': '增量最大追溯时间（小时）',
   'collect.concurrency': '并发处理数量',
 };
 
@@ -165,6 +168,7 @@ export class SystemConfigService {
       pageSize: await this.getNumber('collect.pageSize', DEFAULT_COLLECT_CONFIG.pageSize),
       maxPages: await this.getNumber('collect.maxPages', DEFAULT_COLLECT_CONFIG.maxPages),
       incrementalMaxPages: await this.getNumber('collect.incrementalMaxPages', DEFAULT_COLLECT_CONFIG.incrementalMaxPages),
+      maxIncrementalHours: await this.getNumber('collect.maxIncrementalHours', DEFAULT_COLLECT_CONFIG.maxIncrementalHours),
       concurrency: await this.getNumber('collect.concurrency', DEFAULT_COLLECT_CONFIG.concurrency),
     };
   }

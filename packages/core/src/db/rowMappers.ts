@@ -81,6 +81,7 @@ export function rowToVideoSource(row: any): VideoSource {
     priority: row.priority,
     healthStatus: row.health_status,
     lastCheckAt: row.last_check_at,
+    lastCollectedAt: row.last_collected_at || null,
     lastSuccessAt: row.last_success_at || null,
     failCount: row.fail_count || 0,
     totalRequests: row.total_requests || 0,

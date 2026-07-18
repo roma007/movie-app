@@ -46,6 +46,19 @@ function formatLogTime(timestamp: string): string {
   }
 }
 
+function formatTime(timestamp: string): string {
+  try {
+    const d = new Date(timestamp);
+    const month = (d.getMonth() + 1).toString().padStart(2, '0');
+    const day = d.getDate().toString().padStart(2, '0');
+    const hours = d.getHours().toString().padStart(2, '0');
+    const minutes = d.getMinutes().toString().padStart(2, '0');
+    return `${month}-${day} ${hours}:${minutes}`;
+  } catch {
+    return timestamp;
+  }
+}
+
 export default function SourceManagerScreen({ navigation }: Props) {
   const {
     videoSources, loadVideoSources,
@@ -367,6 +380,10 @@ export default function SourceManagerScreen({ navigation }: Props) {
                 </View>
 
                 <Text style={[styles.healthLabel, { color: health.color }]}>{health.label}</Text>
+
+                <Text style={styles.lastCollectText}>
+                  上次采集: {source.lastCollectedAt ? formatTime(source.lastCollectedAt) : '从未'}
+                </Text>
 
                 <View style={styles.sourceFooter}>
                   <Text style={styles.priority}>优先级: {source.priority}</Text>
@@ -855,7 +872,8 @@ const styles = StyleSheet.create({
   rateBars: { flexDirection: 'row', gap: 3 },
   rateBar: { width: 8, height: 16, borderRadius: 2 },
   rateLabel: { fontSize: 14, color: '#ccc', width: 24, textAlign: 'center' },
-  healthLabel: { fontSize: 12, marginBottom: 10 },
+  healthLabel: { fontSize: 12, marginBottom: 4 },
+  lastCollectText: { fontSize: 11, color: '#666', marginBottom: 10 },
   sourceFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   priority: { fontSize: 13, color: '#666' },
   actions: { flexDirection: 'row', gap: 8 },

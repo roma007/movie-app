@@ -74,8 +74,11 @@ export class CMSAdapter {
     throw lastError;
   }
 
-  async getList(page: number = 1, size: number = 20, signal?: AbortSignal): Promise<CMSListResponse> {
-    const url = `${this.baseUrl}?ac=list&pg=${page}&limit=${size}`;
+  async getList(page: number = 1, size: number = 20, hours?: number, signal?: AbortSignal): Promise<CMSListResponse> {
+    let url = `${this.baseUrl}?ac=list&pg=${page}&limit=${size}`;
+    if (hours !== undefined && hours > 0) {
+      url += `&h=${hours}`;
+    }
     return this.requestWithRetry(url, signal);
   }
 

@@ -26,6 +26,7 @@ export default function CollectConfigPage() {
     pageSize: 20,
     maxPages: 10,
     incrementalMaxPages: 100,
+    maxIncrementalHours: 720,
     concurrency: 1,
   });
   const [blacklist, setBlacklist] = useState<string[]>([]);
@@ -45,6 +46,7 @@ export default function CollectConfigPage() {
         pageSize: collectConfig.pageSize,
         maxPages: collectConfig.maxPages,
         incrementalMaxPages: collectConfig.incrementalMaxPages,
+        maxIncrementalHours: collectConfig.maxIncrementalHours,
         concurrency: collectConfig.concurrency,
       });
       setBlacklist([...collectConfig.blacklistKeywords]);
@@ -76,6 +78,7 @@ export default function CollectConfigPage() {
   const handleSave = async () => {
     await updateCollectConfig({
       ...localConfig,
+      maxIncrementalHours: Math.max(0, localConfig.maxIncrementalHours),
       blacklistKeywords: blacklist,
     });
     setSaved(true);
@@ -97,7 +100,8 @@ export default function CollectConfigPage() {
       retryTimes: 3,
       pageSize: 20,
       maxPages: 100,
-      incrementalMaxPages: 5,
+      incrementalMaxPages: 100,
+      maxIncrementalHours: 720,
       concurrency: 6,
     });
     setBlacklist([...DEFAULT_BLACKLIST]);
@@ -132,18 +136,32 @@ export default function CollectConfigPage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="incrementalMaxPages">增量采集最大页数</Label>
+            <Label htmlFor="incrementalMaxPages">增量采集最大页数（安全上限）</Label>
             <Input
               id="incrementalMaxPages"
               type="number"
               min="1"
-              max="50"
+              max="200"
               value={localConfig.incrementalMaxPages}
-              onChange={(e) => setLocalConfig({ ...localConfig, incrementalMaxPages: Math.min(50, Math.max(1, parseInt(e.target.value) || 5)) })}
+              onChange={(e) => setLocalConfig({ ...localConfig, incrementalMaxPages: Math.min(200, Math.max(1, parseInt(e.target.value) || 10)) })}
               onBlur={() => handleFieldBlur('incrementalMaxPages', localConfig.incrementalMaxPages)}
               className="bg-secondary border-border"
             />
-            <p className="text-xs text-muted-foreground">增量采集时最多采集多少页数据</p>
+            <p className="text-xs text-muted-foreground">增量采集的安全上限，断点和定额模式均受此限制</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="maxIncrementalHours">增量最大追溯时间（小时）</Label>
+            <Input
+              id="maxIncrementalHours"
+              type="number"
+              min="0"
+              max="8760"
+              value={localConfig.maxIncrementalHours}
+              onChange={(e) => setLocalConfig({ ...localConfig, maxIncrementalHours: Math.max(0, parseInt(e.target.value) || 0) })}
+              className="bg-secondary border-border"
+            />
+            <p className="text-xs text-muted-foreground">0=不限，断点续采时 h 的最大值（全量采集不受影响）</p>
           </div>
 
           <div className="space-y-2">

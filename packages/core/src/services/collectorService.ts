@@ -406,6 +406,7 @@ export class CollectorService {
     rateLimit: number,
     page: number = 1,
     pageSize: number = 20,
+    hours?: number,
     signal?: AbortSignal
   ): Promise<{ media: Media[]; total: number; pagecount: number; failedCount: number; error?: string; errorType?: TaskErrorType }> {
     const configService = new SystemConfigService(this.db);
@@ -420,7 +421,7 @@ export class CollectorService {
     let response;
     try {
       await this.db.incrementSourceRequestCount(sourceId);
-      response = await adapter.getList(page, pageSize, signal);
+      response = await adapter.getList(page, pageSize, hours, signal);
       console.log(`[Collector] getList response: code=${response.code}, total=${response.total}, list.length=${response.list?.length || 0}`);
     } catch (err) {
       await this.db.incrementSourceFailCount(sourceId);
@@ -728,10 +729,18 @@ export class CollectorService {
     const configService = new SystemConfigService(this.db);
     const config = await configService.getCollectConfig();
 
-    console.log(`[Collector] collectLatest: ${sources.length} sources, incrementalMaxPages=${config.incrementalMaxPages}`);
+    console.log(`[Collector] collectLatest: ${sources.length} sources, incrementalMaxPages=${config.incrementalMaxPages}, maxIncrementalHours=${config.maxIncrementalHours}`);
 
     await Promise.all(sources.map(async (source, si) => {
       const now = new Date().toISOString();
+
+      // 断点续采: 计算时间窗口
+      let hours: number | undefined;
+      if (source.lastCollectedAt) {
+        const lastCollected = new Date(source.lastCollectedAt).getTime();
+        const hoursSinceLast = Math.ceil((Date.now() - lastCollected) / 3600000) + 2;
+        hours = Math.min(hoursSinceLast, config.maxIncrementalHours);
+      }
 
       const taskId = `${source.code}-INCREMENTAL-${Date.now()}-${si}-${Math.random().toString(36).slice(2, 6)}`;
       const task: CollectTask = {
@@ -763,14 +772,15 @@ export class CollectorService {
       let failed = 0;
       let currentPage = page;
       let hasMore = true;
+      const maxPages = hours ? Number.MAX_SAFE_INTEGER : config.incrementalMaxPages;
       let totalPages = config.incrementalMaxPages;
 
       try {
         await this.db.updateCollectTask(taskId, { status: 'RUNNING' as TaskStatus, startedAt: now, currentPage });
 
-        while (hasMore && currentPage <= totalPages) {
-          console.log(`[Collector] Processing source ${source.name} page ${currentPage}/${totalPages}`);
-          const { media, pagecount } = await this.collectFromSource(source.id, source.baseUrl, source.rateLimit, currentPage, pageSize);
+        while (hasMore && currentPage <= maxPages) {
+          console.log(`[Collector] Processing source ${source.name} page ${currentPage}${hours ? ` hours=${hours}` : ` (定额)`}`);
+          const { media, pagecount } = await this.collectFromSource(source.id, source.baseUrl, source.rateLimit, currentPage, pageSize, hours);
 
           collected += media.length;
 
@@ -789,7 +799,10 @@ export class CollectorService {
             status: 'running',
           });
 
-          hasMore = currentPage < pagecount && currentPage < totalPages;
+          hasMore = currentPage < pagecount && currentPage < maxPages;
+          if (hours && currentPage >= config.incrementalMaxPages) {
+            hasMore = false;
+          }
           currentPage++;
         }
 
@@ -797,6 +810,8 @@ export class CollectorService {
           status: 'COMPLETED' as TaskStatus,
           completedAt: new Date().toISOString(),
         });
+
+        await this.db.updateSourceLastCollectedAt(source.id, new Date().toISOString());
 
         onSourceProgress?.({
           sourceIndex: si,
@@ -949,11 +964,24 @@ export class CollectorService {
     const controller = new AbortController();
     this.activeAbortControllers.set(taskId, controller);
 
+    // 断点续采: 计算时间窗口
+    let hours: number | undefined;
+    if (source.lastCollectedAt) {
+      const lastCollected = new Date(source.lastCollectedAt).getTime();
+      const hoursSinceLast = Math.ceil((Date.now() - lastCollected) / 3600000) + 2;
+      hours = Math.min(hoursSinceLast, config.maxIncrementalHours);
+      this.emitLog('info', `断点续采模式: 上次采集${Math.round(hoursSinceLast - 2)}小时前，追溯${hours}小时`, sourceCode, source.name, taskId);
+    } else {
+      this.emitLog('info', `定额采集模式: 无采集记录，最多${config.incrementalMaxPages}页`, sourceCode, source.name, taskId);
+    }
+
     try {
       await this.db.updateCollectTask(taskId, { status: 'RUNNING' as TaskStatus, startedAt: now, currentPage: startPage });
-      this.emitLog('info', `开始增量采集 [${source.name}]，最多${config.incrementalMaxPages}页`, sourceCode, source.name, taskId);
+      this.emitLog('info', `开始增量采集 [${source.name}]`, sourceCode, source.name, taskId);
 
-      while (page <= config.incrementalMaxPages) {
+      const maxPages = hours ? Number.MAX_SAFE_INTEGER : config.incrementalMaxPages;
+
+      while (page <= maxPages) {
         const iterationStart = Date.now();
 
         const existing = await this.db.getCollectTaskById(taskId);
@@ -963,7 +991,7 @@ export class CollectorService {
         }
 
         try {
-          const result = await this.collectFromSource(source.id, source.baseUrl, source.rateLimit, page, 20, controller.signal);
+          const result = await this.collectFromSource(source.id, source.baseUrl, source.rateLimit, page, 20, hours, controller.signal);
 
           if (result.error) {
             throw new Error(result.error);
@@ -982,6 +1010,10 @@ export class CollectorService {
           this.emitLog('info', `第${page}页完成: 新增${media.length}条${failedCount > 0 ? `，失败${failedCount}条` : ''}`, sourceCode, source.name, taskId);
 
           if (page >= pagecount) break;
+          if (hours && page >= config.incrementalMaxPages) {
+            this.emitLog('warn', `已达安全上限 ${config.incrementalMaxPages} 页，停止采集`, sourceCode, source.name, taskId);
+            break;
+          }
           totalRuntimeMs += Date.now() - iterationStart;
           page++;
         } catch (err) {
@@ -1011,6 +1043,7 @@ export class CollectorService {
           status: 'COMPLETED' as TaskStatus,
           completedAt: new Date().toISOString(),
         });
+        await this.db.updateSourceLastCollectedAt(source.id, new Date().toISOString());
         this.emitLog('info', `增量采集完成 [${source.name}]: 共采集${collected}条，失败${failed}条`, sourceCode, source.name, taskId);
       }
 
@@ -1088,7 +1121,7 @@ export class CollectorService {
         }
 
         try {
-          const result = await this.collectFromSource(source.id, source.baseUrl, source.rateLimit, page, 20, controller.signal);
+          const result = await this.collectFromSource(source.id, source.baseUrl, source.rateLimit, page, 20, undefined, controller.signal);
 
           if (result.error) {
             throw new Error(result.error);

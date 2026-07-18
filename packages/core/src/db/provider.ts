@@ -93,6 +93,7 @@ export interface DatabaseProvider {
     failCount?: number;
     avgResponseTime?: number;
   }): Promise<void>;
+  updateSourceLastCollectedAt(id: string, time: string): Promise<void>;
   incrementSourceRequestCount(id: string): Promise<void>;
   incrementSourceFailCount(id: string): Promise<void>;
 

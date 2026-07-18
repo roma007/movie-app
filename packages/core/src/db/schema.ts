@@ -75,6 +75,7 @@ export const SCHEMA_SQL = `
     priority INTEGER DEFAULT 0,
     health_status TEXT,
     last_check_at TEXT,
+    last_collected_at TEXT,
     created_at TEXT,
     fail_count INTEGER DEFAULT 0,
     total_requests INTEGER DEFAULT 0

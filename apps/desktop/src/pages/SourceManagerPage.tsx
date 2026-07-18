@@ -639,6 +639,9 @@ export default function SourceManagerPage() {
                       <span className="text-xs text-muted-foreground">
                         上次检查: {source.lastCheckAt || '从未'}
                       </span>
+                      <span className="text-xs text-muted-foreground">
+                        上次采集: {source.lastCollectedAt || '从未'}
+                      </span>
                     </div>
                   </div>
 

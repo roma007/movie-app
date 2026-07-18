@@ -901,6 +901,10 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     await this.db!.runAsync(`UPDATE video_source SET ${updates.join(', ')} WHERE id = ?`, params);
   }
 
+  async updateSourceLastCollectedAt(id: string, time: string): Promise<void> {
+    await this.db!.runAsync('UPDATE video_source SET last_collected_at = ? WHERE id = ?', [time, id]);
+  }
+
   async incrementSourceRequestCount(id: string): Promise<void> {
     await this.db!.runAsync('UPDATE video_source SET total_requests = total_requests + 1 WHERE id = ?', [id]);
   }
