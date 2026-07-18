@@ -871,6 +871,8 @@ export class CollectorService {
           break;
         }
       }
+
+      await this.db.updateSourceLastCollectedAt(source.id, new Date().toISOString());
     }
 
     return { totalCollected, totalPages };
@@ -1171,6 +1173,7 @@ export class CollectorService {
           status: 'COMPLETED' as TaskStatus,
           completedAt: new Date().toISOString(),
         });
+        await this.db.updateSourceLastCollectedAt(source.id, new Date().toISOString());
         this.emitLog('info', `全量采集完成 [${source.name}]: 共采集${collected}条，失败${failed}条`, sourceCode, source.name, taskId);
       }
 

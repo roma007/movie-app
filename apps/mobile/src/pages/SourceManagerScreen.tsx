@@ -203,6 +203,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
       if (!result.success) {
         Alert.alert(`${label}失败`, result.error || '未知错误');
       } else {
+        await loadVideoSources();
         Alert.alert(`${label}已启动`, `任务已创建，可在任务列表查看进度`);
       }
     } catch (err: any) {

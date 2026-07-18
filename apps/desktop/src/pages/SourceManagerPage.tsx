@@ -265,6 +265,7 @@ export default function SourceManagerPage() {
         }
         toast(`采集任务已创建: ${result.taskId}, 新增 ${result.collected} 条, ${result.pages} 页`);
       }
+      await loadVideoSources();
       await loadRunningCollectTasks();
     } catch (err: any) {
       toast(`采集失败: ${err.message}`, 'error');
