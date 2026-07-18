@@ -133,11 +133,13 @@ export default function DetailPage() {
 
   return (
     <div className="p-6 space-y-5 max-w-7xl mx-auto">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" onClick={() => navigate(getBackUrl())} className="hover:text-primary">
-          <ArrowLeft className="size-4 mr-2" />
-          返回
-        </Button>
+      <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pb-4 border-b border-border">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" onClick={() => navigate(getBackUrl())} className="hover:text-primary">
+            <ArrowLeft className="size-4 mr-2" />
+            返回
+          </Button>
+        </div>
       </div>
 
       <div className="rounded-lg border border-border bg-card card-shadow">

@@ -43,18 +43,20 @@ export default function HistoryPage() {
 
   return (
     <div className="p-6 space-y-5 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="hover:text-primary">
-            <ArrowLeft className="size-4" /> 返回
-          </Button>
-          <h1 className="text-2xl font-bold">观看历史</h1>
+      <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pb-4 border-b border-border">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="hover:text-primary">
+              <ArrowLeft className="size-4" /> 返回
+            </Button>
+            <h1 className="text-2xl font-bold">观看历史</h1>
+          </div>
+          {watchHistory.length > 0 && (
+            <Button variant="outline" size="sm" onClick={handleClear} className="text-error hover:text-error">
+              <Trash2 className="size-4" /> 清除全部
+            </Button>
+          )}
         </div>
-        {watchHistory.length > 0 && (
-          <Button variant="outline" size="sm" onClick={handleClear} className="text-error hover:text-error">
-            <Trash2 className="size-4" /> 清除全部
-          </Button>
-        )}
       </div>
 
       {watchHistory.length === 0 ? (

@@ -94,9 +94,11 @@ export default function PlayPage() {
 
   return (
     <div className="p-6 space-y-4 max-w-7xl mx-auto">
-      <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="hover:text-primary">
-        <ArrowLeft className="size-4" /> 返回
-      </Button>
+      <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pb-4 border-b border-border">
+        <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="hover:text-primary">
+          <ArrowLeft className="size-4" /> 返回
+        </Button>
+      </div>
 
       <VideoPlayer
         sources={sources}

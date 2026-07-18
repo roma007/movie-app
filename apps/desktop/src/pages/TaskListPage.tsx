@@ -118,23 +118,25 @@ export default function TaskListPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/sources')} className="hover:text-primary">
-            <ArrowLeft className="size-4 mr-1" /> 返回视频源
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold mb-2">采集任务列表</h1>
-            <p className="text-sm text-muted-foreground">查看所有采集任务的执行状态和进度</p>
+      <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pb-4 border-b border-border">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="sm" onClick={() => navigate('/sources')} className="hover:text-primary">
+              <ArrowLeft className="size-4 mr-1" /> 返回视频源
+            </Button>
+            <div>
+              <h1 className="text-2xl font-bold">采集任务列表</h1>
+              <p className="text-sm text-muted-foreground">查看所有采集任务的执行状态和进度</p>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={refreshing}>
-            {refreshing ? <Loader2 className="size-4 mr-1 animate-spin" /> : <RefreshCw className="size-4 mr-1" />} 刷新
-          </Button>
-          <Button variant="ghost" size="sm" onClick={handleClearOld}>
-            <Trash2 className="size-4 mr-1" /> 清除7天前任务
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={refreshing}>
+              {refreshing ? <Loader2 className="size-4 mr-1 animate-spin" /> : <RefreshCw className="size-4 mr-1" />} 刷新
+            </Button>
+            <Button variant="ghost" size="sm" onClick={handleClearOld}>
+              <Trash2 className="size-4 mr-1" /> 清除7天前任务
+            </Button>
+          </div>
         </div>
       </div>
 

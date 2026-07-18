@@ -89,12 +89,14 @@ export default function CollectGuidePage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex items-center gap-4 mb-6">
-        <Button variant="ghost" onClick={() => navigate('/settings')} className="hover:text-primary">
-          <ArrowLeft className="size-4 mr-2" />
-          返回
-        </Button>
-        <h1 className="text-2xl font-bold">采集教程</h1>
+      <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pb-4 border-b border-border">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" onClick={() => navigate('/settings')} className="hover:text-primary">
+            <ArrowLeft className="size-4 mr-2" />
+            返回
+          </Button>
+          <h1 className="text-2xl font-bold">采集教程</h1>
+        </div>
       </div>
 
       <Card className="p-6 mb-6 bg-card border-border">

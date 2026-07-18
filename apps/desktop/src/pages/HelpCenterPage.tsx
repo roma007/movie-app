@@ -36,12 +36,14 @@ export default function HelpCenterPage() {
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" onClick={() => navigate('/')} className="hover:text-primary">
-          <ArrowLeft className="size-4 mr-2" />
-          返回
-        </Button>
-        <h1 className="text-2xl font-bold">帮助中心</h1>
+      <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pb-4 border-b border-border">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" onClick={() => navigate('/')} className="hover:text-primary">
+            <ArrowLeft className="size-4 mr-2" />
+            返回
+          </Button>
+          <h1 className="text-2xl font-bold">帮助中心</h1>
+        </div>
       </div>
 
       <Card className="divide-y divide-border bg-card border-border">

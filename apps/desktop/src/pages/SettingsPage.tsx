@@ -14,7 +14,9 @@ export default function SettingsPage() {
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
-      <h1 className="text-2xl font-bold">设置</h1>
+      <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pb-4 border-b border-border">
+        <h1 className="text-2xl font-bold">设置</h1>
+      </div>
 
       <Card className="p-4 bg-card border-border">
         <ThemeSwitcher />

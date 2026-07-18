@@ -360,7 +360,7 @@ export default function HomePage() {
 
   return (
     <div className="p-6 space-y-5 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between gap-4">
+      <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pb-4 border-b border-border">
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-bold">{isHomePage ? '首页' : typeNames[activeType || '']}</h1>
         </div>
