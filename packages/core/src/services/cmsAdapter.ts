@@ -55,7 +55,7 @@ export class CMSAdapter {
     for (let attempt = 0; attempt < this.maxRetries; attempt++) {
       try {
         await this.bucket.acquire();
-        const response = await this.client.get(url);
+        const response = await this.client.get(url, { signal, timeout: 30000 });
         return response.data;
       } catch (error: any) {
         lastError = error;

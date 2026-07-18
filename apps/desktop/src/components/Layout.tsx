@@ -1,4 +1,5 @@
 import { NavLink, Link, Outlet } from 'react-router-dom';
+import { UsageGuideDialog } from './UsageGuideDialog';
 import {
   Home,
   Settings,
@@ -94,6 +95,7 @@ export function Layout() {
 
   return (
     <ToastProvider>
+      <UsageGuideDialog />
       <div className="flex h-full">
         <aside className="w-56 shrink-0 flex flex-col border-r border-border bg-sidebar">
           <div className="flex items-center gap-2 px-5 h-14 border-b border-border">

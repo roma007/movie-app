@@ -1,4 +1,5 @@
 import type { DatabaseProvider } from '../db/provider';
+import type { UserUsageType } from '../types';
 
 export interface SystemConfig {
   key: string;
@@ -208,5 +209,18 @@ export class SystemConfigService {
 
   static getDefaultShortDramaConfig(): ShortDramaConfig {
     return { ...DEFAULT_SHORT_DRAMA_CONFIG };
+  }
+
+  async getUserUsageTypes(): Promise<UserUsageType[]> {
+    const stored = await this.getJSON<UserUsageType[]>('user.usageType', []);
+    if (Array.isArray(stored) && stored.length > 0) {
+      return stored.filter((t) => t === 'SEARCH_FIRST' || t === 'NEW_MOVIES' || t === 'TV_SERIES');
+    }
+    return ['SEARCH_FIRST'];
+  }
+
+  async setUserUsageTypes(types: UserUsageType[]): Promise<void> {
+    const valid = types.filter((t) => t === 'SEARCH_FIRST' || t === 'NEW_MOVIES' || t === 'TV_SERIES');
+    await this.setJSON('user.usageType', valid.length > 0 ? valid : ['SEARCH_FIRST']);
   }
 }

@@ -1,5 +1,7 @@
 export type MediaType = 'MOVIE' | 'TV' | 'VARIETY' | 'ANIME' | 'DOCUMENTARY';
 
+export type UserUsageType = 'SEARCH_FIRST' | 'NEW_MOVIES' | 'TV_SERIES';
+
 export interface Media {
   id: string;
   title: string;

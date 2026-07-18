@@ -35,31 +35,50 @@ async function createTauriHttpClient(): Promise<HttpClient> {
     clientType = 'tauri';
     
     return {
-      async get(url: string, options?: { headers?: Record<string, string>; timeout?: number }) {
+      async get(url: string, options?: { headers?: Record<string, string>; timeout?: number; signal?: AbortSignal }) {
         logToConsole(`HTTP GET (tauri): ${url}`);
         
-        const response = await tauriFetch(url, {
-          method: 'GET',
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            ...options?.headers,
-          },
-          connectTimeout: options?.timeout || 15000,
+        const timeout = options?.timeout || 15000;
+
+        const fetchPromise = (async () => {
+          const response = await tauriFetch(url, {
+            method: 'GET',
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              ...options?.headers,
+            },
+            connectTimeout: timeout,
+          });
+
+          logToConsole(`HTTP RESPONSE (tauri): status=${response.status}, ok=${response.ok}`);
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const data = await response.json();
+          logToConsole(`HTTP DATA (tauri): parsed OK, list length: ${data.list?.length || 0}`);
+
+          return { data, status: response.status };
+        })();
+
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          const timer = setTimeout(() => reject(new Error('请求超时')), timeout);
+
+          if (options?.signal) {
+            if (options.signal.aborted) {
+              clearTimeout(timer);
+              reject(new DOMException('The operation was aborted.', 'AbortError'));
+              return;
+            }
+            options.signal.addEventListener('abort', () => {
+              clearTimeout(timer);
+              reject(new DOMException('The operation was aborted.', 'AbortError'));
+            }, { once: true });
+          }
         });
-        
-        logToConsole(`HTTP RESPONSE (tauri): status=${response.status}, ok=${response.ok}`);
-        
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        logToConsole(`HTTP DATA (tauri): parsed OK, list length: ${data.list?.length || 0}`);
-        
-        return {
-          data,
-          status: response.status,
-        };
+
+        return Promise.race([fetchPromise, timeoutPromise]);
       },
     };
   } catch (error) {

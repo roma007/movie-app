@@ -1,16 +1,36 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ThemeSwitcher } from '../themes/ThemeSwitcher';
 import { useFontSizeStore } from '../themes/fontSizeStore';
-import { Database, ChevronRight, Info, BookOpen, Type, Video, FileText } from 'lucide-react';
+import { Search, Film, Tv, Database, ChevronRight, Info, BookOpen, Type, Video, FileText } from 'lucide-react';
 import { DiagnosticLogViewer } from '@/components/DiagnosticLogViewer';
+import { useAppStore } from '../useAppStore';
+import type { UserUsageType } from '@movie-app/core';
+
+const USAGE_OPTIONS: { type: UserUsageType; label: string; desc: string; icon: any }[] = [
+  { type: 'SEARCH_FIRST', label: '搜索优先', desc: '临时搜索采集，找想看的视频', icon: Search },
+  { type: 'NEW_MOVIES', label: '新片追逐', desc: '增量采集最新电影，挑选感兴趣的', icon: Film },
+  { type: 'TV_SERIES', label: '追剧/综艺', desc: '追更电视剧/综艺，追完再增量采集', icon: Tv },
+];
 
 export default function SettingsPage() {
   const navigate = useNavigate();
   const { currentFontSize, fontSizes, setFontSize } = useFontSizeStore();
   const [showDiagnosticLogs, setShowDiagnosticLogs] = useState(false);
+  const { userUsageTypes, loadUserUsageTypes, setUserUsageTypes } = useAppStore();
+
+  useEffect(() => {
+    loadUserUsageTypes();
+  }, []);
+
+  const handleToggleUsage = (type: UserUsageType) => {
+    const next = userUsageTypes.includes(type)
+      ? userUsageTypes.filter((t) => t !== type)
+      : [...userUsageTypes, type];
+    if (next.length > 0) setUserUsageTypes(next);
+  };
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -39,6 +59,36 @@ export default function SettingsPage() {
               {size.label}
             </Button>
           ))}
+        </div>
+      </Card>
+
+      <Card className="p-4 bg-card border-border">
+        <span className="font-medium mb-3 block">使用偏好（可多选）</span>
+        <div className="grid grid-cols-3 gap-3">
+          {USAGE_OPTIONS.map((opt) => {
+            const Icon = opt.icon;
+            const isActive = userUsageTypes.includes(opt.type);
+            return (
+              <button
+                key={opt.type}
+                onClick={() => handleToggleUsage(opt.type)}
+                className={`flex flex-col items-center gap-2 p-4 rounded-lg border transition-all ${
+                  isActive
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border hover:border-primary/50 hover:bg-secondary/50 text-muted-foreground'
+                }`}
+              >
+                <div className={`size-5 flex items-center justify-center rounded border-2 ${
+                  isActive ? 'border-primary bg-primary' : 'border-current'
+                }`}>
+                  {isActive && <span className="text-white text-xs font-bold">✓</span>}
+                </div>
+                <Icon className="size-6" />
+                <span className="text-sm font-medium">{opt.label}</span>
+                <span className="text-xs text-center leading-tight">{opt.desc}</span>
+              </button>
+            );
+          })}
         </div>
       </Card>
 

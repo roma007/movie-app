@@ -608,7 +608,8 @@ export class CollectorService {
 
   async searchKeywordPreview(
     keyword: string,
-    overrides?: { ignoreBlacklist?: boolean; unlimitedYear?: boolean }
+    overrides?: { ignoreBlacklist?: boolean; unlimitedYear?: boolean },
+    onBatch?: (batch: CollectPreviewItem[], sourceIndex: number, totalSources: number) => void
   ): Promise<CollectPreviewItem[]> {
     const sources = await this.db.getEnabledVideoSources();
     const configService = new SystemConfigService(this.db);
@@ -617,7 +618,9 @@ export class CollectorService {
     const results: CollectPreviewItem[] = [];
     const seenFingerprints = new Set<string>();
 
-    for (const source of sources) {
+    for (let si = 0; si < sources.length; si++) {
+      const source = sources[si];
+      const batch: CollectPreviewItem[] = [];
       try {
         const adapter = new CMSAdapter(source.baseUrl, source.rateLimit);
         await this.db.incrementSourceRequestCount(source.id);
@@ -657,7 +660,7 @@ export class CollectorService {
             if (seenFingerprints.has(fingerprint)) continue;
             seenFingerprints.add(fingerprint);
 
-            results.push({
+            const previewItem: CollectPreviewItem = {
               fingerprint,
               title,
               year,
@@ -669,7 +672,9 @@ export class CollectorService {
               sourceName: source.name,
               sourceId: source.id,
               rawItem: item,
-            });
+            };
+            results.push(previewItem);
+            batch.push(previewItem);
           } catch (err) {
             await this.db.incrementSourceFailCount(source.id);
           }
@@ -677,6 +682,7 @@ export class CollectorService {
       } catch (err) {
         await this.db.incrementSourceFailCount(source.id);
       }
+      onBatch?.(batch, si, sources.length);
     }
 
     return results;
@@ -705,43 +711,124 @@ export class CollectorService {
     return saved;
   }
 
-  async collectLatest(page: number = 1, pageSize: number = 20): Promise<Media[]> {
+  async collectLatest(
+    page: number = 1,
+    pageSize: number = 20,
+    onSourceProgress?: (progress: {
+      sourceIndex: number;
+      sourceName: string;
+      currentPage: number;
+      totalPages: number;
+      collected: number;
+      status: 'running' | 'done' | 'failed';
+      error?: string;
+    }) => void
+  ): Promise<void> {
     const sources = await this.db.getEnabledVideoSources();
     const configService = new SystemConfigService(this.db);
     const config = await configService.getCollectConfig();
-    
-    console.log(`[Collector] collectLatest: ${sources.length} sources, config.minYear=${config.minYear}, config.maxPages=${config.maxPages}`);
-    
-    const results: Media[] = [];
-    const seenFingerprints = new Set<string>();
 
-    for (const source of sources) {
+    console.log(`[Collector] collectLatest: ${sources.length} sources, incrementalMaxPages=${config.incrementalMaxPages}`);
+
+    await Promise.all(sources.map(async (source, si) => {
+      const now = new Date().toISOString();
+
+      const taskId = `${source.code}-INCREMENTAL-${Date.now()}-${si}-${Math.random().toString(36).slice(2, 6)}`;
+      const task: CollectTask = {
+        id: generateId(),
+        taskId,
+        sourceCode: source.code,
+        sourceName: source.name,
+        type: 'INCREMENTAL',
+        status: 'PENDING' as TaskStatus,
+        currentPage: 0,
+        totalPages: config.incrementalMaxPages,
+        collectedCount: 0,
+        failedCount: 0,
+        createdAt: now,
+      };
+
+      await this.db.createCollectTask(task);
+
+      onSourceProgress?.({
+        sourceIndex: si,
+        sourceName: source.name,
+        currentPage: 0,
+        totalPages: config.incrementalMaxPages,
+        collected: 0,
+        status: 'running',
+      });
+
+      let collected = 0;
+      let failed = 0;
+      let currentPage = page;
+      let hasMore = true;
+      let totalPages = config.incrementalMaxPages;
+
       try {
-        let currentPage = page;
-        let hasMore = true;
-        let totalPages = config.maxPages;
+        await this.db.updateCollectTask(taskId, { status: 'RUNNING' as TaskStatus, startedAt: now, currentPage });
 
         while (hasMore && currentPage <= totalPages) {
           console.log(`[Collector] Processing source ${source.name} page ${currentPage}/${totalPages}`);
           const { media, pagecount } = await this.collectFromSource(source.id, source.baseUrl, source.rateLimit, currentPage, pageSize);
-          
-          for (const m of media) {
-            if (!seenFingerprints.has(m.fingerprint)) {
-              seenFingerprints.add(m.fingerprint);
-              results.push(m);
-            }
-          }
+
+          collected += media.length;
+
+          await this.db.updateCollectTask(taskId, {
+            currentPage,
+            collectedCount: collected,
+            failedCount: failed,
+          });
+
+          onSourceProgress?.({
+            sourceIndex: si,
+            sourceName: source.name,
+            currentPage,
+            totalPages,
+            collected,
+            status: 'running',
+          });
 
           hasMore = currentPage < pagecount && currentPage < totalPages;
           currentPage++;
         }
-      } catch (err) {
-        console.error(`采集源 ${source.name} 失败:`, err);
-      }
-    }
 
-    console.log(`[Collector] collectLatest completed: ${results.length} unique media collected`);
-    return results;
+        await this.db.updateCollectTask(taskId, {
+          status: 'COMPLETED' as TaskStatus,
+          completedAt: new Date().toISOString(),
+        });
+
+        onSourceProgress?.({
+          sourceIndex: si,
+          sourceName: source.name,
+          currentPage: currentPage - 1,
+          totalPages,
+          collected,
+          status: 'done',
+        });
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        console.error(`采集源 ${source.name} 失败:`, errorMsg);
+        await this.db.updateCollectTask(taskId, {
+          status: 'FAILED' as TaskStatus,
+          errorMessage: errorMsg.slice(0, 500),
+          errorType: classifyError(err),
+          completedAt: new Date().toISOString(),
+        });
+
+        onSourceProgress?.({
+          sourceIndex: si,
+          sourceName: source.name,
+          currentPage,
+          totalPages,
+          collected,
+          status: 'failed',
+          error: errorMsg,
+        });
+      }
+    }));
+
+    console.log(`[Collector] collectLatest completed`);
   }
 
   async collectAll(pageSize: number = 20): Promise<{ totalCollected: number; totalPages: number }> {

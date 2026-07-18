@@ -1,17 +1,32 @@
 import { useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Alert } from 'react-native';
 import { useAppStore } from '../useAppStore';
+import type { UserUsageType } from '@movie-app/core';
 
 interface Props {
   navigation: any;
 }
 
+const USAGE_OPTIONS: { type: UserUsageType; label: string; desc: string; icon: string }[] = [
+  { type: 'SEARCH_FIRST', label: '搜索优先', desc: '临时搜片', icon: '🔍' },
+  { type: 'NEW_MOVIES', label: '新片追逐', desc: '增量看新片', icon: '🎬' },
+  { type: 'TV_SERIES', label: '追剧/综艺', desc: '追更剧综', icon: '📺' },
+];
+
 export default function SettingsScreen({ navigation }: Props) {
-  const { videoSources, loadVideoSources, toggleSourceEnabled, clearHistory } = useAppStore();
+  const { videoSources, loadVideoSources, toggleSourceEnabled, clearHistory, userUsageTypes, loadUserUsageTypes, setUserUsageTypes } = useAppStore();
 
   useEffect(() => {
     loadVideoSources();
+    loadUserUsageTypes();
   }, []);
+
+  const handleToggleUsage = (type: UserUsageType) => {
+    const next = userUsageTypes.includes(type)
+      ? userUsageTypes.filter((t) => t !== type)
+      : [...userUsageTypes, type];
+    if (next.length > 0) setUserUsageTypes(next);
+  };
 
   const handleClearHistory = () => {
     Alert.alert('确认清除', '确定要清除所有观看历史吗？', [
@@ -48,6 +63,27 @@ export default function SettingsScreen({ navigation }: Props) {
         >
           <Text style={styles.manageButtonText}>管理视频源</Text>
         </TouchableOpacity>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>使用偏好（可多选）</Text>
+        <View style={styles.usageRow}>
+          {USAGE_OPTIONS.map((opt) => {
+            const isActive = userUsageTypes.includes(opt.type);
+            return (
+              <TouchableOpacity
+                key={opt.type}
+                style={[styles.usageOption, isActive && styles.usageOptionActive]}
+                onPress={() => handleToggleUsage(opt.type)}
+              >
+                <Text style={styles.usageCheck}>{isActive ? '✓' : ''}</Text>
+                <Text style={styles.usageIcon}>{opt.icon}</Text>
+                <Text style={[styles.usageLabel, isActive && styles.usageLabelActive]}>{opt.label}</Text>
+                <Text style={styles.usageDesc}>{opt.desc}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </View>
 
       <View style={styles.section}>
@@ -105,4 +141,48 @@ const styles = StyleSheet.create({
   menuItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 15, borderBottomWidth: 1, borderBottomColor: '#222' },
   menuText: { fontSize: 15, color: '#fff' },
   menuValue: { fontSize: 14, color: '#888' },
+  usageRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 15,
+    paddingBottom: 15,
+    gap: 10,
+  },
+  usageOption: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    backgroundColor: '#1a1a1a',
+  },
+  usageOptionActive: {
+    borderColor: '#4a9eff',
+    backgroundColor: 'rgba(74, 158, 255, 0.1)',
+  },
+  usageCheck: {
+    position: 'absolute',
+    top: 4,
+    right: 8,
+    fontSize: 14,
+    color: '#4a9eff',
+    fontWeight: 'bold',
+  },
+  usageIcon: {
+    fontSize: 20,
+    marginBottom: 4,
+  },
+  usageLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#fff',
+    marginBottom: 2,
+  },
+  usageLabelActive: {
+    color: '#4a9eff',
+  },
+  usageDesc: {
+    fontSize: 11,
+    color: '#888',
+  },
 });

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { DatabaseProvider } from '../db/provider';
-import type { Media, VideoSource, Favorite, WatchHistory, PaginatedMeta, CollectTask, CollectionLog, CollectPreviewItem } from '../types';
+import type { Media, VideoSource, Favorite, WatchHistory, PaginatedMeta, CollectTask, CollectionLog, CollectPreviewItem, UserUsageType } from '../types';
 import type { CollectConfig, ShortDramaConfig } from '../services/systemConfigService';
 
 export interface AppState {
@@ -29,6 +29,15 @@ export interface AppState {
   reprobeMediaCount: number;
   reprobeMediaList: { id: string; title: string }[];
   runningReprobeTask: CollectTask | null;
+
+  collectSourceProgress: Array<{
+    sourceName: string;
+    currentPage: number;
+    totalPages: number;
+    collected: number;
+    status: 'running' | 'done' | 'failed';
+    error?: string;
+  }> | null;
 
   loadMediaList: (params?: any) => Promise<void>;
   getGenresByType: (type?: string) => Promise<string[]>;
@@ -124,6 +133,10 @@ hasShortDrama: (type?: string) => Promise<boolean>;
   searchKeywordPreview: (keyword: string, overrides?: { ignoreBlacklist?: boolean; unlimitedYear?: boolean }) => Promise<void>;
   saveSelectedPreviewItems: (items: CollectPreviewItem[], overrides?: { ignoreBlacklist?: boolean; unlimitedYear?: boolean }) => Promise<number>;
   clearPreviewResults: () => void;
+
+  userUsageTypes: UserUsageType[];
+  loadUserUsageTypes: () => Promise<void>;
+  setUserUsageTypes: (types: UserUsageType[]) => Promise<void>;
 }
 
 import { SystemConfigService } from '../services/systemConfigService';
@@ -156,9 +169,11 @@ export function createAppStore(db: DatabaseProvider) {
     reprobeMediaCount: 0,
     reprobeMediaList: [],
     runningReprobeTask: null,
+    collectSourceProgress: null,
     collectionLogs: [],
     previewResults: [],
     previewLoading: false,
+    userUsageTypes: ['SEARCH_FIRST'],
 
     loadMediaList: async (params = {}) => {
       console.log(`[STORE] loadMediaList called with params:`, params);
@@ -334,7 +349,15 @@ export function createAppStore(db: DatabaseProvider) {
     loadWatchHistory: async (page: number = 1) => {
       try {
         const history = await db.getAllWatchHistory(page);
-        set({ watchHistory: history });
+        const deduped = Object.values(
+          history.reduce((acc, h) => {
+            if (!acc[h.mediaId] || h.updatedAt > acc[h.mediaId].updatedAt) {
+              acc[h.mediaId] = h;
+            }
+            return acc;
+          }, {} as Record<string, WatchHistory>)
+        );
+        set({ watchHistory: deduped });
       } catch (err: any) {
         set({ error: err.message });
       }
@@ -422,14 +445,41 @@ export function createAppStore(db: DatabaseProvider) {
     },
 
     collectLatest: async () => {
-      set({ isLoading: true, error: null });
+      set({ isLoading: true, error: null, collectSourceProgress: null });
       try {
-        await collectorService.collectLatest();
+        const sources = await db.getEnabledVideoSources();
+        set({
+          collectSourceProgress: sources.map((s) => ({
+            sourceName: s.name,
+            currentPage: 0,
+            totalPages: 0,
+            collected: 0,
+            status: 'running' as const,
+          })),
+        });
+
+        await collectorService.collectLatest(1, 20, (progress) => {
+          set((state) => {
+            if (!state.collectSourceProgress) return state;
+            const updated = [...state.collectSourceProgress];
+            updated[progress.sourceIndex] = {
+              sourceName: progress.sourceName,
+              currentPage: progress.currentPage,
+              totalPages: progress.totalPages,
+              collected: progress.collected,
+              status: progress.status,
+              error: progress.error,
+            };
+            return { collectSourceProgress: updated };
+          });
+        });
+
         await get().loadMediaList();
+        await get().loadCollectTasks();
       } catch (err: any) {
         set({ error: err.message });
       } finally {
-        set({ isLoading: false });
+        set({ isLoading: false, collectSourceProgress: null });
       }
     },
 
@@ -749,7 +799,11 @@ export function createAppStore(db: DatabaseProvider) {
     searchKeywordPreview: async (keyword: string, overrides?) => {
       set({ previewLoading: true, previewResults: [] });
       try {
-        const results = await collectorService.searchKeywordPreview(keyword, overrides);
+        const results = await collectorService.searchKeywordPreview(keyword, overrides, (batch, sourceIndex, totalSources) => {
+          if (batch.length > 0) {
+            set((state) => ({ previewResults: [...state.previewResults, ...batch] }));
+          }
+        });
         set({ previewResults: results });
       } catch (err: any) {
         set({ error: err.message });
@@ -770,6 +824,24 @@ export function createAppStore(db: DatabaseProvider) {
     },
 
     clearPreviewResults: () => set({ previewResults: [], previewLoading: false }),
+
+    loadUserUsageTypes: async () => {
+      try {
+        const types = await configService.getUserUsageTypes();
+        set({ userUsageTypes: types });
+      } catch (err: any) {
+        console.error('[STORE] loadUserUsageTypes failed:', err);
+      }
+    },
+
+    setUserUsageTypes: async (types: UserUsageType[]) => {
+      try {
+        await configService.setUserUsageTypes(types);
+        set({ userUsageTypes: types });
+      } catch (err: any) {
+        set({ error: err.message });
+      }
+    },
   }));
 
   // 设置 CollectorService 的日志回调，将日志推送到 store
