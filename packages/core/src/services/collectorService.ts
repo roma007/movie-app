@@ -3,7 +3,7 @@ import { normalizer, DEFAULT_MIN_YEAR } from '../utils/normalizer';
 import { mapType, isBlacklisted, refineTypeByEpisodes, isVersionTitle, needsShortDramaCheck } from '../utils/typeMapper';
 import { SOURCE_ID_TO_NAME_MAP, PLAY_SOURCE_TYPE_MAP } from '../utils/constants';
 import type { DatabaseProvider } from '../db/provider';
-import type { CMSMediaItem, Media, Episode, PlaySource, CollectTask, TaskStatus, TaskErrorType, CollectionLog } from '../types';
+import type { CMSMediaItem, Media, Episode, PlaySource, CollectTask, TaskStatus, TaskErrorType, CollectionLog, CollectPreviewItem } from '../types';
 import { SystemConfigService } from './systemConfigService';
 import type { ShortDramaConfig } from './systemConfigService';
 import { VideoDurationService } from './videoDurationService';
@@ -604,6 +604,105 @@ export class CollectorService {
     }
 
     return results;
+  }
+
+  async searchKeywordPreview(
+    keyword: string,
+    overrides?: { ignoreBlacklist?: boolean; unlimitedYear?: boolean }
+  ): Promise<CollectPreviewItem[]> {
+    const sources = await this.db.getEnabledVideoSources();
+    const configService = new SystemConfigService(this.db);
+    const config = await configService.getCollectConfig();
+
+    const results: CollectPreviewItem[] = [];
+    const seenFingerprints = new Set<string>();
+
+    for (const source of sources) {
+      try {
+        const adapter = new CMSAdapter(source.baseUrl, source.rateLimit);
+        await this.db.incrementSourceRequestCount(source.id);
+        const response = await adapter.search(keyword, 1);
+
+        for (const listItem of response.list) {
+          try {
+            await this.db.incrementSourceRequestCount(source.id);
+            const detailResponse = await adapter.getDetail(String(listItem.vod_id));
+            if (!detailResponse.list || detailResponse.list.length === 0) {
+              await this.db.incrementSourceFailCount(source.id);
+              continue;
+            }
+            const item = detailResponse.list[0];
+
+            const effectiveMinYear = overrides?.unlimitedYear ? 0 : config.minYear;
+            normalizer.setMinYear(effectiveMinYear);
+            const year = normalizer.normalizeYear(item.vod_year);
+            if (!year) continue;
+
+            const title = await normalizer.normalizeTitle(item.vod_name);
+            if (!title) continue;
+
+            const typeName = item.type_name || item.vod_type || '';
+            const remarks = item.vod_remarks || '';
+            const vodClass = item.vod_class || '';
+            const rawGenres = [...new Set([typeName, ...vodClass.split(/[,，]/).filter(Boolean)])];
+            if (!overrides?.ignoreBlacklist) {
+              const allGenreTexts = [...rawGenres, remarks, title];
+              if (isBlacklisted(config.blacklistKeywords.length > 0 ? config.blacklistKeywords : undefined, ...allGenreTexts)) continue;
+            }
+
+            const mediaType = mapType(typeName, remarks, item.vod_play_from || '', rawGenres);
+            const seasonNumber = normalizer.extractSeasonNumber(title) || 1;
+            const fingerprint = await normalizer.generateFingerprint(title, year, mediaType, seasonNumber);
+
+            if (seenFingerprints.has(fingerprint)) continue;
+            seenFingerprints.add(fingerprint);
+
+            results.push({
+              fingerprint,
+              title,
+              year,
+              type: mediaType,
+              posterUrl: item.vod_pic || '',
+              area: item.vod_area || '',
+              directors: item.vod_director ? item.vod_director.split(/[,，]/).filter(Boolean) : [],
+              actors: item.vod_actor ? item.vod_actor.split(/[,，]/).filter(Boolean) : [],
+              sourceName: source.name,
+              sourceId: source.id,
+              rawItem: item,
+            });
+          } catch (err) {
+            await this.db.incrementSourceFailCount(source.id);
+          }
+        }
+      } catch (err) {
+        await this.db.incrementSourceFailCount(source.id);
+      }
+    }
+
+    return results;
+  }
+
+  async savePreviewItems(
+    items: CollectPreviewItem[],
+    overrides?: { ignoreBlacklist?: boolean; unlimitedYear?: boolean }
+  ): Promise<number> {
+    const configService = new SystemConfigService(this.db);
+    const config = await configService.getCollectConfig();
+    let saved = 0;
+
+    const effectiveMinYear = overrides?.unlimitedYear ? 0 : config.minYear;
+    const effectiveBlacklist = overrides?.ignoreBlacklist ? [] : config.blacklistKeywords;
+
+    for (const item of items) {
+      try {
+        const media = await this.processItem(item.rawItem, item.sourceId, item.sourceName, effectiveBlacklist, effectiveMinYear);
+        if (media) saved++;
+      } catch (err) {
+        console.error(`保存预览项失败: ${item.title}`, err);
+      }
+    }
+
+    return saved;
   }
 
   async collectLatest(page: number = 1, pageSize: number = 20): Promise<Media[]> {

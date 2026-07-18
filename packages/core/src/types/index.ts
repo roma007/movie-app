@@ -161,6 +161,20 @@ export interface CollectTask {
   completedAt?: string | null;
 }
 
+export interface CollectPreviewItem {
+  fingerprint: string;
+  title: string;
+  year: number;
+  type: MediaType;
+  posterUrl: string;
+  area: string;
+  directors: string[];
+  actors: string[];
+  sourceName: string;
+  sourceId: string;
+  rawItem: CMSMediaItem;
+}
+
 export interface CollectionLog {
   id: string;
   timestamp: string;

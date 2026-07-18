@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import type { Media } from '@movie-app/core';
 import { useAppStore, getProvider } from '../useAppStore';
 import { MediaGrid, MediaCard } from '@/components/MediaCard';
@@ -122,6 +122,7 @@ export default function HomePage() {
   const { mediaList, mediaMeta, isLoading, loadMediaList, searchMedia, getSubTypesByType, getYearsByType, getAreasByType, hasShortDrama, favorites, watchHistory, loadFavorites, loadWatchHistory } = useAppStore();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [activeType, setActiveType] = useState<string | undefined>(() => {
     const type = searchParams.get('type');
     return type || undefined;
@@ -163,6 +164,19 @@ export default function HomePage() {
   const columnsMenuRef = useRef<HTMLDivElement>(null);
 
   const isHomePage = !activeType;
+
+  useEffect(() => {
+    const state = location.state as { searchKeyword?: string } | undefined;
+    if (state?.searchKeyword) {
+      const kw = state.searchKeyword.trim();
+      if (kw) {
+        setSearchKeyword(kw);
+        setIsSearching(true);
+        searchMedia(kw).catch(() => {});
+        window.history.replaceState({}, document.title);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (!showColumnsMenu) return;

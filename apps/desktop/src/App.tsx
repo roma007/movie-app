@@ -8,7 +8,6 @@ import { ThemeProvider } from './themes/ThemeProvider';
 import { FontSizeProvider } from './themes/FontSizeProvider';
 import { ConfirmProvider } from './components/ConfirmProvider';
 import HomePage from './pages/HomePage';
-import SearchPage from './pages/SearchPage';
 import DetailPage from './pages/DetailPage';
 import PlayPage from './pages/PlayPage';
 import FavoritesPage from './pages/FavoritesPage';
@@ -95,7 +94,6 @@ export default function App() {
             <Routes>
               <Route element={<Layout />}>
                 <Route path="/" element={<HomePage />} />
-                <Route path="/search" element={<SearchPage />} />
                 <Route path="/media/:id" element={<DetailPage />} />
                 <Route path="/play/:episodeId" element={<PlayPage />} />
                 <Route path="/favorites" element={<FavoritesPage />} />

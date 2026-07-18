@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { DatabaseProvider } from '../db/provider';
-import type { Media, VideoSource, Favorite, WatchHistory, PaginatedMeta, CollectTask, CollectionLog } from '../types';
+import type { Media, VideoSource, Favorite, WatchHistory, PaginatedMeta, CollectTask, CollectionLog, CollectPreviewItem } from '../types';
 import type { CollectConfig, ShortDramaConfig } from '../services/systemConfigService';
 
 export interface AppState {
@@ -73,7 +73,7 @@ export interface AppState {
   getDefaultShortDramaConfig: () => ShortDramaConfig;
 
   collectLatest: () => Promise<void>;
-  collectByKeyword: (keyword: string) => Promise<void>;
+  collectByKeyword: (keyword: string) => Promise<number>;
   collectAll: () => Promise<{ totalCollected: number; totalPages: number }>;
   checkVideoSource: (id: string) => Promise<{ healthy: boolean; responseTime: number }>;
   collectSourceLatest: (sourceCode: string) => Promise<{ success: boolean; taskId: string; collected: number; error?: string }>;
@@ -118,6 +118,12 @@ hasShortDrama: (type?: string) => Promise<boolean>;
   collectionLogs: CollectionLog[];
   addCollectionLog: (log: CollectionLog) => void;
   clearCollectionLogs: () => void;
+
+  previewResults: CollectPreviewItem[];
+  previewLoading: boolean;
+  searchKeywordPreview: (keyword: string, overrides?: { ignoreBlacklist?: boolean; unlimitedYear?: boolean }) => Promise<void>;
+  saveSelectedPreviewItems: (items: CollectPreviewItem[], overrides?: { ignoreBlacklist?: boolean; unlimitedYear?: boolean }) => Promise<number>;
+  clearPreviewResults: () => void;
 }
 
 import { SystemConfigService } from '../services/systemConfigService';
@@ -151,6 +157,8 @@ export function createAppStore(db: DatabaseProvider) {
     reprobeMediaList: [],
     runningReprobeTask: null,
     collectionLogs: [],
+    previewResults: [],
+    previewLoading: false,
 
     loadMediaList: async (params = {}) => {
       console.log(`[STORE] loadMediaList called with params:`, params);
@@ -428,10 +436,12 @@ export function createAppStore(db: DatabaseProvider) {
     collectByKeyword: async (keyword: string) => {
       set({ isLoading: true, error: null });
       try {
-        await collectorService.collectByKeyword(keyword);
+        const result = await collectorService.collectByKeyword(keyword);
         await get().loadMediaList();
+        return result.length;
       } catch (err: any) {
         set({ error: err.message });
+        return 0;
       } finally {
         set({ isLoading: false });
       }
@@ -735,6 +745,31 @@ export function createAppStore(db: DatabaseProvider) {
       }));
     },
     clearCollectionLogs: () => set({ collectionLogs: [] }),
+
+    searchKeywordPreview: async (keyword: string, overrides?) => {
+      set({ previewLoading: true, previewResults: [] });
+      try {
+        const results = await collectorService.searchKeywordPreview(keyword, overrides);
+        set({ previewResults: results });
+      } catch (err: any) {
+        set({ error: err.message });
+      } finally {
+        set({ previewLoading: false });
+      }
+    },
+
+    saveSelectedPreviewItems: async (items: CollectPreviewItem[], overrides?) => {
+      try {
+        const count = await collectorService.savePreviewItems(items, overrides);
+        await get().loadMediaList();
+        return count;
+      } catch (err: any) {
+        set({ error: err.message });
+        return 0;
+      }
+    },
+
+    clearPreviewResults: () => set({ previewResults: [], previewLoading: false }),
   }));
 
   // 设置 CollectorService 的日志回调，将日志推送到 store

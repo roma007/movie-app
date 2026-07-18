@@ -174,7 +174,7 @@ export default function DetailPage() {
                 <span key={d}>
                   <button
                     type="button"
-                    onClick={() => navigate('/search', { state: { keyword: d } })}
+                    onClick={() => navigate('/', { state: { searchKeyword: d } })}
                     className="hover:text-primary transition-colors cursor-pointer"
                   >
                     {d}
@@ -189,7 +189,7 @@ export default function DetailPage() {
                 <span key={a}>
                   <button
                     type="button"
-                    onClick={() => navigate('/search', { state: { keyword: a } })}
+                    onClick={() => navigate('/', { state: { searchKeyword: a } })}
                     className="hover:text-primary transition-colors cursor-pointer"
                   >
                     {a}
