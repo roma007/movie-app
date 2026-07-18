@@ -14,6 +14,11 @@ import DetailScreen from './src/pages/DetailScreen';
 import PlayScreen from './src/pages/PlayScreen';
 import SourceManagerScreen from './src/pages/SourceManagerScreen';
 import CollectConfigScreen from './src/pages/CollectConfigScreen';
+import TaskListScreen from './src/pages/TaskListScreen';
+import HelpCenterScreen from './src/pages/HelpCenterScreen';
+import CollectGuideScreen from './src/pages/CollectGuideScreen';
+import VideoManagementScreen from './src/pages/VideoManagementScreen';
+import TestCollectScreen from './src/pages/TestCollectScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -111,6 +116,31 @@ export default function App() {
           <Stack.Screen
             name="CollectConfig"
             component={CollectConfigScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="TaskList"
+            component={TaskListScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="HelpCenter"
+            component={HelpCenterScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="CollectGuide"
+            component={CollectGuideScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="VideoManagement"
+            component={VideoManagementScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="TestCollect"
+            component={TestCollectScreen}
             options={{ headerShown: false }}
           />
         </Stack.Navigator>

@@ -55,8 +55,27 @@ export default function SettingsScreen({ navigation }: Props) {
         <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('CollectConfig')}>
           <Text style={styles.menuText}>采集配置</Text>
         </TouchableOpacity>
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('TaskList')}>
+          <Text style={styles.menuText}>采集任务</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('VideoManagement')}>
+          <Text style={styles.menuText}>视频管理</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.menuItem} onPress={handleClearHistory}>
           <Text style={styles.menuText}>清除观看历史</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>辅助</Text>
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('CollectGuide')}>
+          <Text style={styles.menuText}>采集教程</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('HelpCenter')}>
+          <Text style={styles.menuText}>帮助中心</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('TestCollect')}>
+          <Text style={styles.menuText}>测试采集</Text>
         </TouchableOpacity>
       </View>
 
