@@ -85,3 +85,59 @@ export const PLAY_SOURCE_TYPE_MAP: Record<string, string> = {
   'hnyun': '正片',
   'hnm3u8': '正片',
 };
+
+export const AI_SOURCE_PROMPT = `你是一个视频源推荐专家。请提供 3-8 个当前可用的苹果CMS/海洋CMS视频采集源。
+
+## 要求
+1. 每个源必须提供完整的 API 地址（如 https://xxx.com/api.php/provide/vod）
+2. API 地址必须真实可用，支持标准的苹果CMS接口（ac=list, ac=detail, ac=videolist）
+3. 优先推荐国内可直接访问的源，无需科学上网
+4. 源应多样化覆盖电影、电视剧、综艺、动漫等内容
+
+## 输出格式
+请严格按以下 JSON 数组格式输出，不要加任何额外文字和 markdown 代码块标记：
+
+[
+  {
+    "name": "视频源名称",
+    "code": "唯一英文编码（短小无空格）",
+    "baseUrl": "CMS API 完整地址",
+    "rateLimit": 2,
+    "priority": 10
+  }
+]
+
+## 参数说明
+- name: 中文名称，如 "极速资源"
+- code: 唯一英文标识，如 "jisuziyuan"
+- baseUrl: API 地址，必须以 /api.php/provide/vod 结尾
+- rateLimit: 并发数，1-5 之间的整数，建议 2
+- priority: 优先级，数值越大越优先，建议 5-10
+
+## 示例
+[
+  {
+    "name": "示例资源",
+    "code": "shiliziyuan",
+    "baseUrl": "https://example.com/api.php/provide/vod",
+    "rateLimit": 2,
+    "priority": 8
+  }
+]`;
+
+export const AI_SOURCE_IMPORT_SAMPLE = JSON.stringify([
+  {
+    name: '极速资源',
+    code: 'jisuziyuan',
+    baseUrl: 'https://api.jisuzy.com/api.php/provide/vod',
+    rateLimit: 2,
+    priority: 10,
+  },
+  {
+    name: '酷云资源',
+    code: 'kuyunzy',
+    baseUrl: 'https://www.kuyunzy.com/api.php/provide/vod',
+    rateLimit: 2,
+    priority: 8,
+  },
+], null, 2);

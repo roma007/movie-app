@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Alert, Modal, TextInput, ActivityIndicator } from 'react-native';
 import { useAppStore } from '../useAppStore';
-import type { VideoSource, CollectTask, CollectPreviewItem } from '@movie-app/core';
+import { SourceImportService, AI_SOURCE_PROMPT, AI_SOURCE_IMPORT_SAMPLE } from '@movie-app/core';
+import type { VideoSource, CollectTask, CollectPreviewItem, ImportSourceItem, ParsedImportSource } from '@movie-app/core';
 
 interface Props {
   navigation: any;
@@ -55,6 +56,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
     collectionLogs, clearCollectionLogs,
     previewResults, previewLoading,
     searchKeywordPreview, saveSelectedPreviewItems, clearPreviewResults,
+    batchImportSources, validateImportSources,
   } = useAppStore();
 
   const [modalVisible, setModalVisible] = useState(false);
@@ -70,6 +72,13 @@ export default function SourceManagerScreen({ navigation }: Props) {
   const [isSaving, setIsSaving] = useState(false);
   const [relaxBlacklist, setRelaxBlacklist] = useState(false);
   const [relaxYear, setRelaxYear] = useState(false);
+
+  const [aiModalVisible, setAiModalVisible] = useState(false);
+  const [aiStep, setAiStep] = useState<'prompt' | 'paste' | 'preview'>('prompt');
+  const [aiPastedText, setAiPastedText] = useState('');
+  const [aiPreview, setAiPreview] = useState<ParsedImportSource[]>([]);
+  const [aiImporting, setAiImporting] = useState(false);
+  const [aiResult, setAiResult] = useState<{ imported: number; skipped: number } | null>(null);
 
   const hasRunningTaskRef = useRef(false);
 
@@ -246,6 +255,56 @@ export default function SourceManagerScreen({ navigation }: Props) {
     }
   };
 
+  const handleAiParse = async () => {
+    if (!aiPastedText.trim()) {
+      Alert.alert('提示', '请先粘贴 AI 返回的数据');
+      return;
+    }
+    const parsed = SourceImportService.parseJson(aiPastedText.trim());
+    if (parsed.errors.length > 0) {
+      Alert.alert('解析错误', parsed.errors[0].message);
+      return;
+    }
+    if (parsed.items.length === 0) {
+      Alert.alert('提示', '未解析到有效数据');
+      return;
+    }
+    const preview = await validateImportSources(parsed.items);
+    setAiPreview(preview);
+    setAiStep('preview');
+  };
+
+  const handleAiImport = async () => {
+    const validItems = aiPreview
+      .filter((p) => p.status === 'valid')
+      .map((p) => p.item);
+    if (validItems.length === 0) {
+      Alert.alert('提示', '没有可导入的有效视频源');
+      return;
+    }
+    setAiImporting(true);
+    try {
+      const result = await batchImportSources(validItems);
+      setAiResult({ imported: result.imported, skipped: result.skipped });
+      if (result.imported > 0) {
+        Alert.alert('导入成功', `成功导入 ${result.imported} 个视频源` + (result.skipped > 0 ? `，跳过 ${result.skipped} 个` : ''));
+      } else {
+        Alert.alert('导入失败', `${result.skipped} 个被跳过`);
+      }
+    } catch (err: any) {
+      Alert.alert('导入失败', err.message || '未知错误');
+    } finally {
+      setAiImporting(false);
+    }
+  };
+
+  const handleAiReset = () => {
+    setAiStep('prompt');
+    setAiPastedText('');
+    setAiPreview([]);
+    setAiResult(null);
+  };
+
   const handleCloseKeywordModal = () => {
     clearPreviewResults();
     setKeywordModalVisible(false);
@@ -377,7 +436,17 @@ export default function SourceManagerScreen({ navigation }: Props) {
         </View>
 
         <TouchableOpacity style={styles.addButton} onPress={() => setModalVisible(true)}>
-          <Text style={styles.addButtonText}>添加视频源</Text>
+          <Text style={styles.addButtonText}>手动添加</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.addButton, { backgroundColor: '#8b5cf6', marginTop: 0 }]}
+          onPress={() => {
+            setAiModalVisible(true);
+            handleAiReset();
+          }}
+        >
+          <Text style={styles.addButtonText}>AI 导入</Text>
         </TouchableOpacity>
 
         <View style={styles.bottomActions}>
@@ -598,6 +667,172 @@ export default function SourceManagerScreen({ navigation }: Props) {
           </View>
         </View>
       </Modal>
+
+      {/* AI 导入 Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={aiModalVisible}
+        onRequestClose={() => {
+          setAiModalVisible(false);
+          handleAiReset();
+        }}
+      >
+        <View style={styles.aiModalOverlay}>
+          <View style={styles.aiModalContent}>
+            {aiStep === 'prompt' && (
+              <>
+                <Text style={styles.modalTitle}>AI 导入视频源</Text>
+                <Text style={styles.aiSubtitle}>
+                  复制下方提示词，发给 AI 助手（如 ChatGPT、Claude 等），再将 AI 返回的结果粘贴到下一步
+                </Text>
+                <ScrollView style={styles.aiPromptScroll}>
+                  <Text style={styles.aiPromptText} selectable>
+                    {AI_SOURCE_PROMPT}
+                  </Text>
+                </ScrollView>
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalButtonOutline]}
+                    onPress={() => { setAiModalVisible(false); handleAiReset(); }}
+                  >
+                    <Text style={styles.modalButtonText}>取消</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.modalButton} onPress={() => setAiStep('paste')}>
+                    <Text style={styles.modalButtonText}>下一步</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
+            {aiStep === 'paste' && (
+              <>
+                <Text style={styles.modalTitle}>粘贴 AI 返回的数据</Text>
+                <Text style={styles.aiSubtitle}>
+                  将 AI 返回的 JSON 数据粘贴到下方输入框中，然后点击解析
+                </Text>
+                <TextInput
+                  style={styles.aiTextarea}
+                  multiline
+                  placeholder="在此粘贴 AI 返回的 JSON 数据..."
+                  placeholderTextColor="#666"
+                  value={aiPastedText}
+                  onChangeText={setAiPastedText}
+                  textAlignVertical="top"
+                />
+                <View style={styles.aiSampleRow}>
+                  <TouchableOpacity onPress={() => setAiPastedText(AI_SOURCE_IMPORT_SAMPLE)}>
+                    <Text style={styles.aiSampleText}>填入示例</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalButtonOutline]}
+                    onPress={() => setAiStep('prompt')}
+                  >
+                    <Text style={styles.modalButtonText}>返回</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.modalButton} onPress={handleAiParse}>
+                    <Text style={styles.modalButtonText}>解析并预览</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
+            {aiStep === 'preview' && (
+              <>
+                <Text style={styles.modalTitle}>预览导入结果</Text>
+                <Text style={styles.aiSubtitle}>
+                  {aiResult
+                    ? `导入完成：成功 ${aiResult.imported} 个${aiResult.skipped > 0 ? `，跳过 ${aiResult.skipped} 个` : ''}`
+                    : `共解析 ${aiPreview.length} 个视频源，${aiPreview.filter(p => p.status === 'valid').length} 个可导入`
+                  }
+                </Text>
+                <ScrollView style={styles.aiPreviewList}>
+                  {aiResult ? (
+                    <View style={styles.aiResultContainer}>
+                      <Text style={styles.aiResultIcon}>✅</Text>
+                      <Text style={styles.aiResultText}>成功导入 {aiResult.imported} 个视频源</Text>
+                      {aiResult.skipped > 0 && (
+                        <Text style={styles.aiResultSubtext}>{aiResult.skipped} 个被跳过</Text>
+                      )}
+                    </View>
+                  ) : (
+                    aiPreview.map((p, idx) => {
+                      const isOverwrite = p.status === 'code_exists' || p.status === 'url_exists';
+                      const statusIcon = p.status === 'valid' ? '✅' : p.status === 'invalid_field' ? '❌' : '⚠️';
+                      return (
+                        <View
+                          key={idx}
+                          style={[
+                            styles.aiPreviewItem,
+                            p.status === 'valid' && styles.aiPreviewItemValid,
+                            isOverwrite && styles.aiPreviewItemWarn,
+                            p.status === 'invalid_field' && styles.aiPreviewItemError,
+                            p.status === 'duplicate_in_list' && styles.aiPreviewItemWarn,
+                          ]}
+                        >
+                          <Text style={styles.aiPreviewIcon}>{statusIcon}</Text>
+                          <View style={styles.aiPreviewInfo}>
+                            <Text style={styles.aiPreviewName} numberOfLines={1}>
+                              {p.item.name || '未命名'}
+                              <Text style={styles.aiPreviewCode}> ({p.item.code})</Text>
+                            </Text>
+                            <Text style={styles.aiPreviewUrl} numberOfLines={1}>{p.item.baseUrl}</Text>
+                            {p.errors.length > 0 && (
+                              <Text style={styles.aiPreviewError} numberOfLines={2}>{p.errors[0]}</Text>
+                            )}
+                            {p.existingSource && (
+                              <Text style={styles.aiPreviewWarn} numberOfLines={1}>
+                                已在库: {p.existingSource.name}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
+                </ScrollView>
+                <View style={styles.modalButtons}>
+                  {aiResult ? (
+                    <TouchableOpacity
+                      style={styles.modalButton}
+                      onPress={() => { setAiModalVisible(false); handleAiReset(); }}
+                    >
+                      <Text style={styles.modalButtonText}>完成</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <>
+                      <TouchableOpacity
+                        style={[styles.modalButton, styles.modalButtonOutline]}
+                        onPress={() => setAiStep('paste')}
+                      >
+                        <Text style={styles.modalButtonText}>返回修改</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.modalButton,
+                          (aiImporting || aiPreview.filter(p => p.status === 'valid').length === 0) && styles.sourceActionBtnDisabled,
+                        ]}
+                        onPress={handleAiImport}
+                        disabled={aiImporting || aiPreview.filter(p => p.status === 'valid').length === 0}
+                      >
+                        {aiImporting ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <Text style={styles.modalButtonText}>
+                            导入 {aiPreview.filter(p => p.status === 'valid').length} 个
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -693,4 +928,28 @@ const styles = StyleSheet.create({
   previewItemTitle: { fontSize: 15, color: '#fff', marginBottom: 2 },
   previewItemMeta: { fontSize: 12, color: '#888', marginBottom: 1 },
   previewItemDetail: { fontSize: 11, color: '#666' },
+  aiModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', paddingTop: 60 },
+  aiModalContent: { flex: 1, backgroundColor: '#0f0f0f', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, gap: 12 },
+  aiSubtitle: { fontSize: 13, color: '#888', textAlign: 'center', lineHeight: 18 },
+  aiPromptScroll: { flex: 1, backgroundColor: '#111', borderRadius: 8, padding: 12 },
+  aiPromptText: { fontSize: 12, color: '#aaa', lineHeight: 18 },
+  aiTextarea: { flex: 1, backgroundColor: '#111', color: '#ccc', borderRadius: 8, padding: 12, fontSize: 13, fontFamily: 'monospace', textAlignVertical: 'top', minHeight: 200 },
+  aiSampleRow: { flexDirection: 'row', justifyContent: 'flex-end' },
+  aiSampleText: { color: '#4a9eff', fontSize: 13 },
+  aiPreviewList: { flex: 1 },
+  aiPreviewItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 12, borderRadius: 8, marginBottom: 8, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#2a2a2a' },
+  aiPreviewItemValid: { borderColor: 'rgba(34, 197, 94, 0.3)', backgroundColor: 'rgba(34, 197, 94, 0.05)' },
+  aiPreviewItemWarn: { borderColor: 'rgba(234, 179, 8, 0.3)', backgroundColor: 'rgba(234, 179, 8, 0.05)' },
+  aiPreviewItemError: { borderColor: 'rgba(239, 68, 68, 0.3)', backgroundColor: 'rgba(239, 68, 68, 0.05)' },
+  aiPreviewIcon: { fontSize: 18 },
+  aiPreviewInfo: { flex: 1 },
+  aiPreviewName: { fontSize: 14, color: '#fff' },
+  aiPreviewCode: { fontSize: 12, color: '#888' },
+  aiPreviewUrl: { fontSize: 11, color: '#666', marginTop: 2 },
+  aiPreviewError: { fontSize: 11, color: '#ef4444', marginTop: 2 },
+  aiPreviewWarn: { fontSize: 11, color: '#eab308', marginTop: 2 },
+  aiResultContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40, gap: 8 },
+  aiResultIcon: { fontSize: 40 },
+  aiResultText: { fontSize: 18, color: '#22c55e', fontWeight: '600' },
+  aiResultSubtext: { fontSize: 14, color: '#888' },
 });

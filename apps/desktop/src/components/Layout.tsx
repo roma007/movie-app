@@ -1,5 +1,6 @@
 import { NavLink, Link, Outlet } from 'react-router-dom';
 import { UsageGuideDialog } from './UsageGuideDialog';
+import { AiSourceImportDialog } from './AiSourceImportDialog';
 import {
   Home,
   Settings,
@@ -15,6 +16,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useState, useEffect, createContext, useContext, useCallback, type ReactNode } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
+import { useAppStore } from '../useAppStore';
 
 const navItems = [
   { to: '/', label: '首页', icon: Home },
@@ -88,14 +90,40 @@ function ToastProvider({ children }: { children: ReactNode }) {
 
 export function Layout() {
   const [appVersion, setAppVersion] = useState('1.0.0');
+  const [sourcesLoaded, setSourcesLoaded] = useState(false);
+  const [showAiImport, setShowAiImport] = useState(false);
+  const { loadVideoSources, videoSources } = useAppStore();
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(() => {});
   }, []);
 
+  useEffect(() => {
+    loadVideoSources().then(() => setSourcesLoaded(true));
+  }, []);
+
+  useEffect(() => {
+    if (sourcesLoaded && videoSources.length === 0) {
+      setShowAiImport(true);
+    }
+  }, [sourcesLoaded, videoSources]);
+
+  const handleImportDone = () => {
+    setShowAiImport(false);
+    loadVideoSources();
+  };
+
   return (
     <ToastProvider>
       <UsageGuideDialog />
+      <AiSourceImportDialog
+        open={showAiImport}
+        onOpenChange={(open) => {
+          if (!open) handleImportDone();
+          setShowAiImport(open);
+        }}
+        onImported={handleImportDone}
+      />
       <div className="flex h-full">
         <aside className="w-56 shrink-0 flex flex-col border-r border-border bg-sidebar">
           <div className="flex items-center gap-2 px-5 h-14 border-b border-border">

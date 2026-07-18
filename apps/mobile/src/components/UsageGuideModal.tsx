@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity } from 'react-native';
 import { useAppStore } from '../useAppStore';
 import type { UserUsageType } from '@movie-app/core';
@@ -10,9 +10,15 @@ const OPTIONS: { type: UserUsageType; label: string; desc: string; icon: string 
 ];
 
 export default function UsageGuideModal() {
-  const [visible, setVisible] = useState(true);
-  const { setUserUsageTypes } = useAppStore();
+  const [visible, setVisible] = useState(false);
   const [selected, setSelected] = useState<Set<UserUsageType>>(new Set());
+  const { setUserUsageTypes, checkGuideShown, markGuideShown } = useAppStore();
+
+  useEffect(() => {
+    checkGuideShown().then((shown) => {
+      if (!shown) setVisible(true);
+    });
+  }, []);
 
   const handleToggle = (type: UserUsageType) => {
     setSelected((prev) => {
@@ -23,10 +29,15 @@ export default function UsageGuideModal() {
     });
   };
 
+  const dismiss = async () => {
+    await markGuideShown();
+    setVisible(false);
+  };
+
   const handleConfirm = async () => {
     if (selected.size === 0) return;
     await setUserUsageTypes([...selected]);
-    setVisible(false);
+    await dismiss();
   };
 
   if (!visible) return null;
@@ -63,7 +74,7 @@ export default function UsageGuideModal() {
           })}
 
           <View style={styles.btnRow}>
-            <TouchableOpacity style={styles.skipBtn} onPress={() => setVisible(false)}>
+            <TouchableOpacity style={styles.skipBtn} onPress={dismiss}>
               <Text style={styles.skipBtnText}>跳过</Text>
             </TouchableOpacity>
             <TouchableOpacity

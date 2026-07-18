@@ -12,6 +12,7 @@ import {
   Database,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   Plus,
   ClipboardList,
   ScrollText,
@@ -36,8 +37,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAppStore } from '../useAppStore';
 import { useConfirm } from '@/components/ConfirmProvider';
 import { useToast } from '@/components/Layout';
-import { getHttpClient } from '@movie-app/core';
-import type { VideoSource, CollectTask, CollectPreviewItem } from '@movie-app/core';
+import { getHttpClient, SourceImportService, AI_SOURCE_PROMPT, AI_SOURCE_IMPORT_SAMPLE } from '@movie-app/core';
+import type { VideoSource, CollectTask, CollectPreviewItem, ImportSourceItem, ParsedImportSource } from '@movie-app/core';
 
 export default function SourceManagerPage() {
   const navigate = useNavigate();
@@ -64,6 +65,8 @@ export default function SourceManagerPage() {
     searchKeywordPreview,
     saveSelectedPreviewItems,
     clearPreviewResults,
+    batchImportSources,
+    validateImportSources,
   } = useAppStore();
 
   const [pendingCollect, setPendingCollect] = useState<Map<string, 'increment' | 'full'>>(new Map());
@@ -84,6 +87,14 @@ export default function SourceManagerPage() {
   const [hasSearched, setHasSearched] = useState(false);
   const [relaxBlacklist, setRelaxBlacklist] = useState(false);
   const [relaxYear, setRelaxYear] = useState(false);
+
+  const [showAiImportDialog, setShowAiImportDialog] = useState(false);
+  const [aiStep, setAiStep] = useState<'prompt' | 'paste' | 'preview'>('prompt');
+  const [aiPastedText, setAiPastedText] = useState('');
+  const [aiParsed, setAiParsed] = useState<{ items: ImportSourceItem[]; errors: { index: number; message: string }[] } | null>(null);
+  const [aiPreview, setAiPreview] = useState<ParsedImportSource[]>([]);
+  const [aiImporting, setAiImporting] = useState(false);
+  const [aiResult, setAiResult] = useState<{ imported: number; skipped: number } | null>(null);
 
   const hasRunningTaskRef = useRef(false);
 
@@ -347,6 +358,78 @@ export default function SourceManagerPage() {
     toast('视频源已添加');
   };
 
+  const handleAiCopyPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(AI_SOURCE_PROMPT);
+      toast('提示词已复制到剪贴板，请发送给 AI 助手');
+    } catch {
+      toast('复制失败，请手动复制', 'error');
+    }
+  };
+
+  const handleAiPasteFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      setAiPastedText(text);
+      toast('已从剪贴板粘贴');
+    } catch {
+      toast('无法读取剪贴板，请手动粘贴', 'error');
+    }
+  };
+
+  const handleAiParse = async () => {
+    if (!aiPastedText.trim()) {
+      toast('请先粘贴 AI 返回的数据', 'error');
+      return;
+    }
+    const parsed = SourceImportService.parseJson(aiPastedText.trim());
+    setAiParsed(parsed);
+    if (parsed.errors.length > 0) {
+      const firstError = parsed.errors[0];
+      toast(firstError.message, 'error');
+      return;
+    }
+    if (parsed.items.length === 0) {
+      toast('未解析到有效数据', 'error');
+      return;
+    }
+    const preview = await validateImportSources(parsed.items);
+    setAiPreview(preview);
+    setAiStep('preview');
+  };
+
+  const handleAiImport = async () => {
+    const validItems = aiPreview
+      .filter((p) => p.status === 'valid')
+      .map((p) => p.item);
+    if (validItems.length === 0) {
+      toast('没有可导入的有效视频源', 'error');
+      return;
+    }
+    setAiImporting(true);
+    try {
+      const result = await batchImportSources(validItems);
+      setAiResult({ imported: result.imported, skipped: result.skipped });
+      if (result.imported > 0) {
+        toast(`成功导入 ${result.imported} 个视频源` + (result.skipped > 0 ? `，跳过 ${result.skipped} 个` : ''));
+      } else {
+        toast(`导入失败，${result.skipped} 个被跳过`, 'error');
+      }
+    } catch (err: any) {
+      toast(`导入失败: ${err.message}`, 'error');
+    } finally {
+      setAiImporting(false);
+    }
+  };
+
+  const handleAiReset = () => {
+    setAiStep('prompt');
+    setAiPastedText('');
+    setAiParsed(null);
+    setAiPreview([]);
+    setAiResult(null);
+  };
+
   const handleMove = async (index: number, dir: 'up' | 'down') => {
     const target = dir === 'up' ? index - 1 : index + 1;
     if (target < 0 || target >= videoSources.length) return;
@@ -414,6 +497,16 @@ export default function SourceManagerPage() {
           >
             <ClipboardList className="size-4 mr-2" />
             采集任务列表
+          </Button>
+          <Button
+            variant="default"
+            onClick={() => {
+              setShowAiImportDialog(true);
+              handleAiReset();
+            }}
+          >
+            <Plus className="size-4 mr-2" />
+            AI 导入
           </Button>
           <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
             <DialogContent className="w-full max-w-[45vw]">
@@ -844,6 +937,170 @@ export default function SourceManagerPage() {
               </Button>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* AI 导入对话框 */}
+      <Dialog open={showAiImportDialog} onOpenChange={(open) => {
+        if (!open) handleAiReset();
+        setShowAiImportDialog(open);
+      }}>
+        <DialogContent className="w-full max-w-[50vw] max-h-[80vh] flex flex-col gap-0 p-0">
+          {aiStep === 'prompt' && (
+            <>
+              <DialogHeader className="px-6 pt-5 pb-3">
+                <DialogTitle>AI 导入视频源</DialogTitle>
+                <DialogDescription>
+                  复制下方提示词，发给 AI 助手（如 ChatGPT、Claude 等），再将 AI 返回的结果粘贴到下一步
+                </DialogDescription>
+              </DialogHeader>
+              <Separator />
+              <div className="flex-1 overflow-y-auto min-h-0 px-6 py-4">
+                <div className="relative">
+                  <pre className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-4 whitespace-pre-wrap break-all max-h-[360px] overflow-y-auto font-sans leading-relaxed">
+                    {AI_SOURCE_PROMPT}
+                  </pre>
+                </div>
+              </div>
+              <Separator />
+              <div className="flex justify-end gap-3 px-6 py-3">
+                <Button variant="outline" onClick={() => setShowAiImportDialog(false)}>取消</Button>
+                <Button onClick={handleAiCopyPrompt}>
+                  <CheckCircle2 className="size-4 mr-1" /> 复制提示词
+                </Button>
+                <Button onClick={() => setAiStep('paste')}>
+                  下一步：粘贴 AI 返回的数据 <ChevronRight className="size-4 ml-1" />
+                </Button>
+              </div>
+            </>
+          )}
+
+          {aiStep === 'paste' && (
+            <>
+              <DialogHeader className="px-6 pt-5 pb-3">
+                <DialogTitle>粘贴 AI 返回的数据</DialogTitle>
+                <DialogDescription>
+                  将 AI 返回的 JSON 数据粘贴到下方文本框中，然后点击解析
+                </DialogDescription>
+              </DialogHeader>
+              <Separator />
+              <div className="flex-1 overflow-y-auto min-h-0 px-6 py-4">
+                <div className="flex gap-2 mb-3">
+                  <Button variant="outline" size="sm" onClick={handleAiPasteFromClipboard}>
+                    从剪贴板粘贴
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setAiPastedText(AI_SOURCE_IMPORT_SAMPLE)}>
+                    查看示例
+                  </Button>
+                </div>
+                <textarea
+                  className="w-full h-[300px] bg-muted/50 rounded-lg p-4 text-xs font-mono resize-none outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="在此粘贴 AI 返回的 JSON 数据..."
+                  value={aiPastedText}
+                  onChange={(e) => setAiPastedText(e.target.value)}
+                />
+              </div>
+              <Separator />
+              <div className="flex justify-end gap-3 px-6 py-3">
+                <Button variant="outline" onClick={() => setAiStep('prompt')}>
+                  <ChevronDown className="size-4 mr-1 rotate-90" /> 返回
+                </Button>
+                <Button onClick={handleAiParse}>
+                  <Search className="size-4 mr-1" /> 解析并预览
+                </Button>
+              </div>
+            </>
+          )}
+
+          {aiStep === 'preview' && (
+            <>
+              <DialogHeader className="px-6 pt-5 pb-3">
+                <DialogTitle>预览导入结果</DialogTitle>
+                <DialogDescription>
+                  {aiResult
+                    ? `导入完成：成功 ${aiResult.imported} 个${aiResult.skipped > 0 ? `，跳过 ${aiResult.skipped} 个` : ''}`
+                    : `共解析 ${aiPreview.length} 个视频源，${aiPreview.filter(p => p.status === 'valid').length} 个可导入`
+                  }
+                </DialogDescription>
+              </DialogHeader>
+              <Separator />
+              <div className="flex-1 overflow-y-auto min-h-0 px-6 py-4">
+                {aiResult ? (
+                  <div className="flex flex-col items-center justify-center h-32 text-muted-foreground gap-2">
+                    <CheckCircle2 className="size-10 text-green-500" />
+                    <p className="text-lg font-medium text-green-500">
+                      成功导入 {aiResult.imported} 个视频源
+                    </p>
+                    {aiResult.skipped > 0 && (
+                      <p className="text-sm text-muted-foreground">{aiResult.skipped} 个被跳过</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {aiPreview.map((p, idx) => {
+                      const statusIcon = p.status === 'valid' ? '✅' : p.status === 'invalid_field' ? '❌' : '⚠️';
+                      const statusText = p.status === 'valid' ? '可导入'
+                        : p.status === 'code_exists' ? '编码已存在'
+                        : p.status === 'url_exists' ? '地址已存在'
+                        : p.status === 'duplicate_in_list' ? '列表中重复'
+                        : '字段无效';
+                      const isOverwrite = p.status === 'code_exists' || p.status === 'url_exists';
+                      return (
+                        <div
+                          key={idx}
+                          className={`flex items-center gap-3 p-3 rounded-md border ${
+                            p.status === 'valid' ? 'border-green-500/30 bg-green-500/5'
+                            : isOverwrite ? 'border-yellow-500/30 bg-yellow-500/5'
+                            : 'border-red-500/30 bg-red-500/5'
+                          }`}
+                        >
+                          <span className="text-lg">{statusIcon}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-sm">{p.item.name || '未命名'}</span>
+                              <Badge variant="outline" className="text-[10px]">{p.item.code}</Badge>
+                              <span className="text-[10px] text-muted-foreground">{statusText}</span>
+                            </div>
+                            <div className="text-xs text-muted-foreground truncate mt-0.5">{p.item.baseUrl}</div>
+                            {p.errors.length > 0 && (
+                              <div className="text-xs text-red-500 mt-0.5">{p.errors[0]}</div>
+                            )}
+                            {p.existingSource && (
+                              <div className="text-xs text-yellow-500 mt-0.5">
+                                已在库: {p.existingSource.name}（{p.existingSource.baseUrl}）
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              <Separator />
+              <div className="flex justify-end gap-3 px-6 py-3">
+                {aiResult ? (
+                  <Button onClick={() => { setShowAiImportDialog(false); handleAiReset(); }}>完成</Button>
+                ) : (
+                  <>
+                    <Button variant="outline" onClick={() => setAiStep('paste')}>
+                      <ChevronDown className="size-4 mr-1 rotate-90" /> 返回修改
+                    </Button>
+                    <Button
+                      onClick={handleAiImport}
+                      disabled={aiImporting || aiPreview.filter(p => p.status === 'valid').length === 0}
+                    >
+                      {aiImporting ? (
+                        <><Loader2 className="size-4 mr-1 animate-spin" /> 导入中...</>
+                      ) : (
+                        <><Database className="size-4 mr-1" /> 导入 {aiPreview.filter(p => p.status === 'valid').length} 个视频源</>
+                      )}
+                    </Button>
+                  </>
+                )}
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 

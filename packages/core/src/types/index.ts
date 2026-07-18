@@ -186,3 +186,25 @@ export interface CollectionLog {
   sourceCode?: string;
   sourceName?: string;
 }
+
+export interface ImportSourceItem {
+  name: string;
+  code: string;
+  baseUrl: string;
+  rateLimit?: number;
+  priority?: number;
+}
+
+export type SourceImportStatus =
+  | 'valid'
+  | 'duplicate_in_list'
+  | 'code_exists'
+  | 'url_exists'
+  | 'invalid_field';
+
+export interface ParsedImportSource {
+  item: ImportSourceItem;
+  status: SourceImportStatus;
+  errors: string[];
+  existingSource?: VideoSource;
+}

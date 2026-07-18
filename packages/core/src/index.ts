@@ -17,6 +17,8 @@ export {
   defaultSources,
   BLACKLIST_KEYWORDS,
   MIN_YEAR,
+  AI_SOURCE_PROMPT,
+  AI_SOURCE_IMPORT_SAMPLE,
   type DefaultSourceConfig,
 } from './utils/constants';
 export { getHttpClient, setHttpClient, type HttpClient } from './utils/httpClient';
@@ -26,6 +28,7 @@ export { CMSAdapter } from './services/cmsAdapter';
 export { CollectorService } from './services/collectorService';
 export { SystemConfigService, type CollectConfig, type ShortDramaConfig } from './services/systemConfigService';
 export { VideoDurationService, setVideoFetchFn, getVideoFetchFn } from './services/videoDurationService';
+export { SourceImportService } from './services/sourceImportService';
 
 // 数据库抽象层
 export { PRAGMA_SQL, SCHEMA_SQL, INSERT_DEFAULT_SOURCE_SQL, COUNT_VIDEO_SOURCE_SQL } from './db/schema';

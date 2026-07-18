@@ -211,6 +211,14 @@ export class SystemConfigService {
     return { ...DEFAULT_SHORT_DRAMA_CONFIG };
   }
 
+  async getGuideShown(): Promise<boolean> {
+    return this.getJSON<boolean>('user.guideShown', false);
+  }
+
+  async setGuideShown(): Promise<void> {
+    await this.setJSON('user.guideShown', true);
+  }
+
   async getUserUsageTypes(): Promise<UserUsageType[]> {
     const stored = await this.getJSON<UserUsageType[]>('user.usageType', []);
     if (Array.isArray(stored) && stored.length > 0) {

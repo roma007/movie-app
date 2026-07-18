@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { DatabaseProvider } from '../db/provider';
-import type { Media, VideoSource, Favorite, WatchHistory, PaginatedMeta, CollectTask, CollectionLog, CollectPreviewItem, UserUsageType } from '../types';
+import type { Media, VideoSource, ImportSourceItem, ParsedImportSource, Favorite, WatchHistory, PaginatedMeta, CollectTask, CollectionLog, CollectPreviewItem, UserUsageType } from '../types';
 import type { CollectConfig, ShortDramaConfig } from '../services/systemConfigService';
 
 export interface AppState {
@@ -64,6 +64,8 @@ export interface AppState {
   removeVideoSource: (id: string) => Promise<void>;
   reorderSource: (id: string, priority: number) => Promise<void>;
   updateSourceRateLimit: (id: string, rateLimit: number) => Promise<void>;
+  batchImportSources: (items: ImportSourceItem[]) => Promise<{ imported: number; skipped: number; errors: { index: number; message: string }[] }>;
+  validateImportSources: (items: ImportSourceItem[]) => Promise<ParsedImportSource[]>;
 
   loadFavorites: () => Promise<void>;
   checkFavorite: (mediaId: string) => Promise<boolean>;
@@ -137,10 +139,13 @@ hasShortDrama: (type?: string) => Promise<boolean>;
   userUsageTypes: UserUsageType[];
   loadUserUsageTypes: () => Promise<void>;
   setUserUsageTypes: (types: UserUsageType[]) => Promise<void>;
+  checkGuideShown: () => Promise<boolean>;
+  markGuideShown: () => Promise<void>;
 }
 
 import { SystemConfigService } from '../services/systemConfigService';
 import { CollectorService } from '../services/collectorService';
+import { SourceImportService } from '../services/sourceImportService';
 
 /**
  * Zustand store 工厂函数（依赖注入 DatabaseProvider）。
@@ -149,6 +154,7 @@ import { CollectorService } from '../services/collectorService';
 export function createAppStore(db: DatabaseProvider) {
   const configService = new SystemConfigService(db);
   const collectorService = new CollectorService(db);
+  const sourceImportService = new SourceImportService(db);
 
   const store = create<AppState>((set, get) => ({
     mediaList: [],
@@ -324,6 +330,26 @@ export function createAppStore(db: DatabaseProvider) {
         await get().loadVideoSources();
       } catch (err: any) {
         set({ error: err.message });
+      }
+    },
+
+    batchImportSources: async (items: ImportSourceItem[]) => {
+      try {
+        const result = await sourceImportService.batchImport(items);
+        await get().loadVideoSources();
+        return result;
+      } catch (err: any) {
+        set({ error: err.message });
+        return { imported: 0, skipped: items.length, errors: [{ index: -1, message: err.message }] };
+      }
+    },
+
+    validateImportSources: async (items: ImportSourceItem[]) => {
+      try {
+        return await sourceImportService.validateAndDedup(items);
+      } catch (err: any) {
+        set({ error: err.message });
+        return [];
       }
     },
 
@@ -840,6 +866,23 @@ export function createAppStore(db: DatabaseProvider) {
         set({ userUsageTypes: types });
       } catch (err: any) {
         set({ error: err.message });
+      }
+    },
+
+    checkGuideShown: async () => {
+      try {
+        return await configService.getGuideShown();
+      } catch (err: any) {
+        console.error('[STORE] checkGuideShown failed:', err);
+        return false;
+      }
+    },
+
+    markGuideShown: async () => {
+      try {
+        await configService.setGuideShown();
+      } catch (err: any) {
+        console.error('[STORE] markGuideShown failed:', err);
       }
     },
   }));

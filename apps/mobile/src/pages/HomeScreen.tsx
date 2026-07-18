@@ -27,6 +27,7 @@ export default function HomeScreen() {
     collectLatest, isLoading: storeLoading,
     searchKeywordPreview, previewResults, previewLoading,
     saveSelectedPreviewItems, clearPreviewResults,
+    videoSources, loadVideoSources,
   } = useAppStore();
 
   const [allMedia, setAllMedia] = useState<Media[]>([]);
@@ -133,6 +134,25 @@ export default function HomeScreen() {
       }
     }
   }, [isLoading, allMedia, activeType]);
+
+  const [sourcesChecked, setSourcesChecked] = useState(false);
+
+  useEffect(() => {
+    loadVideoSources().then(() => setSourcesChecked(true));
+  }, []);
+
+  useEffect(() => {
+    if (sourcesChecked && videoSources.length === 0) {
+      Alert.alert(
+        '添加视频源',
+        '还没有视频源，请先通过 AI 导入或手动添加视频源后再使用',
+        [
+          { text: '去添加', onPress: () => navigation.navigate('SourceManager') },
+        ],
+        { cancelable: false }
+      );
+    }
+  }, [sourcesChecked, videoSources]);
 
   useEffect(() => {
     loadUserUsageTypes();
@@ -478,7 +498,7 @@ export default function HomeScreen() {
         onScroll={(event) => { scrollOffsetRef.current = event.nativeEvent.contentOffset.y; }}
         scrollEventThrottle={16}
       />
-      <UsageGuideModal />
+      {videoSources.length > 0 && <UsageGuideModal />}
     </View>
   );
 }
