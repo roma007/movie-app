@@ -82,13 +82,12 @@ export class TauriLoader {
         this.context.url.toLowerCase().includes('.m3u8') ||
         (this.context.type && this.context.type.toString().toLowerCase().includes('manifest'));
 
-      let data: string | Uint8Array;
+      let data: string | ArrayBuffer;
       if (isM3U8) {
         data = await response.text();
         console.log(`[TauriLoader] 文本格式完成: length=${data.length} chars`);
       } else {
-        const arrayBuffer = await response.arrayBuffer();
-        data = new Uint8Array(arrayBuffer);
+        data = await response.arrayBuffer();
         console.log(`[TauriLoader] 二进制格式完成: length=${data.byteLength} bytes`);
       }
       if (this.cancelled) return;

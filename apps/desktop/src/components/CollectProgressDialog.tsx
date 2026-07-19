@@ -77,6 +77,8 @@ export function CollectProgressDialog() {
                 <div className="text-xs text-error truncate">{s.error || '采集失败'}</div>
               ) : s.status === 'done' ? (
                 <div className="text-xs text-muted-foreground">完成 · 共采集 {s.collected} 部</div>
+              ) : s.totalPages === 0 ? (
+                <div className="text-xs text-muted-foreground">正在读取待采集量...</div>
               ) : (
                 <div className="text-xs text-muted-foreground">
                   第 {s.currentPage}/{s.totalPages} 页 · 已采集 {s.collected} 部

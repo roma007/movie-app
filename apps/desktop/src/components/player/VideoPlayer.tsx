@@ -190,6 +190,13 @@ export function VideoPlayer({
 
   return (
     <div ref={playerContainerRef} className="relative w-full aspect-video bg-black rounded-lg overflow-hidden">
+      <div className="absolute top-2 left-2 z-20 bg-black/60 rounded-md px-2.5 py-1.5 text-xs text-white/80 space-y-0.5 pointer-events-none select-none">
+        <div className="font-semibold text-white/90 mb-0.5">快捷键</div>
+        <div>置顶 <kbd className="ml-1 px-1 py-0.5 bg-white/15 rounded-sm">i</kbd></div>
+        <div>老板键 <kbd className="ml-1 px-1 py-0.5 bg-white/15 rounded-sm">k</kbd> / <kbd className="px-1 py-0.5 bg-white/15 rounded-sm">Space</kbd></div>
+        <div>全屏 <kbd className="ml-1 px-1 py-0.5 bg-white/15 rounded-sm">f</kbd></div>
+      </div>
+
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10">
           <div className="text-muted-foreground">
@@ -213,6 +220,7 @@ export function VideoPlayer({
       <MediaPlayer
         src={src}
         autoPlay
+        keyTarget="document"
         className="w-full h-full"
         onProviderChange={handleProviderChange}
         onLoadStart={() => {

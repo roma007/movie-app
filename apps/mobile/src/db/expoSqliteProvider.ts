@@ -223,6 +223,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     
     await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_episode_media_id ON episode(media_id);');
     await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source(episode_id);');
+    await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_play_source_source_id_episode_id ON play_source(source_id, episode_id);');
     await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_favorite_media_id ON favorite(media_id);');
     await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_watch_history_media_id ON watch_history(media_id);');
 

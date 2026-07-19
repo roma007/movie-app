@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import { Menu } from '@vidstack/react';
 
 interface ColorControlsProps {
@@ -58,8 +58,6 @@ function SliderRow({ label, value, min, max, step, unit, defaultValue, onChange 
 }
 
 export function ColorControls({ brightness, contrast, saturation, hue, onChange }: ColorControlsProps) {
-  const [expanded, setExpanded] = useState(false);
-
   const handleReset = useCallback(() => {
     onChange({ brightness: 100, contrast: 100, saturation: 100, hue: 0 });
   }, [onChange]);
@@ -68,8 +66,9 @@ export function ColorControls({ brightness, contrast, saturation, hue, onChange 
 
   return (
     <Menu.Root>
-      <Menu.Button className="vds-menu-item" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
-        <svg className="vds-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <Menu.Button className="vds-menu-item">
+        <svg className="vds-menu-close-icon vds-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        <svg className="vds-menu-item-icon vds-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="13.5" cy="6.5" r="2.5" />
           <circle cx="17.5" cy="10.5" r="2.5" />
           <circle cx="8.5" cy="7.5" r="2.5" />
@@ -82,8 +81,9 @@ export function ColorControls({ brightness, contrast, saturation, hue, onChange 
             重置
           </span>
         )}
+        <svg className="vds-menu-open-icon vds-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
       </Menu.Button>
-      <Menu.Items className="vds-menu-items" data-open={expanded}>
+      <Menu.Items className="vds-menu-items">
         <div className="border-t border-white/10">
           <SliderRow
             label="亮度"

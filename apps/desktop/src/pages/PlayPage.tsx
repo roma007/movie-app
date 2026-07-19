@@ -1,23 +1,46 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { getProvider } from '../init';
 import { useAppStore } from '../useAppStore';
 import { VideoPlayer } from '@/components/player/VideoPlayer';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Palette, Check, ChevronRight } from 'lucide-react';
+import { useThemeStore } from '../themes/store';
 import type { Episode, Media, PlaySource } from '@movie-app/core';
+
+const typeLabel: Record<string, string> = {
+  MOVIE: '电影',
+  TV: '电视剧',
+  VARIETY: '综艺',
+  ANIME: '动漫',
+  DOCUMENTARY: '纪录片',
+};
 
 export default function PlayPage() {
   const { episodeId } = useParams<{ episodeId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  const { saveWatchProgress } = useAppStore();
+  const { saveWatchProgress, episodes, seasons, loadSeasons, loadEpisodes } = useAppStore();
   const [episode, setEpisode] = useState<Episode | null>(null);
   const [media, setMedia] = useState<Media | null>(null);
   const [sources, setSources] = useState<PlaySource[]>([]);
   const [activeSource, setActiveSource] = useState<PlaySource | null>(null);
   const [loading, setLoading] = useState(true);
+  const [currentSeason, setCurrentSeason] = useState(1);
+  const [themeOpen, setThemeOpen] = useState(false);
+  const themeRef = useRef<HTMLDivElement>(null);
+  const { currentTheme, themes, setTheme } = useThemeStore();
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (themeRef.current && !themeRef.current.contains(e.target as Node)) {
+        setThemeOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     if (!episodeId) return;
@@ -73,6 +96,22 @@ export default function PlayPage() {
     setActiveSource(source);
   };
 
+  useEffect(() => {
+    if (!media?.id) return;
+    loadSeasons(media.id);
+  }, [media?.id]);
+
+  useEffect(() => {
+    if (!media?.id || currentSeason === 0) return;
+    loadEpisodes(media.id, currentSeason);
+  }, [media?.id, currentSeason]);
+
+  useEffect(() => {
+    if (seasons.length > 0 && !seasons.includes(currentSeason)) {
+      setCurrentSeason(seasons[0]);
+    }
+  }, [seasons]);
+
   if (loading) {
     return (
       <div className="p-6 space-y-4 max-w-7xl mx-auto">
@@ -95,9 +134,54 @@ export default function PlayPage() {
   return (
     <div className="p-6 space-y-4 max-w-7xl mx-auto">
       <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pb-4 border-b border-border">
-        <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="hover:text-primary">
-          <ArrowLeft className="size-4" /> 返回
-        </Button>
+        <div className="flex items-center">
+          <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="hover:text-primary shrink-0">
+            <ArrowLeft className="size-4" /> 返回
+          </Button>
+
+          {media && (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground ml-2 min-w-0 overflow-hidden">
+              <button type="button" onClick={() => navigate(media.type === 'MOVIE' ? '/movie' : media.type === 'TV' ? '/tv' : media.type === 'VARIETY' ? '/variety' : media.type === 'ANIME' ? '/anime' : '/documentary')} className="hover:text-primary transition-colors shrink-0">{typeLabel[media.type] || media.type}</button>
+              <ChevronRight className="size-3 shrink-0" />
+              <button type="button" onClick={() => navigate(`/media/${media.id}`)} className="truncate min-w-0 hover:text-primary transition-colors">{media.title}</button>
+              <ChevronRight className="size-3 shrink-0" />
+              <span className="text-foreground shrink-0 truncate">{episode.title || `第${episode.episodeNumber}集`}</span>
+            </div>
+          )}
+
+          <div ref={themeRef} className="relative shrink-0 ml-auto">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setThemeOpen(!themeOpen)}
+              className="gap-1.5"
+            >
+              <Palette className="size-4" />
+              <span className="text-xs">主题：{themes.find(t => t.id === currentTheme)?.name || '暗夜黑'}</span>
+            </Button>
+
+            {themeOpen && (
+              <div className="absolute right-0 top-full mt-1 w-36 rounded-lg border border-border bg-card shadow-lg py-1 z-50">
+                {themes.map((theme) => (
+                  <button
+                    key={theme.id}
+                    onClick={() => { setTheme(theme.id); setThemeOpen(false); }}
+                    className="flex items-center gap-2 w-full px-3 py-2 text-xs hover:bg-hover transition-colors"
+                  >
+                    <div
+                      className="w-3.5 h-3.5 rounded-full shrink-0"
+                      style={{ backgroundColor: theme.colors.primary }}
+                    />
+                    <span className="flex-1 text-left">{theme.name}</span>
+                    {currentTheme === theme.id && (
+                      <Check className="size-3 text-primary" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <VideoPlayer
@@ -164,6 +248,43 @@ export default function PlayPage() {
           })()}
         </div>
       </div>
+
+      {seasons.length > 1 && (
+        <div className="rounded-lg border border-border bg-card card-shadow p-4 flex gap-2 flex-wrap">
+          {seasons.map((s) => (
+            <Button
+              key={s}
+              variant={currentSeason === s ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => { setCurrentSeason(s); if (media?.id) loadEpisodes(media.id, s); }}
+            >
+              第 {s} 季
+            </Button>
+          ))}
+        </div>
+      )}
+
+      {media?.type !== 'MOVIE' && episodes.length > 0 && (
+        <div className="rounded-lg border border-border bg-card card-shadow">
+          <div className="px-5 py-3 border-b border-border">
+            <h3 className="text-base font-medium">集数</h3>
+          </div>
+          <div className="px-5 py-3">
+            <div className="flex flex-wrap gap-1.5">
+              {episodes.map((ep: any) => (
+                <Button
+                  key={ep.id}
+                  variant={ep.id === episodeId ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => navigate(`/play/${ep.id}`)}
+                >
+                  {ep.title || `第${ep.episodeNumber}集`}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

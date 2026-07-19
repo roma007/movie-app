@@ -763,7 +763,7 @@ export class CollectorService {
         sourceIndex: si,
         sourceName: source.name,
         currentPage: 0,
-        totalPages: config.incrementalMaxPages,
+        totalPages: 0,
         collected: 0,
         status: 'running',
       });
@@ -773,7 +773,7 @@ export class CollectorService {
       let currentPage = page;
       let hasMore = true;
       const maxPages = hours ? Number.MAX_SAFE_INTEGER : config.incrementalMaxPages;
-      let totalPages = config.incrementalMaxPages;
+      let totalPages = 0;
 
       try {
         await this.db.updateCollectTask(taskId, { status: 'RUNNING' as TaskStatus, startedAt: now, currentPage });
@@ -782,10 +782,12 @@ export class CollectorService {
           console.log(`[Collector] Processing source ${source.name} page ${currentPage}${hours ? ` hours=${hours}` : ` (定额)`}`);
           const { media, pagecount } = await this.collectFromSource(source.id, source.baseUrl, source.rateLimit, currentPage, pageSize, hours);
 
+          totalPages = Math.min(pagecount, config.incrementalMaxPages);
           collected += media.length;
 
           await this.db.updateCollectTask(taskId, {
             currentPage,
+            totalPages,
             collectedCount: collected,
             failedCount: failed,
           });
@@ -1004,7 +1006,7 @@ export class CollectorService {
           failed += failedCount;
           await this.db.updateCollectTask(taskId, {
             currentPage: page,
-            totalPages: config.incrementalMaxPages,
+            totalPages: Math.min(pagecount, config.incrementalMaxPages),
             collectedCount: collected,
             failedCount: failed,
           });
