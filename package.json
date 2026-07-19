@@ -1,6 +1,6 @@
 {
   "name": "movie-app-monorepo",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "scripts": {
     "mobile": "pnpm --filter @movie-app/mobile start",
@@ -8,9 +8,11 @@
     "mobile:android": "pnpm --filter @movie-app/mobile android",
     "desktop:dev": "pnpm --filter @movie-app/desktop tauri:dev",
     "desktop:build": "pnpm --filter @movie-app/desktop tauri:build",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "prepare": "husky"
   },
   "devDependencies": {
+    "husky": "^9.1.7",
     "typescript": "~6.0.3"
   },
   "pnpm": {

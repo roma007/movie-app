@@ -119,7 +119,7 @@ export default function SettingsScreen({ navigation }: Props) {
         <Text style={styles.sectionTitle}>关于</Text>
         <View style={styles.menuItem}>
           <Text style={styles.menuText}>版本</Text>
-          <Text style={styles.menuValue}>1.0.2</Text>
+          <Text style={styles.menuValue}>1.0.3</Text>
         </View>
       </View>
     </ScrollView>
