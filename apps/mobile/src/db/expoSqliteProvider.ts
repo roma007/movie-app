@@ -151,6 +151,11 @@ const MIGRATIONS: Migration[] = [
     description: 'add_episode_duration_to_media',
     sql: `ALTER TABLE media ADD COLUMN episode_duration INTEGER;`,
   },
+  {
+    version: 14,
+    description: 'add_last_collected_at_to_video_source',
+    sql: `ALTER TABLE video_source ADD COLUMN last_collected_at TEXT;`,
+  },
 ];
 
 /**

@@ -236,6 +236,12 @@ pub fn run() {
             sql: "ALTER TABLE media ADD COLUMN remarks TEXT;",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 17,
+            description: "add_last_collected_at_to_video_source",
+            sql: "ALTER TABLE video_source ADD COLUMN last_collected_at TEXT;",
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
