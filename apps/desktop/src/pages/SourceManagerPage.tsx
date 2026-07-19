@@ -638,10 +638,10 @@ export default function SourceManagerPage() {
                       </Badge>
 
                       <span className="text-xs text-muted-foreground">
-                        上次检查: {source.lastCheckAt || '从未'}
+                        上次检查: {source.lastCheckAt ? new Date(source.lastCheckAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '从未'}
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        上次采集: {source.lastCollectedAt || '从未'}
+                        上次采集: {source.lastCollectedAt ? new Date(source.lastCollectedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '从未'}
                       </span>
                     </div>
                   </div>
