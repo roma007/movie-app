@@ -311,7 +311,7 @@ export default function DetailPage() {
                           <button
                             type="button"
                             onClick={() => navigate(`/play/${ep.id}?source=${source.id}`)}
-                            className="relative px-3 py-1.5 rounded text-xs font-medium transition-all duration-200 bg-secondary text-foreground hover:bg-hover border border-transparent"
+                            className="relative px-3 py-1.5 rounded text-xs font-medium transition-all duration-200 bg-secondary text-foreground cursor-pointer hover:text-primary hover:bg-hover border border-transparent"
                             title="点击播放"
                           >
                             {title}
@@ -335,7 +335,7 @@ export default function DetailPage() {
                         <button
                           type="button"
                           onClick={() => navigate(`/play/${ep.id}`)}
-                          className={`relative px-3 py-1.5 rounded text-xs font-medium transition-all duration-200 bg-secondary text-foreground hover:bg-hover border border-transparent${isWatched ? ' opacity-50' : ''}`}
+                          className={`relative px-3 py-1.5 rounded text-xs font-medium transition-all duration-200 bg-secondary text-foreground cursor-pointer hover:text-primary hover:bg-hover border border-transparent${isWatched ? ' opacity-50' : ''}`}
                           title="点击播放"
                         >
                           {title}
