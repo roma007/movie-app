@@ -26,6 +26,7 @@ export default function PlayPage() {
   const [media, setMedia] = useState<Media | null>(null);
   const [sources, setSources] = useState<PlaySource[]>([]);
   const [activeSource, setActiveSource] = useState<PlaySource | null>(null);
+  const [initialCurrentTime, setInitialCurrentTime] = useState(0);
   const [loading, setLoading] = useState(true);
   const [currentSeason, setCurrentSeason] = useState(1);
   const [themeOpen, setThemeOpen] = useState(false);
@@ -47,6 +48,7 @@ export default function PlayPage() {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setInitialCurrentTime(0);
       const provider = getProvider();
       const ep = await provider.getEpisodeById(episodeId);
       if (cancelled) return;
@@ -69,6 +71,17 @@ export default function PlayPage() {
           }
         }
         setActiveSource(initialSource);
+
+        if (m) {
+          const saved = await provider.getWatchHistoryByMediaId(m.id);
+          if (saved && saved.progress > 0) {
+            const matchEpisode = !saved.episode_id || saved.episode_id === ep.id;
+            const nearEnd = saved.duration > 0 && saved.progress >= saved.duration - 5;
+            if (matchEpisode && !nearEnd) {
+              setInitialCurrentTime(saved.progress);
+            }
+          }
+        }
       }
       setLoading(false);
     })();
@@ -187,6 +200,7 @@ export default function PlayPage() {
       <VideoPlayer
         sources={sources}
         initialSourceId={activeSource?.id}
+        initialCurrentTime={initialCurrentTime}
         onTimeUpdate={handleTimeUpdate}
         onSourceChange={handleSourceChange}
         onSourceFail={handleSourceFail}

@@ -19,6 +19,7 @@ import { ColorControls } from './ColorControls';
 interface VideoPlayerProps {
   sources: PlaySource[];
   initialSourceId?: string;
+  initialCurrentTime?: number;
   onTimeUpdate?: (currentTime: number, duration: number) => void;
   onEnded?: () => void;
   onSourceChange?: (source: PlaySource) => void;
@@ -28,6 +29,7 @@ interface VideoPlayerProps {
 export function VideoPlayer({
   sources,
   initialSourceId,
+  initialCurrentTime,
   onTimeUpdate,
   onEnded,
   onSourceChange,
@@ -82,6 +84,7 @@ export function VideoPlayer({
   const onSourceChangeRef = useRef(onSourceChange);
   const onTimeUpdateRef = useRef(onTimeUpdate);
   const onEndedRef = useRef(onEnded);
+  const initialSeekDoneRef = useRef(false);
 
   useEffect(() => {
     currentIndexRef.current = currentIndex;
@@ -101,6 +104,10 @@ export function VideoPlayer({
   useEffect(() => {
     onEndedRef.current = onEnded;
   }, [onEnded]);
+
+  useEffect(() => {
+    initialSeekDoneRef.current = false;
+  }, [currentIndex, initialCurrentTime]);
 
   // Directly listen to <video> timeupdate for reliable currentTime/duration
   useEffect(() => {
@@ -253,6 +260,13 @@ export function VideoPlayer({
           setLoading(false);
           setError(null);
           applyColorFilter();
+          if (initialCurrentTime && initialCurrentTime > 0 && !initialSeekDoneRef.current) {
+            const video = playerContainerRef.current?.querySelector('video');
+            if (video) {
+              video.currentTime = initialCurrentTime;
+            }
+            initialSeekDoneRef.current = true;
+          }
         }}
         onHlsManifestParsed={() => {
           console.log('[VideoPlayer] HLS manifest parsed, ready to play');
