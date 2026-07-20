@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { Search, Heart, Clock, ChevronRight as ChevronRightIcon, Film, Tv, Sparkles, Download, Plus, Database, Loader2 } from 'lucide-react';
+import { Search, X, Heart, Clock, ChevronRight as ChevronRightIcon, Film, Tv, Sparkles, Download, Plus, Database, Loader2 } from 'lucide-react';
 import { CollectProgressDialog } from '@/components/CollectProgressDialog';
 import { useToast } from '@/components/Layout';
 
@@ -375,9 +375,20 @@ export default function HomePage() {
             placeholder="搜索电影、电视剧、综艺..."
             value={searchKeyword}
             onChange={(e) => setSearchKeyword(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            className="flex-1 bg-card border-border pl-14"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSearch();
+              if (e.key === 'Escape' && isSearching) handleClearSearch();
+            }}
+            className="flex-1 bg-card border-border pl-14 pr-8"
           />
+          {searchKeyword && (
+            <button
+              onClick={handleClearSearch}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <X className="size-4" />
+            </button>
+          )}
         </div>
         {isSearching ? (
           <Button variant="secondary" onClick={handleClearSearch}>清除搜索</Button>

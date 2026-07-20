@@ -6,7 +6,7 @@ import { MediaGrid, MediaCard } from '@/components/MediaCard';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
-import { LayoutGrid, List, ChevronLeft, ChevronRight, Search, Columns3 } from 'lucide-react';
+import { LayoutGrid, List, ChevronLeft, ChevronRight, Search, X, Columns3 } from 'lucide-react';
 
 const pageSize = 30;
 
@@ -316,13 +316,26 @@ export default function CategoryPage({ type }: CategoryPageProps) {
       </div>
 
       <div className="flex gap-2">
-        <Input
-          placeholder="搜索电影、电视剧、综艺..."
-          value={searchKeyword}
-          onChange={(e) => setSearchKeyword(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          className="flex-1 bg-card border-border"
-        />
+        <div className="relative flex-1">
+          <Input
+            placeholder="搜索电影、电视剧、综艺..."
+            value={searchKeyword}
+            onChange={(e) => setSearchKeyword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSearch();
+              if (e.key === 'Escape' && isSearching) handleClearSearch();
+            }}
+            className="flex-1 bg-card border-border pr-8"
+          />
+          {searchKeyword && (
+            <button
+              onClick={handleClearSearch}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
         {isSearching ? (
           <Button variant="outline" onClick={handleClearSearch} className="bg-secondary">
             清除搜索
