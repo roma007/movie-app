@@ -4,9 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ThemeSwitcher } from '../themes/ThemeSwitcher';
 import { useFontSizeStore } from '../themes/fontSizeStore';
-import { Search, Film, Tv, Database, ChevronRight, Info, BookOpen, Type, Video, FileText } from 'lucide-react';
+import { Search, Film, Tv, Database, ChevronRight, Info, BookOpen, Type, Video, FileText, Clock } from 'lucide-react';
 import { DiagnosticLogViewer } from '@/components/DiagnosticLogViewer';
 import { useAppStore } from '../useAppStore';
+import { getProvider } from '../init';
+import { SystemConfigService } from '@movie-app/core';
 import type { UserUsageType } from '@movie-app/core';
 
 const USAGE_OPTIONS: { type: UserUsageType; label: string; desc: string; icon: any }[] = [
@@ -19,11 +21,41 @@ export default function SettingsPage() {
   const navigate = useNavigate();
   const { currentFontSize, fontSizes, setFontSize } = useFontSizeStore();
   const [showDiagnosticLogs, setShowDiagnosticLogs] = useState(false);
+  const [playbackEnabled, setPlaybackEnabled] = useState(true);
+  const [playbackThreshold, setPlaybackThreshold] = useState(10);
   const { userUsageTypes, loadUserUsageTypes, setUserUsageTypes } = useAppStore();
 
   useEffect(() => {
     loadUserUsageTypes();
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const configService = new SystemConfigService(getProvider());
+        const config = await configService.getPlaybackConfig();
+        setPlaybackEnabled(config.showNextEpisodeOverlay);
+        setPlaybackThreshold(config.outroThresholdMinutes);
+      } catch {}
+    })();
+  }, []);
+
+  const handleTogglePlayback = async () => {
+    const next = !playbackEnabled;
+    setPlaybackEnabled(next);
+    try {
+      const configService = new SystemConfigService(getProvider());
+      await configService.setPlaybackConfig({ showNextEpisodeOverlay: next });
+    } catch {}
+  };
+
+  const handleThresholdChange = async (minutes: number) => {
+    setPlaybackThreshold(minutes);
+    try {
+      const configService = new SystemConfigService(getProvider());
+      await configService.setPlaybackConfig({ outroThresholdMinutes: minutes });
+    } catch {}
+  };
 
   const handleToggleUsage = (type: UserUsageType) => {
     const next = userUsageTypes.includes(type)
@@ -92,6 +124,46 @@ export default function SettingsPage() {
         </div>
       </Card>
 
+      <Card className="p-4 bg-card border-border space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Clock className="size-4 text-muted-foreground" />
+            <span className="font-medium">片尾下一集提示</span>
+          </div>
+          <button
+            onClick={handleTogglePlayback}
+            className={`relative w-10 h-5 rounded-full transition-colors ${
+              playbackEnabled ? 'bg-primary' : 'bg-muted-foreground/30'
+            }`}
+          >
+            <div
+              className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                playbackEnabled ? 'translate-x-5' : 'translate-x-0.5'
+              }`}
+            />
+          </button>
+        </div>
+
+        {playbackEnabled && (
+          <div>
+            <span className="text-sm text-muted-foreground block mb-2">提前提示时间</span>
+            <div className="flex gap-2">
+              {[5, 10, 15].map((m) => (
+                <Button
+                  key={m}
+                  variant={playbackThreshold === m ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handleThresholdChange(m)}
+                  className={playbackThreshold === m ? 'bg-primary' : ''}
+                >
+                  {m} 分钟
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
+
       <Card className="p-4 divide-y divide-border bg-card border-border">
         <button
           className="flex items-center justify-between py-3 first:pt-0 w-full text-left hover:bg-secondary/50 transition-colors -mx-4 px-4"
@@ -158,7 +230,7 @@ export default function SettingsPage() {
           <Info className="size-4 text-muted-foreground" />
           <div>
             <div className="font-medium">关于</div>
-            <div className="text-sm text-muted-foreground">Movie App · 版本 1.0.11</div>
+            <div className="text-sm text-muted-foreground">Movie App · 版本 1.0.12</div>
           </div>
         </div>
       </Card>

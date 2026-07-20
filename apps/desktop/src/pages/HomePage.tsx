@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import type { Media, UserUsageType } from '@movie-app/core';
+import type { Media, Episode, UserUsageType } from '@movie-app/core';
 import { useAppStore, getProvider } from '../useAppStore';
 import { MediaGrid, MediaCard } from '@/components/MediaCard';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,7 @@ export default function HomePage() {
   const location = useLocation();
   const toast = useToast();
   const [mediaMap, setMediaMap] = useState<Record<string, Media | null>>({});
+  const [episodeMap, setEpisodeMap] = useState<Record<string, Episode | null>>({});
   const [searchKeyword, setSearchKeyword] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
@@ -68,13 +69,19 @@ export default function HomePage() {
 
   useEffect(() => {
     (async () => {
-      const provider = getProvider();
+      const p = getProvider();
       const ids = [...new Set([...favorites.map((f) => f.mediaId), ...watchHistory.map((h) => h.mediaId)])];
-      if (ids.length === 0) { setMediaMap({}); return; }
-      const entries = await Promise.all(
-        ids.map(async (id) => [id, await provider.getMediaById(id)] as const)
-      );
-      setMediaMap(Object.fromEntries(entries));
+      if (ids.length === 0) { setMediaMap({}); setEpisodeMap({}); return; }
+      const [mediaEntries, episodeIds] = await Promise.all([
+        Promise.all(ids.map(async (id) => [id, await p.getMediaById(id)] as const)),
+        (async () => {
+          const epIds = [...new Set(watchHistory.map((h) => h.episodeId).filter(Boolean))] as string[];
+          const epEntries = await Promise.all(epIds.map(async (id) => [id, await p.getEpisodeById(id)] as const));
+          return Object.fromEntries(epEntries) as Record<string, Episode | null>;
+        })(),
+      ]);
+      setMediaMap(Object.fromEntries(mediaEntries));
+      setEpisodeMap(episodeIds);
     })();
   }, [favorites, watchHistory]);
 
@@ -316,6 +323,8 @@ export default function HomePage() {
               const media = mediaMap[h.mediaId];
               if (!media) return null;
               const progressPct = h.duration > 0 ? Math.min(Math.round((h.progress / h.duration) * 100), 100) : 0;
+              const ep = h.episodeId ? episodeMap[h.episodeId] : null;
+              const epLabel = ep ? (ep.title || `第${ep.episodeNumber}集`) : null;
               return (
                 <div
                   key={h.id}
@@ -333,7 +342,7 @@ export default function HomePage() {
                     <div className="text-sm font-medium truncate">{media.title}</div>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span>{media.type === 'VARIETY' ? '综艺' : '电视剧'}</span>
-                      <span className="text-primary">{progressPct}%</span>
+                      {epLabel && <span className="text-primary">{epLabel}</span>}
                     </div>
                     <div className="w-full bg-secondary rounded-full h-1 mt-1">
                       <div className="bg-primary h-1 rounded-full transition-all" style={{ width: `${progressPct}%` }} />

@@ -20,6 +20,11 @@ export interface CollectConfig {
   concurrency: number;
 }
 
+export interface PlaybackConfig {
+  outroThresholdMinutes: number;
+  showNextEpisodeOverlay: boolean;
+}
+
 export interface ShortDramaConfig {
   summaryPatterns: string[];
   durationThresholdMinutes: number;
@@ -213,6 +218,22 @@ export class SystemConfigService {
 
   static getDefaultShortDramaConfig(): ShortDramaConfig {
     return { ...DEFAULT_SHORT_DRAMA_CONFIG };
+  }
+
+  async getPlaybackConfig(): Promise<PlaybackConfig> {
+    return {
+      outroThresholdMinutes: await this.getNumber('playback.outroThresholdMinutes', 10),
+      showNextEpisodeOverlay: await this.getJSON<boolean>('playback.showNextEpisodeOverlay', true),
+    };
+  }
+
+  async setPlaybackConfig(config: Partial<PlaybackConfig>): Promise<void> {
+    if (config.outroThresholdMinutes !== undefined) {
+      await this.setNumber('playback.outroThresholdMinutes', config.outroThresholdMinutes);
+    }
+    if (config.showNextEpisodeOverlay !== undefined) {
+      await this.setJSON('playback.showNextEpisodeOverlay', config.showNextEpisodeOverlay);
+    }
   }
 
   async getGuideShown(): Promise<boolean> {

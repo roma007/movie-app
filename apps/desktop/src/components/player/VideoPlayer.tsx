@@ -15,13 +15,19 @@ import type { PlaySource } from '@movie-app/core';
 import { TauriLoader } from './TauriLoader';
 import { ZH_TRANSLATIONS } from './zhTranslations';
 import { ColorControls } from './ColorControls';
+import { NextEpisodeOverlay } from './NextEpisodeOverlay';
+import { register as registerGlobalShortcut, unregister as unregisterGlobalShortcut } from '@tauri-apps/plugin-global-shortcut';
 
 interface VideoPlayerProps {
   sources: PlaySource[];
   initialSourceId?: string;
   initialCurrentTime?: number;
+  nextEpisode?: { id: string; title?: string | null; episodeNumber: number } | null;
+  outroThresholdMinutes?: number;
+  showNextEpisodeOverlay?: boolean;
   onTimeUpdate?: (currentTime: number, duration: number) => void;
   onEnded?: () => void;
+  onNextEpisode?: () => void;
   onSourceChange?: (source: PlaySource) => void;
   onSourceFail?: (sourceId: string) => void;
 }
@@ -30,13 +36,19 @@ export function VideoPlayer({
   sources,
   initialSourceId,
   initialCurrentTime,
+  nextEpisode: nextEpisodeProp,
+  outroThresholdMinutes: outroThresholdMinutesProp,
+  showNextEpisodeOverlay: showNextEpisodeOverlayProp,
   onTimeUpdate,
   onEnded,
+  onNextEpisode: onNextEpisodeProp,
   onSourceChange,
   onSourceFail,
 }: VideoPlayerProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [overlayVisible, setOverlayVisible] = useState(false);
+  const overlayDismissedRef = useRef(false);
 
   const playerContainerRef = useRef<HTMLDivElement>(null);
 
@@ -109,7 +121,23 @@ export function VideoPlayer({
     initialSeekDoneRef.current = false;
   }, [currentIndex, initialCurrentTime]);
 
-  // Directly listen to <video> timeupdate for reliable currentTime/duration
+  useEffect(() => {
+    setOverlayVisible(false);
+    overlayDismissedRef.current = false;
+  }, [currentIndex]);
+
+  const nextEpisodeRef = useRef(nextEpisodeProp);
+  const outroThresholdMinutesRef = useRef(outroThresholdMinutesProp);
+  const showNextEpisodeOverlayRef = useRef(showNextEpisodeOverlayProp);
+  const onNextEpisodeRef = useRef(onNextEpisodeProp);
+
+  useEffect(() => { nextEpisodeRef.current = nextEpisodeProp; }, [nextEpisodeProp]);
+  useEffect(() => { outroThresholdMinutesRef.current = outroThresholdMinutesProp; }, [outroThresholdMinutesProp]);
+  useEffect(() => { showNextEpisodeOverlayRef.current = showNextEpisodeOverlayProp; }, [showNextEpisodeOverlayProp]);
+  useEffect(() => { onNextEpisodeRef.current = onNextEpisodeProp; }, [onNextEpisodeProp]);
+
+  const currentTimeRef = useRef(0);
+
   useEffect(() => {
     const container = playerContainerRef.current;
     if (!container) return;
@@ -119,7 +147,19 @@ export function VideoPlayer({
       videoEl = container.querySelector('video');
       if (!videoEl) return;
       handler = () => {
-        onTimeUpdateRef.current?.(videoEl!.currentTime, videoEl!.duration || 0);
+        const ct = videoEl!.currentTime;
+        const dur = videoEl!.duration || 0;
+        currentTimeRef.current = ct;
+        onTimeUpdateRef.current?.(ct, dur);
+        const threshold = (outroThresholdMinutesRef.current ?? 10) * 60;
+        const canShow =
+          !overlayDismissedRef.current &&
+          dur > threshold &&
+          ct > 0 &&
+          dur - ct <= threshold &&
+          showNextEpisodeOverlayRef.current !== false &&
+          nextEpisodeRef.current != null;
+        setOverlayVisible(canShow);
       };
       videoEl.addEventListener('timeupdate', handler);
     }, 1000);
@@ -130,6 +170,11 @@ export function VideoPlayer({
       }
     };
   }, [currentIndex]);
+
+  const handleOverlayClose = useCallback(() => {
+    setOverlayVisible(false);
+    overlayDismissedRef.current = true;
+  }, []);
 
   const handleSourceFail = useCallback(() => {
     const sourcesList = activeSourcesRef.current;
@@ -177,6 +222,11 @@ export function VideoPlayer({
   }, [currentIndex, activeSources]);
 
   const handleBossKey = useCallback(async () => {
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      }
+    } catch {}
     const video = playerContainerRef.current?.querySelector('video');
     if (video) {
       video.pause();
@@ -190,13 +240,30 @@ export function VideoPlayer({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === '`') {
+      if (e.ctrlKey && e.key === '`') {
         e.preventDefault();
         handleBossKey();
       }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
+  }, [handleBossKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await registerGlobalShortcut('Control+`', (event) => {
+          if (event.state === 'Pressed' && !cancelled) {
+            handleBossKey();
+          }
+        });
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+      unregisterGlobalShortcut('Control+`').catch(() => {});
+    };
   }, [handleBossKey]);
 
   const handleRetry = () => {
@@ -223,7 +290,7 @@ export function VideoPlayer({
       <div className="absolute top-2 left-2 z-20 bg-black/60 rounded-md px-2.5 py-1.5 text-xs text-white/80 space-y-0.5 pointer-events-none select-none">
         <div className="font-semibold text-white/90 mb-0.5">快捷键</div>
         <div>置顶 <kbd className="ml-1 px-1 py-0.5 bg-white/15 rounded-sm">i</kbd></div>
-        <div>老板键 <kbd className="ml-1 px-1 py-0.5 bg-white/15 rounded-sm">`</kbd></div>
+        <div>老板键 <kbd className="ml-1 px-1 py-0.5 bg-white/15 rounded-sm">Ctrl + `</kbd></div>
         <div>全屏 <kbd className="ml-1 px-1 py-0.5 bg-white/15 rounded-sm">f</kbd></div>
       </div>
 
@@ -300,6 +367,12 @@ export function VideoPlayer({
           }}
         />
       </MediaPlayer>
+      <NextEpisodeOverlay
+        show={overlayVisible}
+        nextEpisodeTitle={nextEpisodeRef.current ? `第${nextEpisodeRef.current.episodeNumber}集${nextEpisodeRef.current.title ? ` · ${nextEpisodeRef.current.title}` : ''}` : ''}
+        onNext={() => onNextEpisodeRef.current?.()}
+        onClose={handleOverlayClose}
+      />
     </div>
   );
 }

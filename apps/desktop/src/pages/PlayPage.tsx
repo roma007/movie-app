@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { getProvider } from '../init';
 import { useAppStore } from '../useAppStore';
@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, Palette, Check, ChevronRight } from 'lucide-react';
 import { useThemeStore } from '../themes/store';
+import { SystemConfigService } from '@movie-app/core';
 import type { Episode, Media, PlaySource } from '@movie-app/core';
 
 const typeLabel: Record<string, string> = {
@@ -30,6 +31,8 @@ export default function PlayPage() {
   const [watchedEpisodes, setWatchedEpisodes] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [currentSeason, setCurrentSeason] = useState(1);
+  const [outroThresholdMinutes, setOutroThresholdMinutes] = useState(10);
+  const [showNextEpisodeOverlay, setShowNextEpisodeOverlay] = useState(true);
   const [themeOpen, setThemeOpen] = useState(false);
   const themeRef = useRef<HTMLDivElement>(null);
   const { currentTheme, themes, setTheme } = useThemeStore();
@@ -75,10 +78,14 @@ export default function PlayPage() {
         setActiveSource(initialSource);
 
         if (m) {
-          const [saved, allHistory] = await Promise.all([
+          const configService = new SystemConfigService(provider);
+          const [saved, allHistory, playbackConfig] = await Promise.all([
             provider.getWatchHistoryByMediaId(m.id),
             provider.getAllWatchHistoryByMediaId(m.id),
+            configService.getPlaybackConfig(),
           ]);
+          setOutroThresholdMinutes(playbackConfig.outroThresholdMinutes);
+          setShowNextEpisodeOverlay(playbackConfig.showNextEpisodeOverlay);
           const watched = new Set<string>();
           for (const h of allHistory) {
             if (h.episodeId && h.episodeId !== m.id && (h.progress > 60 || (h.duration > 0 && h.progress / h.duration >= 0.1))) {
@@ -120,6 +127,19 @@ export default function PlayPage() {
 
   const handleSourceChange = (source: PlaySource) => {
     setActiveSource(source);
+  };
+
+  const nextEpisode = useMemo(() => {
+    if (!episode || episodes.length === 0 || media?.type === 'MOVIE') return null;
+    const idx = episodes.findIndex((ep: Episode) => ep.id === episode.id);
+    if (idx < 0 || idx >= episodes.length - 1) return null;
+    return episodes[idx + 1] as Episode;
+  }, [episode, episodes, media?.type]);
+
+  const handleNextEpisode = () => {
+    if (nextEpisode) {
+      navigate(`/play/${nextEpisode.id}`);
+    }
   };
 
   useEffect(() => {
@@ -214,7 +234,11 @@ export default function PlayPage() {
         sources={sources}
         initialSourceId={activeSource?.id}
         initialCurrentTime={initialCurrentTime}
+        nextEpisode={nextEpisode}
+        outroThresholdMinutes={outroThresholdMinutes}
+        showNextEpisodeOverlay={showNextEpisodeOverlay}
         onTimeUpdate={handleTimeUpdate}
+        onNextEpisode={handleNextEpisode}
         onSourceChange={handleSourceChange}
         onSourceFail={handleSourceFail}
       />

@@ -83,12 +83,20 @@ export function MediaCard({
             {media.remarks}
           </Badge>
         )}
-        {media.status === 'COMPLETED' && media.type !== 'VARIETY' && media.totalEpisodes && (
+        {media.status === 'COMPLETED' && media.type !== 'VARIETY' && media.totalEpisodes != null && (
           <Badge 
             variant="secondary" 
             className="absolute top-2 left-2 shrink-0 text-xs px-2 py-1 bg-muted-foreground/80 backdrop-blur-sm border-none text-white"
           >
             完结 全{media.totalEpisodes}集
+          </Badge>
+        )}
+        {media.status === 'COMPLETED' && media.type !== 'VARIETY' && media.totalEpisodes == null && (
+          <Badge 
+            variant="secondary" 
+            className="absolute top-2 left-2 shrink-0 text-xs px-2 py-1 bg-muted-foreground/80 backdrop-blur-sm border-none text-white"
+          >
+            已完结
           </Badge>
         )}
         {media.status === 'COMPLETED' && media.type === 'VARIETY' && media.remarks && (

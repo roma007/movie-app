@@ -254,8 +254,12 @@ export class CollectorService {
         // 多源合并：状态取更"完结"的，集数取更大的
         const statusPriority: Record<string, number> = { COMPLETED: 3, ONGOING: 2, PUBLISHED: 1 };
         const bestStatus = (statusPriority[status] || 0) > (statusPriority[existing.status || ''] || 0) ? status : (existing.status || status);
-        const bestEpisodes = Math.max(currentEpisodes || 0, existing.currentEpisodes || 0);
-        const bestTotal = Math.max(totalEpisodes || 0, existing.totalEpisodes || 0);
+        const bestEpisodes = currentEpisodes != null && existing.currentEpisodes != null
+          ? Math.max(currentEpisodes, existing.currentEpisodes)
+          : (currentEpisodes ?? existing.currentEpisodes ?? null);
+        const bestTotal = totalEpisodes != null && existing.totalEpisodes != null
+          ? Math.max(totalEpisodes, existing.totalEpisodes)
+          : (totalEpisodes ?? existing.totalEpisodes ?? null);
 
         if (bestStatus !== existing.status || bestEpisodes !== existing.currentEpisodes || bestTotal !== existing.totalEpisodes) {
           await this.db.updateMediaStatusAndEpisodes(mediaId, bestStatus, bestEpisodes, bestTotal, new Date().toISOString());
