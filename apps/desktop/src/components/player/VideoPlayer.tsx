@@ -169,6 +169,29 @@ export function VideoPlayer({
     if (src) onSourceChangeRef.current?.(src);
   }, [currentIndex, activeSources]);
 
+  const handleBossKey = useCallback(async () => {
+    const video = playerContainerRef.current?.querySelector('video');
+    if (video) {
+      video.pause();
+      video.muted = true;
+    }
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      await getCurrentWindow().minimize();
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === '`') {
+        e.preventDefault();
+        handleBossKey();
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [handleBossKey]);
+
   const handleRetry = () => {
     setError(null);
     setCurrentIndex(0);
@@ -193,7 +216,7 @@ export function VideoPlayer({
       <div className="absolute top-2 left-2 z-20 bg-black/60 rounded-md px-2.5 py-1.5 text-xs text-white/80 space-y-0.5 pointer-events-none select-none">
         <div className="font-semibold text-white/90 mb-0.5">快捷键</div>
         <div>置顶 <kbd className="ml-1 px-1 py-0.5 bg-white/15 rounded-sm">i</kbd></div>
-        <div>老板键 <kbd className="ml-1 px-1 py-0.5 bg-white/15 rounded-sm">k</kbd> / <kbd className="px-1 py-0.5 bg-white/15 rounded-sm">Space</kbd></div>
+        <div>老板键 <kbd className="ml-1 px-1 py-0.5 bg-white/15 rounded-sm">`</kbd></div>
         <div>全屏 <kbd className="ml-1 px-1 py-0.5 bg-white/15 rounded-sm">f</kbd></div>
       </div>
 
