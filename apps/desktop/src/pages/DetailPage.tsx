@@ -37,8 +37,8 @@ export default function DetailPage() {
     getProvider().getAllWatchHistoryByMediaId(id).then(history => {
       const watched = new Set<string>();
       for (const h of history) {
-        if (h.episode_id && h.episode_id !== id && h.progress > 0) {
-          watched.add(h.episode_id);
+        if (h.episodeId && h.episodeId !== id && (h.progress > 60 || (h.duration > 0 && h.progress / h.duration >= 0.1))) {
+          watched.add(h.episodeId);
         }
       }
       setWatchedEpisodes(watched);
