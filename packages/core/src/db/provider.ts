@@ -51,10 +51,11 @@ export interface DatabaseProvider {
   hasShortDrama(type?: string): Promise<boolean>;
 
   // —— Episode DAO ——
-  getEpisodesByMediaId(mediaId: string, season?: number): Promise<Episode[]>;
+  getEpisodesByMediaId(mediaId: string, season?: number, sourceId?: string): Promise<Episode[]>;
   getEpisodeById(id: string): Promise<Episode | null>;
   upsertEpisode(episode: Episode): Promise<void>;
   deleteEpisodesByMediaId(mediaId: string): Promise<void>;
+  deleteEpisodesByMediaIdAndSourceId(mediaId: string, sourceId: string): Promise<void>;
   getSeasonsByMediaId(mediaId: string): Promise<number[]>;
 
   // —— Media 批量操作 ——

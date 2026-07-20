@@ -37,6 +37,7 @@ export interface Episode {
   episodeNumber: number;
   title?: string | null;
   duration?: number | null;
+  sourceId?: string | null;
 }
 
 export interface PlaySource {

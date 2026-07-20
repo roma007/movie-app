@@ -48,6 +48,7 @@ export const SCHEMA_SQL = `
     episode_number INTEGER NOT NULL,
     title TEXT,
     duration INTEGER,
+    source_id TEXT,
     FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
   );
 
@@ -138,6 +139,7 @@ export const SCHEMA_SQL = `
   );
 
   CREATE INDEX IF NOT EXISTS idx_episode_media_id ON episode(media_id);
+  CREATE INDEX IF NOT EXISTS idx_episode_source_id ON episode(source_id);
   CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source(episode_id);
   CREATE INDEX IF NOT EXISTS idx_play_source_source_id_episode_id ON play_source(source_id, episode_id);
   CREATE INDEX IF NOT EXISTS idx_favorite_media_id ON favorite(media_id);

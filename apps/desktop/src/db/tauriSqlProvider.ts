@@ -142,7 +142,15 @@ export class TauriSqlProvider implements DatabaseProvider {
       // Column already exists, ignore
     }
 
+    // Add source_id column if it doesn't exist (migration for existing DBs)
+    try {
+      await this.db!.execute('ALTER TABLE episode ADD COLUMN source_id TEXT');
+    } catch {
+      // Column already exists, ignore
+    }
+
     await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_episode_media_id ON episode(media_id);');
+    await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_episode_source_id ON episode(source_id);');
     await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source(episode_id);');
     await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_play_source_source_id_episode_id ON play_source(source_id, episode_id);');
     await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_favorite_media_id ON favorite(media_id);');
@@ -445,18 +453,21 @@ export class TauriSqlProvider implements DatabaseProvider {
   }
 
   // —— Episode DAO ——
-  async getEpisodesByMediaId(mediaId: string, season?: number): Promise<Episode[]> {
+  async getEpisodesByMediaId(mediaId: string, season?: number, sourceId?: string): Promise<Episode[]> {
+    let sql: string;
+    const params: any[] = [mediaId];
     if (season !== undefined) {
-      const rows = await this.db!.select<any[]>(
-        'SELECT * FROM episode WHERE media_id = ? AND season_number = ? ORDER BY episode_number ASC',
-        [mediaId, season]
-      );
-      return rows.map(rowToEpisode);
+      sql = 'SELECT * FROM episode WHERE media_id = ? AND season_number = ?';
+      params.push(season);
+    } else {
+      sql = 'SELECT * FROM episode WHERE media_id = ?';
     }
-    const rows = await this.db!.select<any[]>(
-      'SELECT * FROM episode WHERE media_id = ? ORDER BY season_number ASC, episode_number ASC',
-      [mediaId]
-    );
+    if (sourceId) {
+      sql += ' AND source_id = ?';
+      params.push(sourceId);
+    }
+    sql += ' ORDER BY season_number ASC, episode_number ASC';
+    const rows = await this.db!.select<any[]>(sql, params);
     return rows.map(rowToEpisode);
   }
 
@@ -467,13 +478,18 @@ export class TauriSqlProvider implements DatabaseProvider {
 
   async upsertEpisode(episode: Episode): Promise<void> {
     await this.db!.execute(
-      `INSERT INTO episode (id, media_id, season_number, episode_number, title, duration)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO episode (id, media_id, season_number, episode_number, title, duration, source_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          title = excluded.title,
-         duration = excluded.duration`,
-      [episode.id, episode.mediaId, episode.seasonNumber, episode.episodeNumber, episode.title || null, episode.duration || null]
+         duration = excluded.duration,
+         source_id = excluded.source_id`,
+      [episode.id, episode.mediaId, episode.seasonNumber, episode.episodeNumber, episode.title || null, episode.duration || null, episode.sourceId || null]
     );
+  }
+
+  async deleteEpisodesByMediaIdAndSourceId(mediaId: string, sourceId: string): Promise<void> {
+    await this.db!.execute('DELETE FROM episode WHERE media_id = ? AND source_id = ?', [mediaId, sourceId]);
   }
 
   async deleteEpisodesByMediaId(mediaId: string): Promise<void> {

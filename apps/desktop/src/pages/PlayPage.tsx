@@ -47,6 +47,10 @@ export default function PlayPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const sourceParams = new URLSearchParams(location.search);
+  const urlSourceId = sourceParams.get('sourceId');
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
+
   useEffect(() => {
     if (!episodeId) return;
     let cancelled = false;
@@ -66,16 +70,17 @@ export default function PlayPage() {
         if (cancelled) return;
         setMedia(m);
         setSources(ps);
-        const sourceParams = new URLSearchParams(location.search);
-        const targetSourceId = sourceParams.get('source');
-        let initialSource = ps.find(s => s.isActive !== false) || ps[0] || null;
-        if (targetSourceId) {
-          const specifiedSource = ps.find(s => s.id === targetSourceId);
-          if (specifiedSource) {
-            initialSource = specifiedSource;
-          }
+
+        const effectiveSourceId = urlSourceId || ep.sourceId || null;
+        if (effectiveSourceId) {
+          setSelectedSourceId(effectiveSourceId);
+          const matchingSource = ps.find(s => s.sourceId === effectiveSourceId && s.isActive !== false) || ps.find(s => s.sourceId === effectiveSourceId) || ps.find(s => s.isActive !== false) || ps[0] || null;
+          setActiveSource(matchingSource);
+        } else {
+          const firstActive = ps.find(s => s.isActive !== false) || ps[0] || null;
+          setSelectedSourceId(firstActive?.sourceId || null);
+          setActiveSource(firstActive);
         }
-        setActiveSource(initialSource);
 
         if (m) {
           const configService = new SystemConfigService(provider);
@@ -127,18 +132,53 @@ export default function PlayPage() {
 
   const handleSourceChange = (source: PlaySource) => {
     setActiveSource(source);
+    setSelectedSourceId(source.sourceId);
   };
 
+  const handleSwitchCmsSource = (sourceId: string) => {
+    const matchingSource = sources.find(s => s.sourceId === sourceId && s.isActive !== false) || sources.find(s => s.sourceId === sourceId);
+    if (matchingSource) {
+      setSelectedSourceId(sourceId);
+      setActiveSource(matchingSource);
+    } else {
+      const firstEp = filteredEpisodes.find(ep => ep.sourceId === sourceId);
+      if (firstEp) {
+        navigate(`/play/${firstEp.id}?sourceId=${sourceId}`);
+      }
+    }
+  };
+
+  const availableCmsSources = useMemo(() => {
+    const sourceIds = [...new Set(episodes.map(ep => ep.sourceId).filter(Boolean) as string[])];
+    const nameMap = new Map<string, string>();
+    for (const s of sources) {
+      if (s.sourceId && s.sourceName) {
+        nameMap.set(s.sourceId, s.sourceName);
+      }
+    }
+    return sourceIds.map(id => ({ id, name: nameMap.get(id) || `线路 ${id}` }));
+  }, [episodes, sources]);
+
+  const filteredEpisodes = useMemo(() => {
+    if (!selectedSourceId) return episodes;
+    return episodes.filter(ep => ep.sourceId === selectedSourceId);
+  }, [episodes, selectedSourceId]);
+
+  const filteredSources = useMemo(() => {
+    if (!selectedSourceId) return sources;
+    return sources.filter(s => s.sourceId === selectedSourceId);
+  }, [sources, selectedSourceId]);
+
   const nextEpisode = useMemo(() => {
-    if (!episode || episodes.length === 0 || media?.type === 'MOVIE') return null;
-    const idx = episodes.findIndex((ep: Episode) => ep.id === episode.id);
-    if (idx < 0 || idx >= episodes.length - 1) return null;
-    return episodes[idx + 1] as Episode;
-  }, [episode, episodes, media?.type]);
+    if (!episode || filteredEpisodes.length === 0 || media?.type === 'MOVIE') return null;
+    const idx = filteredEpisodes.findIndex((ep: Episode) => ep.id === episode.id);
+    if (idx < 0 || idx >= filteredEpisodes.length - 1) return null;
+    return filteredEpisodes[idx + 1] as Episode;
+  }, [episode, filteredEpisodes, media?.type]);
 
   const handleNextEpisode = () => {
     if (nextEpisode) {
-      navigate(`/play/${nextEpisode.id}`);
+      navigate(`/play/${nextEpisode.id}${selectedSourceId ? `?sourceId=${selectedSourceId}` : ''}`);
     }
   };
 
@@ -166,7 +206,7 @@ export default function PlayPage() {
     );
   }
 
-  if (!episode || sources.length === 0) {
+  if (!episode || filteredSources.length === 0) {
     return (
       <div className="p-6 space-y-4 max-w-7xl mx-auto">
         <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
@@ -231,7 +271,7 @@ export default function PlayPage() {
       </div>
 
       <VideoPlayer
-        sources={sources}
+        sources={filteredSources}
         initialSourceId={activeSource?.id}
         initialCurrentTime={initialCurrentTime}
         nextEpisode={nextEpisode}
@@ -255,13 +295,31 @@ export default function PlayPage() {
         )}
       </div>
 
+      {availableCmsSources.length > 1 && (
+        <div className="space-y-1">
+          <div className="text-xs text-muted-foreground">线路源</div>
+          <div className="flex gap-2 flex-wrap">
+            {availableCmsSources.map((cms) => (
+              <Button
+                key={cms.id}
+                variant={selectedSourceId === cms.id ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleSwitchCmsSource(cms.id)}
+              >
+                {cms.name}
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="space-y-2">
         <div className="text-sm text-muted-foreground">
-          {sources.length > 0 ? (() => {
+          {filteredSources.length > 0 ? (() => {
             const activeKey = activeSource ? `${activeSource.sourceName || ''}_${activeSource.quality || ''}` : '';
-            const count = sources.filter(s => `${s.sourceName || ''}_${s.quality || ''}` === activeKey).length;
-            const activeIdx = sources.findIndex(s => s.id === activeSource?.id);
-            const prevCount = sources.slice(0, activeIdx).filter(s => `${s.sourceName || ''}_${s.quality || ''}` === activeKey).length;
+            const count = filteredSources.filter(s => `${s.sourceName || ''}_${s.quality || ''}` === activeKey).length;
+            const activeIdx = filteredSources.findIndex(s => s.id === activeSource?.id);
+            const prevCount = filteredSources.slice(0, activeIdx).filter(s => `${s.sourceName || ''}_${s.quality || ''}` === activeKey).length;
             const suffix = count > 1 ? ` (${prevCount + 1})` : '';
             return `播放线路（当前：${activeSource?.sourceName || '线路1'}${activeSource?.quality ? ` · ${activeSource.quality}` : ''}${suffix}）`;
           })() : '暂无播放线路'}
@@ -269,12 +327,12 @@ export default function PlayPage() {
         <div className="flex gap-2 flex-wrap">
           {(() => {
             const sourceKeyMap = new Map<string, number>();
-            sources.forEach(s => {
+            filteredSources.forEach(s => {
               const key = `${s.sourceName || ''}_${s.quality || ''}`;
               sourceKeyMap.set(key, (sourceKeyMap.get(key) || 0) + 1);
             });
             const keyIndexMap = new Map<string, number>();
-            return sources.map((s, i) => {
+            return filteredSources.map((s, i) => {
               const key = `${s.sourceName || ''}_${s.quality || ''}`;
               const count = sourceKeyMap.get(key) || 1;
               const idx = (keyIndexMap.get(key) || 0) + 1;
@@ -315,19 +373,19 @@ export default function PlayPage() {
         </div>
       )}
 
-      {media?.type !== 'MOVIE' && episodes.length > 0 && (
+      {media?.type !== 'MOVIE' && filteredEpisodes.length > 0 && (
         <div className="rounded-lg border border-border bg-card card-shadow">
           <div className="px-5 py-3 border-b border-border">
             <h3 className="text-base font-medium">集数</h3>
           </div>
           <div className="px-5 py-3">
             <div className="flex flex-wrap gap-1.5">
-              {episodes.map((ep: any) => (
+              {filteredEpisodes.map((ep: any) => (
                 <Button
                   key={ep.id}
                   variant={ep.id === episodeId ? 'default' : 'outline'}
                   size="sm"
-                  onClick={() => navigate(`/play/${ep.id}`)}
+                  onClick={() => navigate(`/play/${ep.id}${selectedSourceId ? `?sourceId=${selectedSourceId}` : ''}`)}
                   className={ep.id !== episodeId && watchedEpisodes.has(ep.id) ? 'opacity-50' : ''}
                 >
                   {ep.title || `第${ep.episodeNumber}集`}

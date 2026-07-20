@@ -45,7 +45,7 @@ export interface AppState {
   getYearsByType: (type?: string) => Promise<number[]>;
   getAreasByType: (type?: string) => Promise<string[]>;
   loadMediaDetail: (id: string) => Promise<void>;
-  loadEpisodes: (mediaId: string, season?: number) => Promise<void>;
+  loadEpisodes: (mediaId: string, season?: number, sourceId?: string) => Promise<void>;
   loadPlaySources: (episodeId: string) => Promise<void>;
   loadSeasons: (mediaId: string) => Promise<void>;
   searchMedia: (keyword: string, params?: {
@@ -225,9 +225,9 @@ export function createAppStore(db: DatabaseProvider) {
       }
     },
 
-    loadEpisodes: async (mediaId: string, season: number = 1) => {
+    loadEpisodes: async (mediaId: string, season: number = 1, sourceId?: string) => {
       try {
-        const episodes = await db.getEpisodesByMediaId(mediaId, season);
+        const episodes = await db.getEpisodesByMediaId(mediaId, season, sourceId);
         set({ episodes });
       } catch (err: any) {
         set({ error: err.message });

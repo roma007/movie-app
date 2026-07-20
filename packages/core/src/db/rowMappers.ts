@@ -52,6 +52,7 @@ export function rowToEpisode(row: any): Episode {
     episodeNumber: row.episode_number,
     title: row.title,
     duration: row.duration,
+    sourceId: row.source_id || null,
   };
 }
 

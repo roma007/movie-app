@@ -268,14 +268,7 @@ export class CollectorService {
         await this.db.upsertMedia(media);
       }
       mediaWritten = true;
-      await this.db.deletePlaySourcesByMediaIdAndSourceId(mediaId, sourceId);
-
-      const existingEpisodes = await this.db.getEpisodesByMediaId(mediaId);
-      const episodeMap = new Map<string, Episode>();
-      for (const ep of existingEpisodes) {
-        const key = `s${ep.seasonNumber}_e${ep.episodeNumber}`;
-        episodeMap.set(key, ep);
-      }
+      await this.db.deleteEpisodesByMediaIdAndSourceId(mediaId, sourceId);
 
       for (let sourceIdx = 0; sourceIdx < epGroups.length; sourceIdx++) {
         const sourceNameFromList = sources[sourceIdx] || `线路${sourceIdx + 1}`;
@@ -288,33 +281,27 @@ export class CollectorService {
           const epNumber = epIdx + 1;
           const isVersion = isVersionTitle(ep.title) && mediaType === 'MOVIE';
 
-          let episodeKey: string;
-          if (isVersion) {
-            episodeKey = `movie_${mediaId}`;
-          } else {
-            episodeKey = `s${seasonNumber}_e${epNumber}`;
-          }
+          const episodeKey = isVersion
+            ? `movie_${mediaId}_src_${sourceId}`
+            : `s${seasonNumber}_e${epNumber}_src_${sourceId}`;
 
-          let episode = episodeMap.get(episodeKey);
-          if (!episode) {
-            const episodeId = isVersion
-              ? `ep_${mediaId}_movie`
-              : `ep_${mediaId}_s${seasonNumber}_e${epNumber}`;
+          const episodeId = isVersion
+            ? `ep_${mediaId}_movie_src_${sourceId}`
+            : `ep_${mediaId}_s${seasonNumber}_e${epNumber}_src_${sourceId}`;
 
-            episode = {
-              id: episodeId,
-              mediaId,
-              seasonNumber,
-              episodeNumber: isVersion ? 1 : epNumber,
-              title: isVersion ? null : ep.title,
-              duration: null,
-            };
+          const episode: Episode = {
+            id: episodeId,
+            mediaId,
+            seasonNumber,
+            episodeNumber: isVersion ? 1 : epNumber,
+            title: isVersion ? null : ep.title,
+            duration: null,
+            sourceId,
+          };
 
-            await this.db.upsertEpisode(episode);
-            episodeMap.set(episodeKey, episode);
-          }
+          await this.db.upsertEpisode(episode);
 
-          const playSourceId = `ps_${episode.id}_${sourceId}_${sourceIdx}`;
+          const playSourceId = `ps_${episode.id}_${sourceIdx}`;
           const playSource: PlaySource = {
             id: playSourceId,
             episodeId: episode.id,
