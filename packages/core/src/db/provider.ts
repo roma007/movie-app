@@ -107,6 +107,7 @@ export interface DatabaseProvider {
   // —— WatchHistory DAO ——
   getAllWatchHistory(page?: number, pageSize?: number): Promise<WatchHistory[]>;
   getWatchHistoryByMediaId(mediaId: string): Promise<WatchHistory | null>;
+  getAllWatchHistoryByMediaId(mediaId: string): Promise<WatchHistory[]>;
   upsertWatchHistory(mediaId: string, episodeId: string | null, progress: number, duration: number): Promise<void>;
   clearWatchHistory(): Promise<void>;
   deleteWatchHistory(mediaId: string): Promise<void>;

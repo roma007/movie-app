@@ -969,6 +969,14 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     return row ? rowToWatchHistory(row) : null;
   }
 
+  async getAllWatchHistoryByMediaId(mediaId: string): Promise<WatchHistory[]> {
+    const rows = await this.db!.getAllAsync<any>(
+      'SELECT * FROM watch_history WHERE media_id = ? ORDER BY updated_at DESC',
+      [mediaId]
+    );
+    return rows.map(rowToWatchHistory);
+  }
+
   async upsertWatchHistory(mediaId: string, episodeId: string | null, progress: number, duration: number): Promise<void> {
     const now = new Date().toISOString();
     const id = `wh_${mediaId}_${episodeId || 'movie'}`;

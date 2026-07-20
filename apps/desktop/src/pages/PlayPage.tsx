@@ -27,6 +27,7 @@ export default function PlayPage() {
   const [sources, setSources] = useState<PlaySource[]>([]);
   const [activeSource, setActiveSource] = useState<PlaySource | null>(null);
   const [initialCurrentTime, setInitialCurrentTime] = useState(0);
+  const [watchedEpisodes, setWatchedEpisodes] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [currentSeason, setCurrentSeason] = useState(1);
   const [themeOpen, setThemeOpen] = useState(false);
@@ -49,6 +50,7 @@ export default function PlayPage() {
     (async () => {
       setLoading(true);
       setInitialCurrentTime(0);
+      setWatchedEpisodes(new Set());
       const provider = getProvider();
       const ep = await provider.getEpisodeById(episodeId);
       if (cancelled) return;
@@ -73,7 +75,18 @@ export default function PlayPage() {
         setActiveSource(initialSource);
 
         if (m) {
-          const saved = await provider.getWatchHistoryByMediaId(m.id);
+          const [saved, allHistory] = await Promise.all([
+            provider.getWatchHistoryByMediaId(m.id),
+            provider.getAllWatchHistoryByMediaId(m.id),
+          ]);
+          const watched = new Set<string>();
+          for (const h of allHistory) {
+            if (h.episode_id && h.episode_id !== m.id && h.progress > 0) {
+              watched.add(h.episode_id);
+            }
+          }
+          setWatchedEpisodes(watched);
+
           if (saved && saved.progress > 0) {
             const matchEpisode = !saved.episode_id || saved.episode_id === ep.id;
             const nearEnd = saved.duration > 0 && saved.progress >= saved.duration - 5;
@@ -291,6 +304,7 @@ export default function PlayPage() {
                   variant={ep.id === episodeId ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => navigate(`/play/${ep.id}`)}
+                  className={ep.id !== episodeId && watchedEpisodes.has(ep.id) ? 'opacity-50' : ''}
                 >
                   {ep.title || `第${ep.episodeNumber}集`}
                 </Button>

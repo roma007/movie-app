@@ -1,6 +1,6 @@
 [package]
 name = "movie-app-desktop"
-version = "1.0.7"
+version = "1.0.8"
 description = "Movie App Desktop (Tauri)"
 authors = ["movie-app"]
 edition = "2021"
