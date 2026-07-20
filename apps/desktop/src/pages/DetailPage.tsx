@@ -27,12 +27,22 @@ export default function DetailPage() {
   const [isFav, setIsFav] = useState(false);
   const [, setEpisodeDurations] = useState<Record<string, number | null>>({});
   const [allPlaySources, setAllPlaySources] = useState<Record<string, PlaySource[]>>({});
+  const [watchedEpisodes, setWatchedEpisodes] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!id) return;
     loadMediaDetail(id);
     loadSeasons(id);
     getProvider().isFavorite(id).then(setIsFav).catch(() => {});
+    getProvider().getAllWatchHistoryByMediaId(id).then(history => {
+      const watched = new Set<string>();
+      for (const h of history) {
+        if (h.episode_id && h.episode_id !== id && h.progress > 0) {
+          watched.add(h.episode_id);
+        }
+      }
+      setWatchedEpisodes(watched);
+    }).catch(() => {});
   }, [id]);
 
   useEffect(() => {
@@ -315,6 +325,7 @@ export default function DetailPage() {
                     const sources = allPlaySources[ep.id] || [];
                     const m3u8Source = sources.find(s => s.url.endsWith('.m3u8') || s.url.toLowerCase().includes('m3u8'));
                     const title = ep.title || `第${ep.episodeNumber}集`;
+                    const isWatched = watchedEpisodes.has(ep.id);
 
                     return (
                       <div
@@ -324,7 +335,7 @@ export default function DetailPage() {
                         <button
                           type="button"
                           onClick={() => navigate(`/play/${ep.id}`)}
-                          className="relative px-3 py-1.5 rounded text-xs font-medium transition-all duration-200 bg-secondary text-foreground hover:bg-hover border border-transparent"
+                          className={`relative px-3 py-1.5 rounded text-xs font-medium transition-all duration-200 bg-secondary text-foreground hover:bg-hover border border-transparent${isWatched ? ' opacity-50' : ''}`}
                           title="点击播放"
                         >
                           {title}
