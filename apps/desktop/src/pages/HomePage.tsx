@@ -87,7 +87,7 @@ export default function HomePage() {
 
   useEffect(() => {
     if (userUsageTypes.includes('NEW_MOVIES')) {
-      provider.listMedia({ type: 'MOVIE', page: 1, pageSize: 5, sort: 'latest' })
+      provider.listMedia({ type: 'MOVIE', page: 1, pageSize: 10, sort: 'latest' })
         .then((r) => setLatestMedia(r.items))
         .catch(() => {});
     }
@@ -154,7 +154,7 @@ export default function HomePage() {
     await collectLatest();
     toast('增量采集完成');
     if (userUsageTypes.includes('NEW_MOVIES')) {
-      provider.listMedia({ type: 'MOVIE', page: 1, pageSize: 5, sort: 'latest' })
+      provider.listMedia({ type: 'MOVIE', page: 1, pageSize: 10, sort: 'latest' })
         .then((r) => setLatestMedia(r.items))
         .catch(() => {});
     }
@@ -176,7 +176,7 @@ export default function HomePage() {
         <span className="font-medium text-lg">快速搜索采集</span>
       </div>
       <p className="text-sm text-muted-foreground mb-3">输入关键词搜索并一键采集你想看的视频</p>
-      <div className="flex gap-2 mb-3">
+      <div className="flex gap-2 mb-3 items-center">
         <Input
           placeholder="输入电影/电视剧名称..."
           value={quickKeyword}
@@ -184,6 +184,14 @@ export default function HomePage() {
           onKeyDown={(e) => e.key === 'Enter' && handleQuickPreview()}
           className="flex-1 bg-background border-border"
         />
+        <label className="flex items-center gap-1.5 text-xs whitespace-nowrap cursor-pointer select-none">
+          <Switch checked={relaxBlacklist} onCheckedChange={setRelaxBlacklist} />
+          忽略黑名单
+        </label>
+        <label className="flex items-center gap-1.5 text-xs whitespace-nowrap cursor-pointer select-none">
+          <Switch checked={relaxYear} onCheckedChange={setRelaxYear} />
+          不限年份
+        </label>
         <Button onClick={handleQuickPreview} disabled={previewLoading} variant="default">
           <Search className="size-4 mr-1" />搜索采集
         </Button>
@@ -233,19 +241,6 @@ export default function HomePage() {
       {hasQuickSearched && !previewLoading && quickCollectCount === 0 && previewResults.length > 0 && (
         <>
           <Separator className="my-3" />
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-medium">放宽搜索条件</span>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
-                <Switch checked={relaxBlacklist} onCheckedChange={setRelaxBlacklist} />
-                忽略黑名单
-              </label>
-              <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
-                <Switch checked={relaxYear} onCheckedChange={setRelaxYear} />
-                不限年份
-              </label>
-            </div>
-          </div>
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">
               已选 {selectedPreviewIds.size} / 共 {previewResults.length} 个
@@ -271,9 +266,7 @@ export default function HomePage() {
           {isLoading ? '采集中...' : '开始增量采集'}
         </Button>
       </div>
-      <div className="bg-secondary/30 rounded-lg p-4 mb-4">
-        <p className="text-sm text-muted-foreground">一键从所有视频源采集最新内容</p>
-      </div>
+      <p className="text-sm text-muted-foreground mb-4">一键从所有视频源采集最新内容</p>
       {latestMedia.length > 0 && (
         <>
           <div className="flex items-center justify-between mb-2">

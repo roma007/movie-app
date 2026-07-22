@@ -89,7 +89,7 @@ function ToastProvider({ children }: { children: ReactNode }) {
 }
 
 export function Layout() {
-  const [appVersion, setAppVersion] = useState('1.0.13');
+  const [appVersion, setAppVersion] = useState('1.0.14');
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [showAiImport, setShowAiImport] = useState(false);
   const { loadVideoSources, videoSources } = useAppStore();

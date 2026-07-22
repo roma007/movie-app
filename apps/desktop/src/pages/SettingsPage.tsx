@@ -230,7 +230,7 @@ export default function SettingsPage() {
           <Info className="size-4 text-muted-foreground" />
           <div>
             <div className="font-medium">关于</div>
-            <div className="text-sm text-muted-foreground">Movie App · 版本 1.0.13</div>
+            <div className="text-sm text-muted-foreground">Movie App · 版本 1.0.14</div>
           </div>
         </div>
       </Card>
