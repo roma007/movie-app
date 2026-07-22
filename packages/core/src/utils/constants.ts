@@ -2,7 +2,6 @@ export interface DefaultSourceConfig {
   name: string;
   code: string;
   baseUrl: string;
-  priority: number;
   rateLimit: number;
 }
 
@@ -11,42 +10,36 @@ export const defaultSources: DefaultSourceConfig[] = [
     name: '魔都资源',
     code: 'mdzuzi',
     baseUrl: 'https://www.mdzyapi.com/api.php/provide/vod',
-    priority: 10,
     rateLimit: 2,
   },
   {
     name: '百度云资源',
     code: 'baiduyunziyuan',
     baseUrl: 'https://api.apibdzy.com/api.php/provide/vod',
-    priority: 8,
     rateLimit: 2,
   },
   {
     name: '量子资源',
     code: 'liangziziyuan',
     baseUrl: 'http://cj.lziapi.com/api.php/provide/vod',
-    priority: 7,
     rateLimit: 2,
   },
   {
     name: '无尽资源',
     code: 'wujinziziyuan',
     baseUrl: 'https://api.wujinapi.com/api.php/provide/vod',
-    priority: 6,
     rateLimit: 2,
   },
   {
     name: '红牛资源',
     code: 'hongniuziyuan',
     baseUrl: 'https://www.hongniuzy3.com/api.php/provide/vod',
-    priority: 5,
     rateLimit: 2,
   },
   {
     name: '电影天堂',
     code: 'dianyingtiantang',
     baseUrl: 'http://caiji.dyttzyapi.com/api.php/provide/vod',
-    priority: 4,
     rateLimit: 2,
   },
 ];
@@ -102,8 +95,7 @@ export const AI_SOURCE_PROMPT = `你是一个视频源推荐专家。请提供 3
     "name": "视频源名称",
     "code": "唯一英文编码（短小无空格）",
     "baseUrl": "CMS API 完整地址",
-    "rateLimit": 2,
-    "priority": 10
+    "rateLimit": 2
   }
 ]
 
@@ -112,7 +104,6 @@ export const AI_SOURCE_PROMPT = `你是一个视频源推荐专家。请提供 3
 - code: 唯一英文标识，如 "jisuziyuan"
 - baseUrl: API 地址，必须以 /api.php/provide/vod 结尾
 - rateLimit: 并发数，1-5 之间的整数，建议 2
-- priority: 优先级，数值越大越优先，建议 5-10
 
 ## 示例
 [
@@ -120,8 +111,7 @@ export const AI_SOURCE_PROMPT = `你是一个视频源推荐专家。请提供 3
     "name": "示例资源",
     "code": "shiliziyuan",
     "baseUrl": "https://example.com/api.php/provide/vod",
-    "rateLimit": 2,
-    "priority": 8
+    "rateLimit": 2
   }
 ]`;
 
@@ -131,13 +121,11 @@ export const AI_SOURCE_IMPORT_SAMPLE = JSON.stringify([
     code: 'jisuziyuan',
     baseUrl: 'https://api.jisuzy.com/api.php/provide/vod',
     rateLimit: 2,
-    priority: 10,
   },
   {
     name: '酷云资源',
     code: 'kuyunzy',
     baseUrl: 'https://www.kuyunzy.com/api.php/provide/vod',
     rateLimit: 2,
-    priority: 8,
   },
 ], null, 2);

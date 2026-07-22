@@ -57,7 +57,6 @@ export default function SourceManagerPage() {
     addVideoSource,
     removeVideoSource,
     toggleSourceEnabled,
-    reorderSource,
     deletePlaySourcesBySourceId,
     updateSourceRateLimit,
     previewResults,
@@ -76,7 +75,7 @@ export default function SourceManagerPage() {
   const [editingSource, setEditingSource] = useState<VideoSource | null>(null);
   const [editForm, setEditForm] = useState({ name: '', baseUrl: '' });
   const [showAddDialog, setShowAddDialog] = useState(false);
-  const [addForm, setAddForm] = useState({ code: '', name: '', baseUrl: '', rateLimit: '5', priority: '0' });
+  const [addForm, setAddForm] = useState({ code: '', name: '', baseUrl: '', rateLimit: '5' });
 
   const [isLoading, setIsLoading] = useState(true);
   const [showLogPanel, setShowLogPanel] = useState(false);
@@ -349,12 +348,11 @@ export default function SourceManagerPage() {
       type: 'CMS',
       isEnabled: true,
       rateLimit: Number(addForm.rateLimit) || 5,
-      priority: Number(addForm.priority) || 0,
       healthStatus: null,
       lastCheckAt: null,
     };
     addVideoSource(source);
-    setAddForm({ code: '', name: '', baseUrl: '', rateLimit: '5', priority: '0' });
+    setAddForm({ code: '', name: '', baseUrl: '', rateLimit: '5' });
     setShowAddDialog(false);
     toast('视频源已添加');
   };
@@ -429,15 +427,6 @@ export default function SourceManagerPage() {
     setAiParsed(null);
     setAiPreview([]);
     setAiResult(null);
-  };
-
-  const handleMove = async (index: number, dir: 'up' | 'down') => {
-    const target = dir === 'up' ? index - 1 : index + 1;
-    if (target < 0 || target >= videoSources.length) return;
-    const a = videoSources[index];
-    const b = videoSources[target];
-    await reorderSource(a.id, b.priority);
-    await reorderSource(b.id, a.priority);
   };
 
   const toggleExpand = (sourceCode: string) => {
@@ -532,10 +521,6 @@ export default function SourceManagerPage() {
                   <div className="space-y-1.5">
                     <Label>速率限制（1-10）</Label>
                     <Input type="number" value={addForm.rateLimit} onChange={(e) => setAddForm({ ...addForm, rateLimit: e.target.value })} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>优先级</Label>
-                    <Input type="number" value={addForm.priority} onChange={(e) => setAddForm({ ...addForm, priority: e.target.value })} />
                   </div>
                 </div>
               </div>
@@ -737,10 +722,6 @@ export default function SourceManagerPage() {
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">API 地址:</span>
                           <span className="font-mono text-xs break-all">{source.baseUrl}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">优先级:</span>
-                          <span>{source.priority}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">创建时间:</span>

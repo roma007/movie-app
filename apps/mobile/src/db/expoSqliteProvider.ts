@@ -161,6 +161,12 @@ const MIGRATIONS: Migration[] = [
     description: 'add_source_id_to_episode',
     sql: `ALTER TABLE episode ADD COLUMN source_id TEXT;`,
   },
+  {
+    version: 16,
+    description: 'add_series_group_to_media',
+    sql: `ALTER TABLE media ADD COLUMN series_group TEXT;
+          ALTER TABLE media ADD COLUMN series_season INTEGER;`,
+  },
 ];
 
 /**
@@ -278,7 +284,6 @@ export class ExpoSqliteProvider implements DatabaseProvider {
           source.name,
           source.baseUrl,
           source.rateLimit,
-          source.priority,
           now,
         ]);
       }
@@ -294,6 +299,11 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   async getMediaByFingerprint(fingerprint: string): Promise<Media | null> {
     const row = await this.db!.getFirstAsync<any>('SELECT * FROM media WHERE fingerprint = ?', [fingerprint]);
     return row ? rowToMedia(row) : null;
+  }
+
+  async getMediaBySeriesGroup(groupKey: string): Promise<Media[]> {
+    const rows = await this.db!.getAllAsync<any>('SELECT * FROM media WHERE series_group = ? ORDER BY series_season ASC', [groupKey]);
+    return rows.map(rowToMedia);
   }
 
   async listMedia(params: ListParams = {}): Promise<PaginatedResponse<Media>> {
@@ -367,8 +377,9 @@ export class ExpoSqliteProvider implements DatabaseProvider {
         id, title, original_title, alias, type, year, area, genre, director, cast,
         description, poster_url, backdrop_url, status, remarks, fingerprint,
         current_episodes, total_episodes, is_short_drama, duration_check_status, episode_duration,
-        view_count, favorite_count, search_count, hidden, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        view_count, favorite_count, search_count, hidden, series_group, series_season,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(fingerprint) DO UPDATE SET
         title = excluded.title,
         original_title = excluded.original_title,
@@ -387,6 +398,8 @@ export class ExpoSqliteProvider implements DatabaseProvider {
         is_short_drama = excluded.is_short_drama,
         duration_check_status = excluded.duration_check_status,
         episode_duration = excluded.episode_duration,
+        series_group = excluded.series_group,
+        series_season = excluded.series_season,
         updated_at = excluded.updated_at`,
       [
         media.id, media.title, media.originalTitle || null, media.alias || null,
@@ -397,6 +410,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
         media.currentEpisodes || null, media.totalEpisodes || null,
         media.isShortDrama ? 1 : 0, media.durationCheckStatus || null, media.episodeDuration || null,
         media.viewCount || 0, 0, 0, media.hidden ? 1 : 0,
+        media.seriesGroup || null, media.seriesSeason ?? null,
         media.createdAt || now, now,
       ]
     );
@@ -577,6 +591,24 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     sql += ' ORDER BY season_number ASC, episode_number ASC';
     const rows = await this.db!.getAllAsync<any>(sql, params);
     return rows.map(rowToEpisode);
+  }
+
+  async getEpisodeSourcesByMediaId(mediaId: string, season?: number): Promise<VideoSource[]> {
+    let sql: string;
+    const params: any[] = [mediaId];
+    if (season !== undefined) {
+      sql = `SELECT DISTINCT vs.* FROM video_source vs
+             JOIN episode e ON e.source_id = vs.id
+             WHERE e.media_id = ? AND e.season_number = ?`;
+      params.push(season);
+    } else {
+      sql = `SELECT DISTINCT vs.* FROM video_source vs
+             JOIN episode e ON e.source_id = vs.id
+             WHERE e.media_id = ?`;
+    }
+    sql += ' ORDER BY vs.name ASC';
+    const rows = await this.db!.getAllAsync<any>(sql, params);
+    return rows.map(rowToVideoSource);
   }
 
   async getEpisodeById(id: string): Promise<Episode | null> {
@@ -831,12 +863,12 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   // —— VideoSource DAO ——
   async getAllVideoSources(): Promise<VideoSource[]> {
-    const rows = await this.db!.getAllAsync<any>('SELECT * FROM video_source ORDER BY priority DESC, id ASC');
+    const rows = await this.db!.getAllAsync<any>('SELECT * FROM video_source ORDER BY id ASC');
     return rows.map(rowToVideoSource);
   }
 
   async getEnabledVideoSources(): Promise<VideoSource[]> {
-    const rows = await this.db!.getAllAsync<any>('SELECT * FROM video_source WHERE is_enabled = 1 ORDER BY priority DESC, id ASC');
+    const rows = await this.db!.getAllAsync<any>('SELECT * FROM video_source WHERE is_enabled = 1 ORDER BY id ASC');
     return rows.map(rowToVideoSource);
   }
 
@@ -852,18 +884,17 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async upsertVideoSource(source: VideoSource): Promise<void> {
     await this.db!.runAsync(
-      `INSERT INTO video_source (id, code, name, base_url, type, is_enabled, rate_limit, priority, health_status, last_check_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO video_source (id, code, name, base_url, type, is_enabled, rate_limit, health_status, last_check_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(code) DO UPDATE SET
          name = excluded.name,
          base_url = excluded.base_url,
          type = excluded.type,
          is_enabled = excluded.is_enabled,
          rate_limit = excluded.rate_limit,
-         priority = excluded.priority,
          health_status = excluded.health_status,
          last_check_at = excluded.last_check_at`,
-      [source.id, source.code, source.name, source.baseUrl, source.type, source.isEnabled ? 1 : 0, source.rateLimit, source.priority, source.healthStatus || null, source.lastCheckAt || null]
+      [source.id, source.code, source.name, source.baseUrl, source.type, source.isEnabled ? 1 : 0, source.rateLimit, source.healthStatus || null, source.lastCheckAt || null]
     );
   }
 
@@ -873,10 +904,6 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async setVideoSourceEnabled(id: string, enabled: boolean): Promise<void> {
     await this.db!.runAsync('UPDATE video_source SET is_enabled = ? WHERE id = ?', [enabled ? 1 : 0, id]);
-  }
-
-  async updateSourcePriority(id: string, priority: number): Promise<void> {
-    await this.db!.runAsync('UPDATE video_source SET priority = ? WHERE id = ?', [priority, id]);
   }
 
   async updateSourceRateLimit(id: string, rateLimit: number): Promise<void> {

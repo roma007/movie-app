@@ -19,6 +19,8 @@ export interface Media {
   status?: 'PUBLISHED' | 'ONGOING' | 'COMPLETED';
   remarks?: string | null;
   fingerprint: string;
+  seriesGroup?: string | null;
+  seriesSeason?: number | null;
   currentEpisodes?: number;
   totalEpisodes?: number;
   isShortDrama: boolean;
@@ -60,7 +62,6 @@ export interface VideoSource {
   type: string;
   isEnabled: boolean;
   rateLimit: number;
-  priority: number;
   healthStatus?: string | null;
   lastCheckAt?: string | null;
   lastCollectedAt?: string | null;
@@ -140,7 +141,7 @@ export type TaskStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
 
 export type TaskType = 'INCREMENTAL' | 'FULL' | 'KEYWORD' | 'REPROBE';
 
-export type TaskErrorType = 'NETWORK' | 'PARSE' | 'DB' | 'TIMEOUT' | 'CANCELLED' | 'UNKNOWN';
+export type TaskErrorType = 'NETWORK' | 'PARSE' | 'DB' | 'TIMEOUT' | 'RATE_LIMIT' | 'CANCELLED' | 'UNKNOWN';
 
 export interface CollectTask {
   id: string;
@@ -194,7 +195,6 @@ export interface ImportSourceItem {
   code: string;
   baseUrl: string;
   rateLimit?: number;
-  priority?: number;
 }
 
 export type SourceImportStatus =

@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Alert, Mo
 import { useAppStore } from '../useAppStore';
 import { SourceImportService, AI_SOURCE_PROMPT, AI_SOURCE_IMPORT_SAMPLE } from '@movie-app/core';
 import type { VideoSource, CollectTask, CollectPreviewItem, ImportSourceItem, ParsedImportSource } from '@movie-app/core';
+import Toast, { showToast } from '../components/Toast';
 
 interface Props {
   navigation: any;
@@ -63,7 +64,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
   const {
     videoSources, loadVideoSources,
     toggleSourceEnabled, removeVideoSource, addVideoSource,
-    reorderSource, updateSourceRateLimit,
+    updateSourceRateLimit,
     checkVideoSource, collectSourceLatest, collectSourceAll,
     collectTasks, loadRunningCollectTasks,
     collectionLogs, clearCollectionLogs,
@@ -73,7 +74,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
   } = useAppStore();
 
   const [modalVisible, setModalVisible] = useState(false);
-  const [form, setForm] = useState({ code: '', name: '', baseUrl: '', rateLimit: '5', priority: '0' });
+  const [form, setForm] = useState({ code: '', name: '', baseUrl: '', rateLimit: '5' });
 
   const [checkingSource, setCheckingSource] = useState<string | null>(null);
   const [showLogPanel, setShowLogPanel] = useState(false);
@@ -141,15 +142,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
     ]);
   };
 
-  const handleMove = async (index: number, dir: 'up' | 'down') => {
-    const target = dir === 'up' ? index - 1 : index + 1;
-    if (target < 0 || target >= videoSources.length) return;
-    const a = videoSources[index];
-    const b = videoSources[target];
-    await reorderSource(a.id, b.priority);
-    await reorderSource(b.id, a.priority);
-  };
-
   const handleAdjustRate = async (source: VideoSource, delta: number) => {
     const newRate = Math.max(1, Math.min(10, source.rateLimit + delta));
     await updateSourceRateLimit(source.id, newRate);
@@ -169,12 +161,11 @@ export default function SourceManagerScreen({ navigation }: Props) {
       type: 'CMS',
       isEnabled: true,
       rateLimit: Number(form.rateLimit) || 5,
-      priority: Number(form.priority) || 0,
       healthStatus: null,
       lastCheckAt: null,
     };
     addVideoSource(source);
-    setForm({ code: '', name: '', baseUrl: '', rateLimit: '5', priority: '0' });
+    setForm({ code: '', name: '', baseUrl: '', rateLimit: '5' });
     setModalVisible(false);
   };
 
@@ -184,30 +175,30 @@ export default function SourceManagerScreen({ navigation }: Props) {
     try {
       const result = await checkVideoSource(source.id);
       if (result.healthy) {
-        Alert.alert('检查结果', `「${source.name}」连接正常，响应时间: ${result.responseTime}ms`);
+        showToast(`「${source.name}」连接正常，响应时间: ${result.responseTime}ms`, 'success');
       } else {
-        Alert.alert('检查结果', `「${source.name}」连接失败`);
+        showToast(`「${source.name}」连接失败`, 'error');
       }
     } catch (err: any) {
-      Alert.alert('检查失败', `「${source.name}」${err.message || '无法连接'}`);
+      showToast(`「${source.name}」${err.message || '无法连接'}`, 'error');
     } finally {
       setCheckingSource(null);
     }
   };
 
-  const handleCollect = async (sourceCode: string, type: 'increment' | 'full') => {
-    const label = type === 'increment' ? '增量采集' : '全量采集';
+  const handleCollect = async (sourceCode: string, type: 'increment' | 'full', sourceName: string) => {
+    const label = type === 'increment' ? '增量' : '全量';
     try {
       const fn = type === 'increment' ? collectSourceLatest : collectSourceAll;
       const result = await fn(sourceCode);
       if (!result.success) {
-        Alert.alert(`${label}失败`, result.error || '未知错误');
+        showToast(`${sourceName}${label}采集失败: ${result.error || '未知错误'}`, 'error');
       } else {
         await loadVideoSources();
-        Alert.alert(`${label}已启动`, `任务已创建，可在任务列表查看进度`);
+        showToast(`${sourceName}${label}采集任务已完成`, 'success');
       }
     } catch (err: any) {
-      Alert.alert(`${label}失败`, err.message || '未知错误');
+      showToast(`${sourceName}${label}采集失败: ${err.message || '未知错误'}`, 'error');
     }
   };
 
@@ -247,7 +238,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
 
   const handleSavePreview = async () => {
     if (selectedPreviewIds.size === 0) {
-      Alert.alert('提示', '请先选择要保存的视频');
+      showToast('请先选择要保存的视频', 'info');
       return;
     }
     const selectedItems = previewResults.filter(r => selectedPreviewIds.has(r.fingerprint));
@@ -257,13 +248,13 @@ export default function SourceManagerScreen({ navigation }: Props) {
         ignoreBlacklist: relaxBlacklist,
         unlimitedYear: relaxYear,
       });
-      Alert.alert('保存成功', `已保存 ${count} 条视频`);
+      showToast(`已保存 ${count} 条视频`, 'success');
       clearPreviewResults();
       setKeywordModalVisible(false);
       setHasSearched(false);
       setKeywordInput('');
     } catch (err: any) {
-      Alert.alert('保存失败', err.message || '未知错误');
+      showToast(`保存失败: ${err.message || '未知错误'}`, 'error');
     } finally {
       setIsSaving(false);
     }
@@ -271,16 +262,16 @@ export default function SourceManagerScreen({ navigation }: Props) {
 
   const handleAiParse = async () => {
     if (!aiPastedText.trim()) {
-      Alert.alert('提示', '请先粘贴 AI 返回的数据');
+      showToast('请先粘贴 AI 返回的数据', 'info');
       return;
     }
     const parsed = SourceImportService.parseJson(aiPastedText.trim());
     if (parsed.errors.length > 0) {
-      Alert.alert('解析错误', parsed.errors[0].message);
+      showToast(parsed.errors[0].message, 'error');
       return;
     }
     if (parsed.items.length === 0) {
-      Alert.alert('提示', '未解析到有效数据');
+      showToast('未解析到有效数据', 'info');
       return;
     }
     const preview = await validateImportSources(parsed.items);
@@ -293,7 +284,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
       .filter((p) => p.status === 'valid')
       .map((p) => p.item);
     if (validItems.length === 0) {
-      Alert.alert('提示', '没有可导入的有效视频源');
+      showToast('没有可导入的有效视频源', 'info');
       return;
     }
     setAiImporting(true);
@@ -301,12 +292,12 @@ export default function SourceManagerScreen({ navigation }: Props) {
       const result = await batchImportSources(validItems);
       setAiResult({ imported: result.imported, skipped: result.skipped });
       if (result.imported > 0) {
-        Alert.alert('导入成功', `成功导入 ${result.imported} 个视频源` + (result.skipped > 0 ? `，跳过 ${result.skipped} 个` : ''));
+        showToast(`成功导入 ${result.imported} 个视频源` + (result.skipped > 0 ? `，跳过 ${result.skipped} 个` : ''), 'success');
       } else {
-        Alert.alert('导入失败', `${result.skipped} 个被跳过`);
+        showToast(`${result.skipped} 个被跳过`, 'error');
       }
     } catch (err: any) {
-      Alert.alert('导入失败', err.message || '未知错误');
+      showToast(`导入失败: ${err.message || '未知错误'}`, 'error');
     } finally {
       setAiImporting(false);
     }
@@ -328,6 +319,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
+      <Toast />
       <ScrollView style={styles.scrollContainer}>
         <View style={styles.header}>
           <Text style={styles.title}>视频源管理</Text>
@@ -387,22 +379,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
                 </Text>
 
                 <View style={styles.sourceFooter}>
-                  <Text style={styles.priority}>优先级: {source.priority}</Text>
                   <View style={styles.actions}>
-                    <TouchableOpacity
-                      style={[styles.actionButton, index === 0 && styles.actionButtonDisabled]}
-                      disabled={index === 0}
-                      onPress={() => handleMove(index, 'up')}
-                    >
-                      <Text style={styles.actionText}>上移</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.actionButton, index === videoSources.length - 1 && styles.actionButtonDisabled]}
-                      disabled={index === videoSources.length - 1}
-                      onPress={() => handleMove(index, 'down')}
-                    >
-                      <Text style={styles.actionText}>下移</Text>
-                    </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.actionButton, styles.deleteButton]}
                       onPress={() => handleDelete(source.id, source.name)}
@@ -426,14 +403,14 @@ export default function SourceManagerScreen({ navigation }: Props) {
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.sourceActionBtn, collecting && styles.sourceActionBtnDisabled]}
-                    onPress={() => handleCollect(source.code, 'increment')}
+                    onPress={() => handleCollect(source.code, 'increment', source.name)}
                     disabled={collecting}
                   >
                     <Text style={styles.sourceActionBtnText}>增量采集</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.sourceActionBtn, collecting && styles.sourceActionBtnDisabled]}
-                    onPress={() => handleCollect(source.code, 'full')}
+                    onPress={() => handleCollect(source.code, 'full', source.name)}
                     disabled={collecting}
                   >
                     <Text style={styles.sourceActionBtnText}>全量采集</Text>
@@ -547,14 +524,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
                 keyboardType="numeric"
                 value={form.rateLimit}
                 onChangeText={(text) => setForm({ ...form, rateLimit: text })}
-              />
-              <TextInput
-                style={[styles.input, styles.inputHalf]}
-                placeholder="优先级"
-                placeholderTextColor="#666"
-                keyboardType="numeric"
-                value={form.priority}
-                onChangeText={(text) => setForm({ ...form, priority: text })}
               />
             </View>
             <View style={styles.modalButtons}>
@@ -876,7 +845,6 @@ const styles = StyleSheet.create({
   healthLabel: { fontSize: 12, marginBottom: 4 },
   lastCollectText: { fontSize: 11, color: '#666', marginBottom: 10 },
   sourceFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  priority: { fontSize: 13, color: '#666' },
   actions: { flexDirection: 'row', gap: 8 },
   actionButton: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#2a2a2a', borderRadius: 6 },
   actionButtonDisabled: { opacity: 0.4 },

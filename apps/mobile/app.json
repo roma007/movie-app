@@ -2,7 +2,7 @@
   "expo": {
     "name": "Movie App",
     "slug": "movie-app",
-    "version": "1.0.14",
+    "version": "1.0.15",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -11,7 +11,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#0f0f0f"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.movie.app"
@@ -26,6 +28,10 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-sqlite"]
+    "plugins": [
+      "expo-sqlite",
+      "expo-image",
+      "expo-status-bar"
+    ]
   }
 }

@@ -8,8 +8,11 @@ export interface AppState {
   mediaMeta: PaginatedMeta | null;
   currentMedia: Media | null;
   episodes: any[];
+  episodesLoading: boolean;
   playSources: any[];
   seasons: number[];
+  seriesMedia: Media[];
+  episodeSources: VideoSource[];
   videoSources: VideoSource[];
   favorites: Favorite[];
   watchHistory: WatchHistory[];
@@ -46,8 +49,11 @@ export interface AppState {
   getAreasByType: (type?: string) => Promise<string[]>;
   loadMediaDetail: (id: string) => Promise<void>;
   loadEpisodes: (mediaId: string, season?: number, sourceId?: string) => Promise<void>;
+  loadSeasonEpisodes: (mediaId: string, season: number) => Promise<string | null>;
   loadPlaySources: (episodeId: string) => Promise<void>;
   loadSeasons: (mediaId: string) => Promise<void>;
+  loadSeriesMedia: (mediaId: string) => Promise<void>;
+  loadEpisodeSources: (mediaId: string, season?: number) => Promise<void>;
   searchMedia: (keyword: string, params?: {
     page?: number;
     pageSize?: number;
@@ -62,7 +68,6 @@ export interface AppState {
   toggleSourceEnabled: (id: string, enabled: boolean) => Promise<void>;
   addVideoSource: (source: VideoSource) => Promise<void>;
   removeVideoSource: (id: string) => Promise<void>;
-  reorderSource: (id: string, priority: number) => Promise<void>;
   updateSourceRateLimit: (id: string, rateLimit: number) => Promise<void>;
   batchImportSources: (items: ImportSourceItem[]) => Promise<{ imported: number; skipped: number; errors: { index: number; message: string }[] }>;
   validateImportSources: (items: ImportSourceItem[]) => Promise<ParsedImportSource[]>;
@@ -161,8 +166,11 @@ export function createAppStore(db: DatabaseProvider) {
     mediaMeta: null,
     currentMedia: null,
     episodes: [],
+    episodesLoading: false,
     playSources: [],
     seasons: [],
+    seriesMedia: [],
+    episodeSources: [],
     videoSources: [],
     favorites: [],
     watchHistory: [],
@@ -226,9 +234,36 @@ export function createAppStore(db: DatabaseProvider) {
     },
 
     loadEpisodes: async (mediaId: string, season: number = 1, sourceId?: string) => {
+      set({ episodesLoading: true });
       try {
         const episodes = await db.getEpisodesByMediaId(mediaId, season, sourceId);
-        set({ episodes });
+        set({ episodes, episodesLoading: false });
+      } catch (err: any) {
+        set({ error: err.message, episodesLoading: false });
+      }
+    },
+
+    loadSeasonEpisodes: async (mediaId: string, season: number) => {
+      try {
+        const sources = await db.getEpisodeSourcesByMediaId(mediaId, season);
+        let episodes: any[] = [];
+        let firstSourceId: string | null = null;
+        if (sources.length > 0) {
+          firstSourceId = sources[0].id;
+          episodes = await db.getEpisodesByMediaId(mediaId, season, firstSourceId);
+        }
+        set({ episodeSources: sources, episodes });
+        return firstSourceId;
+      } catch (err: any) {
+        set({ error: err.message });
+        return null;
+      }
+    },
+
+    loadEpisodeSources: async (mediaId: string, season?: number) => {
+      try {
+        const sources = await db.getEpisodeSourcesByMediaId(mediaId, season);
+        set({ episodeSources: sources });
       } catch (err: any) {
         set({ error: err.message });
       }
@@ -247,6 +282,20 @@ export function createAppStore(db: DatabaseProvider) {
       try {
         const seasons = await db.getSeasonsByMediaId(mediaId);
         set({ seasons });
+      } catch (err: any) {
+        set({ error: err.message });
+      }
+    },
+
+    loadSeriesMedia: async (mediaId: string) => {
+      try {
+        const media = await db.getMediaById(mediaId);
+        if (!media?.seriesGroup) {
+          set({ seriesMedia: [] });
+          return;
+        }
+        const series = await db.getMediaBySeriesGroup(media.seriesGroup);
+        set({ seriesMedia: series });
       } catch (err: any) {
         set({ error: err.message });
       }
@@ -309,15 +358,6 @@ export function createAppStore(db: DatabaseProvider) {
     removeVideoSource: async (id: string) => {
       try {
         await db.deleteVideoSource(id);
-        await get().loadVideoSources();
-      } catch (err: any) {
-        set({ error: err.message });
-      }
-    },
-
-    reorderSource: async (id: string, priority: number) => {
-      try {
-        await db.updateSourcePriority(id, priority);
         await get().loadVideoSources();
       } catch (err: any) {
         set({ error: err.message });

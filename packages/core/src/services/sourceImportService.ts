@@ -44,7 +44,6 @@ export class SourceImportService {
         code: raw.code,
         baseUrl: raw.baseUrl,
         rateLimit: raw.rateLimit,
-        priority: raw.priority,
       });
     }
 
@@ -81,13 +80,6 @@ export class SourceImportService {
       }
     }
 
-    if (item.priority != null) {
-      const pr = Number(item.priority);
-      if (!Number.isInteger(pr) || pr < 1 || pr > 100) {
-        errors.push('优先级(priority)须为 1-100 的整数');
-      }
-    }
-
     return errors;
   }
 
@@ -97,7 +89,6 @@ export class SourceImportService {
       code: item.code.trim(),
       baseUrl: item.baseUrl.trim(),
       rateLimit: item.rateLimit ?? 2,
-      priority: item.priority ?? 5,
     };
   }
 
@@ -202,7 +193,6 @@ export class SourceImportService {
           type: 'CMS',
           isEnabled: true,
           rateLimit: item.rateLimit ?? 2,
-          priority: item.priority ?? 5,
           healthStatus: null,
           lastCheckAt: null,
         };

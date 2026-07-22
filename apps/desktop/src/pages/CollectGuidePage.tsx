@@ -186,7 +186,7 @@ export default function CollectGuidePage() {
           </li>
           <li className="flex items-start gap-2">
             <span className="w-5 h-5 flex items-center justify-center rounded-full bg-primary text-white text-xs shrink-0">4</span>
-            设置优先级（数字越小优先级越高），点击保存
+            点击保存
           </li>
           <li className="flex items-start gap-2">
             <span className="w-5 h-5 flex items-center justify-center rounded-full bg-primary text-white text-xs shrink-0">5</span>

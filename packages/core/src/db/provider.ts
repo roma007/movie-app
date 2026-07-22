@@ -20,6 +20,7 @@ import type {
 export interface DatabaseProvider {
   // —— Media DAO ——
   getMediaById(id: string): Promise<Media | null>;
+  getMediaBySeriesGroup(groupKey: string): Promise<Media[]>;
   getMediaByFingerprint(fingerprint: string): Promise<Media | null>;
   listMedia(params?: ListParams): Promise<PaginatedResponse<Media>>;
   upsertMedia(media: Media): Promise<void>;
@@ -52,6 +53,7 @@ export interface DatabaseProvider {
 
   // —— Episode DAO ——
   getEpisodesByMediaId(mediaId: string, season?: number, sourceId?: string): Promise<Episode[]>;
+  getEpisodeSourcesByMediaId(mediaId: string, season?: number): Promise<VideoSource[]>;
   getEpisodeById(id: string): Promise<Episode | null>;
   upsertEpisode(episode: Episode): Promise<void>;
   deleteEpisodesByMediaId(mediaId: string): Promise<void>;
@@ -85,7 +87,6 @@ export interface DatabaseProvider {
   upsertVideoSource(source: VideoSource): Promise<void>;
   deleteVideoSource(id: string): Promise<void>;
   setVideoSourceEnabled(id: string, enabled: boolean): Promise<void>;
-  updateSourcePriority(id: string, priority: number): Promise<void>;
   updateSourceRateLimit(id: string, rateLimit: number): Promise<void>;
   updateSourceHealth(id: string, data: {
     healthStatus: string;

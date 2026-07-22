@@ -58,7 +58,6 @@ CREATE TABLE IF NOT EXISTS video_source (
   type TEXT DEFAULT 'CMS',
   is_enabled INTEGER DEFAULT 1,
   rate_limit INTEGER DEFAULT 5,
-  priority INTEGER DEFAULT 0,
   health_status TEXT,
   last_check_at TEXT
 );
@@ -240,6 +239,13 @@ pub fn run() {
             version: 17,
             description: "add_last_collected_at_to_video_source",
             sql: "ALTER TABLE video_source ADD COLUMN last_collected_at TEXT;",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 18,
+            description: "add_series_group_to_media",
+            sql: "ALTER TABLE media ADD COLUMN series_group TEXT;
+                  ALTER TABLE media ADD COLUMN series_season INTEGER;",
             kind: MigrationKind::Up,
         },
     ];

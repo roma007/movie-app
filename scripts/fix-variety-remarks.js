@@ -63,7 +63,7 @@ async function main() {
 
     // 获取启用的视频源
     const sources = db.prepare(`
-      SELECT base_url FROM video_source WHERE is_enabled = 1 ORDER BY priority DESC
+      SELECT base_url FROM video_source WHERE is_enabled = 1
     `).all();
 
     if (sources.length === 0) {
