@@ -32,6 +32,18 @@ function getTypeLabel(type: string): string {
   }
 }
 
+function getErrorTypeLabel(errorType: string | null): { label: string; color: string } {
+  switch (errorType) {
+    case 'NETWORK': return { label: '网络错误', color: '#f97316' };
+    case 'TIMEOUT': return { label: '请求超时', color: '#eab308' };
+    case 'RATE_LIMIT': return { label: '限流', color: '#ef4444' };
+    case 'PARSE': return { label: '解析错误', color: '#a855f7' };
+    case 'DB': return { label: '数据库错误', color: '#ec4899' };
+    case 'CANCELLED': return { label: '已取消', color: '#888' };
+    default: return { label: '', color: '#888' };
+  }
+}
+
 export default function TaskListScreen({ navigation }: Props) {
   const { collectTasks, loadCollectTasks, deleteCollectTask, deleteOldTasks } = useAppStore();
   const [isLoading, setIsLoading] = useState(true);
@@ -133,7 +145,17 @@ export default function TaskListScreen({ navigation }: Props) {
                 </View>
 
                 {task.errorMessage && (
-                  <Text style={styles.taskError} numberOfLines={2}>{task.errorMessage}</Text>
+                  <View>
+                    {task.errorType && (() => {
+                      const errorTypeInfo = getErrorTypeLabel(task.errorType);
+                      return errorTypeInfo.label ? (
+                        <View style={[styles.errorTypeBadge, { backgroundColor: errorTypeInfo.color + '20', borderColor: errorTypeInfo.color + '40' }]}>
+                          <Text style={[styles.errorTypeText, { color: errorTypeInfo.color }]}>{errorTypeInfo.label}</Text>
+                        </View>
+                      ) : null;
+                    })()}
+                    <Text style={styles.taskError} numberOfLines={2}>{task.errorMessage}</Text>
+                  </View>
                 )}
 
                 <TouchableOpacity style={styles.deleteTaskBtn} onPress={() => handleDelete(task)}>
@@ -178,6 +200,8 @@ const styles = StyleSheet.create({
   taskStat: { fontSize: 12, color: '#888' },
   taskDate: { fontSize: 11, color: '#555', marginLeft: 'auto' },
   taskError: { fontSize: 12, color: '#ef4444', marginBottom: 8, backgroundColor: 'rgba(239,68,68,0.05)', padding: 8, borderRadius: 6 },
+  errorTypeBadge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, borderWidth: 1, marginBottom: 4 },
+  errorTypeText: { fontSize: 11, fontWeight: '500' },
   deleteTaskBtn: { alignSelf: 'flex-end', paddingHorizontal: 14, paddingVertical: 6, backgroundColor: 'rgba(255,107,107,0.1)', borderRadius: 6 },
   deleteTaskBtnText: { color: '#ff6b6b', fontSize: 13 },
 });

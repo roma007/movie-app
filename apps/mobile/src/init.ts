@@ -1,5 +1,5 @@
 import { ExpoSqliteProvider } from './db/expoSqliteProvider';
-import { createAppStore, CollectorService, type AppStore, type AppState } from '@movie-app/core';
+import { createAppStore, CollectorService, backfillSeriesGroup, type AppStore, type AppState } from '@movie-app/core';
 
 let _provider: ExpoSqliteProvider | null = null;
 let _store: AppStore | null = null;
@@ -15,6 +15,12 @@ export async function initApp(): Promise<void> {
   _initPromise = (async () => {
     _provider = new ExpoSqliteProvider();
     await _provider.init();
+    try {
+      const updated = await backfillSeriesGroup(_provider);
+      if (updated > 0) console.log(`[INIT] 回填了 ${updated} 个 media 的系列字段`);
+    } catch (err) {
+      console.error('[INIT] 回填系列字段失败:', err);
+    }
     _store = createAppStore(_provider);
     _collector = new CollectorService(_provider);
 

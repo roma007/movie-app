@@ -5,6 +5,7 @@ import {
   INSERT_DEFAULT_SOURCE_SQL,
   COUNT_VIDEO_SOURCE_SQL,
   defaultSources,
+  splitSqlStatements,
   rowToMedia,
   rowToEpisode,
   rowToPlaySource,
@@ -25,32 +26,6 @@ import type {
   ListParams,
   CollectTask,
 } from '@movie-app/core';
-
-/**
- * 将含 BEGIN...END 触发器体的 SQL 源串拆分为单条语句。
- * naive split(';') 会把触发器体内的 INSERT 分号误判为语句边界，故按
- * BEGIN/END 嵌套深度分组：仅当深度回到 0 且该行以 ';' 结尾时切分。
- */
-function splitSqlStatements(sql: string): string[] {
-  const statements: string[] = [];
-  let buf = '';
-  let depth = 0;
-  for (const line of sql.split('\n')) {
-    const t = line.trim();
-    if (!t || t.startsWith('--')) continue; // 跳过空行与注释
-    buf += (buf ? '\n' : '') + line.trimEnd();
-    const begins = (t.match(/\bBEGIN\b/g) || []).length;
-    const ends = (t.match(/\bEND\b/g) || []).length;
-    depth += begins - ends;
-    if (depth <= 0 && t.endsWith(';')) {
-      statements.push(buf.replace(/;\s*$/, ''));
-      buf = '';
-      depth = 0;
-    }
-  }
-  if (buf.trim()) statements.push(buf.trim());
-  return statements;
-}
 
 interface Migration {
   version: number;

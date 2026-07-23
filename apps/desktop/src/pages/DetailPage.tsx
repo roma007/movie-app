@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Heart, ChevronRight, Check, ArrowLeft } from 'lucide-react';
-import type { Media, Episode, PlaySource } from '@movie-app/core';
+import type { Media, Episode, PlaySource, VideoSource } from '@movie-app/core';
 import { VideoDurationService } from '@movie-app/core';
 
 const typeLabel: Record<string, string> = {
@@ -21,18 +21,21 @@ export default function DetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const { currentMedia, episodes, seasons, isLoading, error, loadMediaDetail, loadSeasons, loadEpisodes, toggleFav } = useAppStore();
+  const { currentMedia, episodes, seasons, isLoading, error, episodeSources, seriesMedia, loadMediaDetail, loadSeasons, loadEpisodes, loadSeasonEpisodes, loadSeriesMedia, toggleFav } = useAppStore();
   const prevState = location.state as { page?: number; type?: string; subType?: string; year?: number; area?: string; episodeType?: string } | undefined;
   const [currentSeason, setCurrentSeason] = useState(1);
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [isFav, setIsFav] = useState(false);
   const [, setEpisodeDurations] = useState<Record<string, number | null>>({});
   const [allPlaySources, setAllPlaySources] = useState<Record<string, PlaySource[]>>({});
   const [watchedEpisodes, setWatchedEpisodes] = useState<Set<string>>(new Set());
+  const [episodesLoading, setEpisodesLoading] = useState(true);
 
   useEffect(() => {
     if (!id) return;
     loadMediaDetail(id);
     loadSeasons(id);
+    loadSeriesMedia(id);
     getProvider().isFavorite(id).then(setIsFav).catch(() => {});
     getProvider().getAllWatchHistoryByMediaId(id).then(history => {
       const watched = new Set<string>();
@@ -53,7 +56,19 @@ export default function DetailPage() {
 
   useEffect(() => {
     if (!id || currentSeason === 0) return;
-    loadEpisodes(id, currentSeason);
+
+    let cancelled = false;
+    setEpisodesLoading(true);
+
+    loadSeasonEpisodes(id, currentSeason).then(firstSourceId => {
+      if (cancelled) return;
+      if (firstSourceId) setSelectedSourceId(firstSourceId);
+      setEpisodesLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [id, currentSeason]);
 
   useEffect(() => {
@@ -87,9 +102,30 @@ export default function DetailPage() {
     runInBatches();
   }, [episodes]);
 
+  const seasonToMediaMap = new Map<number, string>();
+  seriesMedia.forEach(m => {
+    if (m.seriesSeason) seasonToMediaMap.set(m.seriesSeason, m.id);
+  });
+  const seasonsFromSeries = seriesMedia.map(m => m.seriesSeason ?? 1).sort((a, b) => a - b);
+  const displaySeasons = seasonsFromSeries.length > 0 ? seasonsFromSeries : seasons;
+  const currentMediaSeason = currentMedia?.seriesSeason ?? 1;
+
   const handleSeasonChange = (s: number) => {
-    setCurrentSeason(s);
-    if (id) loadEpisodes(id, s);
+    const targetId = seasonToMediaMap.get(s);
+    if (targetId && targetId !== id) {
+      navigate(`/media/${targetId}`, { replace: true });
+    } else {
+      setCurrentSeason(s);
+    }
+  };
+
+  const handleSourceChange = (sourceId: string) => {
+    setSelectedSourceId(sourceId);
+    if (!id) return;
+    setEpisodesLoading(true);
+    loadEpisodes(id, currentSeason, sourceId).then(() => {
+      setEpisodesLoading(false);
+    });
   };
 
   const handleFav = async () => {
@@ -151,7 +187,7 @@ export default function DetailPage() {
   const getTypeListUrl = () => typeRouteMap[media.type] || '/';
 
   return (
-    <div className="p-6 space-y-5 max-w-7xl mx-auto">
+    <div className="p-6 max-w-7xl mx-auto">
       <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pb-4 border-b border-border">
         <div className="flex items-center gap-4">
           <Button variant="ghost" onClick={() => navigate(getBackUrl())} className="hover:text-primary">
@@ -161,34 +197,56 @@ export default function DetailPage() {
         </div>
       </div>
 
-      <div className="rounded-lg border border-border bg-card card-shadow">
-        <div className="px-5 py-3 border-b border-border text-sm text-muted-foreground">
-          <span>当前位置：</span>
-          <Link 
-            to={getTypeListUrl()} 
-            className="hover:text-primary transition-colors"
-          >
-            {typeLabel[media.type] || media.type}
-          </Link>
-          <ChevronRight className="inline size-3 text-muted-foreground" />
-          <span className="text-foreground">{media.title}</span>
-        </div>
+      <div className="flex gap-6 mt-5">
+        <div className="w-80 shrink-0 space-y-5">
+          <div className="rounded-lg border border-border bg-card card-shadow">
+            <div className="px-5 py-3 border-b border-border text-sm text-muted-foreground">
+              <span>当前位置：</span>
+              <Link 
+                to={getTypeListUrl()} 
+                className="hover:text-primary transition-colors"
+              >
+                {typeLabel[media.type] || media.type}
+              </Link>
+              <ChevronRight className="inline size-3 text-muted-foreground" />
+              <span className="text-foreground">{media.title}</span>
+            </div>
 
-        <div className="p-5 flex gap-6">
-          <div className="shrink-0">
-            <div className="w-[210px] h-[290px] rounded-lg overflow-hidden bg-secondary">
-              {media.posterUrl && (
-                <img src={media.posterUrl} alt={media.title} className="size-full object-cover" />
-              )}
+            <div className="p-5">
+              <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-secondary mb-4">
+                {media.posterUrl && (
+                  <img src={media.posterUrl} alt={media.title} className="size-full object-cover" />
+                )}
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h1 className="text-xl font-normal">
+                    {media.title}
+                  </h1>
+                  <Button 
+                    variant={isFav ? 'default' : 'outline'} 
+                    size="sm" 
+                    onClick={handleFav}
+                    className={isFav ? 'bg-favorite hover:bg-favorite/90' : ''}
+                  >
+                    <Heart className={`size-4 ${isFav ? 'fill-current' : ''}`} />
+                    {isFav ? '已收藏' : '收藏'}
+                  </Button>
+                </div>
+                {media.alias && (
+                  <p className="text-sm"><span className="text-muted-foreground">又名：</span>{media.alias}</p>
+                )}
+                <p className="text-sm"><span className="text-muted-foreground">类型：</span>{media.genres.join(',')}</p>
+                <p className="text-sm"><span className="text-muted-foreground">年份：</span>{media.year}</p>
+                <p className="text-sm"><span className="text-muted-foreground">地区：</span>{media.area || '未知'}</p>
+                <p className="text-sm text-error"><span className="text-muted-foreground">更新时间：</span>{new Date(media.updatedAt).toISOString().split('T')[0]}</p>
+              </div>
             </div>
           </div>
-          <div className="flex-1 space-y-2">
-            <h1 className="text-2xl font-normal">
-              {media.title}
-            </h1>
-            {media.alias && (
-              <p className="text-sm"><span className="text-muted-foreground">又名：</span>{media.alias}</p>
-            )}
+        </div>
+
+        <div className="flex-1 min-w-0 space-y-5">
+          <div className="rounded-lg border border-border bg-card card-shadow p-5 space-y-2">
             <p className="text-sm">
               <span className="text-muted-foreground">导演：</span>
               {media.directors.length > 0 ? media.directors.map((d, i) => (
@@ -219,137 +277,141 @@ export default function DetailPage() {
                 </span>
               )) : '未知'}
             </p>
-            <p className="text-sm"><span className="text-muted-foreground">类型：</span>{media.genres.join(',')}</p>
-            <p className="text-sm"><span className="text-muted-foreground">年份：</span>{media.year}</p>
-            <p className="text-sm"><span className="text-muted-foreground">地区：</span>{media.area || '未知'}</p>
-            <p className="text-sm text-error"><span className="text-muted-foreground">更新时间：</span>{new Date(media.updatedAt).toISOString().split('T')[0]}</p>
-            <div className="pt-2">
-              <Button 
-                variant={isFav ? 'default' : 'outline'} 
-                size="sm" 
-                onClick={handleFav}
-                className={isFav ? 'bg-favorite hover:bg-favorite/90' : ''}
-              >
-                <Heart className={`size-4 ${isFav ? 'fill-current' : ''}`} />
-                {isFav ? '已收藏' : '收藏'}
-              </Button>
+          </div>
+          {media.description && (
+            <div className="rounded-lg border border-border bg-card card-shadow">
+              <div className="px-5 py-3 border-b border-border">
+                <h3 className="text-base font-medium">剧情介绍</h3>
+              </div>
+              <div className="p-5 text-sm leading-6 text-foreground">
+                {media.description}
+              </div>
             </div>
-          </div>
-        </div>
-      </div>
+          )}
 
-      {seasons.length > 1 && (
-        <div className="rounded-lg border border-border bg-card card-shadow p-4 flex gap-2 flex-wrap">
-          {seasons.map((s) => (
-            <Button
-              key={s}
-              variant={currentSeason === s ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => handleSeasonChange(s)}
-            >
-              第 {s} 季
-            </Button>
-          ))}
-        </div>
-      )}
+          {displaySeasons.length > 1 && (
+            <div className="rounded-lg border border-border bg-card card-shadow p-4 flex gap-2 flex-wrap">
+              {displaySeasons.map((s) => {
+                const isCurrent = seasonToMediaMap.get(s) === id || (!seasonToMediaMap.has(s) && currentSeason === s);
+                return (
+                  <Button
+                    key={s}
+                    variant={isCurrent ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => handleSeasonChange(s)}
+                  >
+                    第 {s} 季
+                  </Button>
+                );
+              })}
+            </div>
+          )}
 
-      {media.description && (
-        <div className="rounded-lg border border-border bg-card card-shadow">
-          <div className="px-5 py-3 border-b border-border">
-            <h3 className="text-base font-medium">剧情介绍</h3>
-          </div>
-          <div className="p-5 text-sm leading-6 text-foreground">
-            {media.description}
-          </div>
-        </div>
-      )}
+          {episodeSources.length > 1 && (
+            <div className="rounded-lg border border-border bg-card card-shadow p-4 flex gap-2 flex-wrap">
+              <span className="text-sm text-muted-foreground self-center mr-2">视频源：</span>
+              {episodeSources.map((s: VideoSource) => (
+                <Button
+                  key={s.id}
+                  variant={selectedSourceId === s.id ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handleSourceChange(s.id)}
+                >
+                  {s.name}
+                </Button>
+              ))}
+            </div>
+          )}
 
-      <div className="rounded-lg border border-border bg-card card-shadow">
-        <div className="px-5 py-3 border-b border-border">
-          <h3 className="text-base font-medium">{currentMedia?.type === 'MOVIE' ? '播放源' : '集数'}</h3>
-        </div>
+          <div className="rounded-lg border border-border bg-card card-shadow">
+            <div className="px-5 py-3 border-b border-border">
+              <h3 className="text-base font-medium">{currentMedia?.type === 'MOVIE' ? '播放源' : '集数'}</h3>
+            </div>
 
-        {error && (
-          <div className="p-4 bg-error/10 border-b border-error/30">
-            <p className="text-sm text-error">{error}</p>
-          </div>
-        )}
+            {error && (
+              <div className="p-4 bg-error/10 border-b border-error/30">
+                <p className="text-sm text-error">{error}</p>
+              </div>
+            )}
 
-        {episodes.length === 0 ? (
-          <div className="p-8 text-center text-muted-foreground">
-            <p className="text-sm">暂无集数信息</p>
-            <p className="text-xs mt-1">请尝试重新采集数据或切换视频源</p>
-          </div>
-        ) : (
-          <>
-            <div className="px-5 py-3">
-              <div className="flex flex-wrap gap-1.5">
-                {currentMedia?.type === 'MOVIE' ? (
-                  episodes.map((ep: any) => {
-                    const sources = allPlaySources[ep.id] || [];
+            {episodesLoading ? (
+              <div className="p-8 text-center text-muted-foreground">
+                <div className="animate-spin size-5 border-2 border-primary border-t-transparent rounded-full mx-auto mb-2" />
+                <p className="text-sm">加载中...</p>
+              </div>
+            ) : episodes.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground">
+                <p className="text-sm">暂无集数信息</p>
+                <p className="text-xs mt-1">请尝试重新采集数据或切换视频源</p>
+              </div>
+            ) : (
+              <div className="px-5 py-3">
+                <div className="flex flex-wrap gap-1.5">
+                  {currentMedia?.type === 'MOVIE' ? (
+                    episodes.map((ep: any) => {
+                      const sources = allPlaySources[ep.id] || [];
 
-                    const sourceKeyMap = new Map<string, number>();
-                    sources.forEach(s => {
-                      const key = `${s.sourceName || ''}_${s.quality || ''}`;
-                      sourceKeyMap.set(key, (sourceKeyMap.get(key) || 0) + 1);
-                    });
-                    const keyIndexMap = new Map<string, number>();
+                      const sourceKeyMap = new Map<string, number>();
+                      sources.forEach(s => {
+                        const key = `${s.sourceName || ''}_${s.quality || ''}`;
+                        sourceKeyMap.set(key, (sourceKeyMap.get(key) || 0) + 1);
+                      });
+                      const keyIndexMap = new Map<string, number>();
 
-                    return sources.map((source: PlaySource, idx: number) => {
-                      const key = `${source.sourceName || ''}_${source.quality || ''}`;
-                      const count = sourceKeyMap.get(key) || 1;
-                      const idxInGroup = (keyIndexMap.get(key) || 0) + 1;
-                      keyIndexMap.set(key, idxInGroup);
-                      const baseTitle = `${source.sourceName || ''}${source.quality ? ` · ${source.quality}` : ''}`.trim() || '正片';
-                      const suffix = count > 1 ? ` (${idxInGroup})` : '';
-                      const title = `${baseTitle}${suffix}`;
+                      return sources.map((source: PlaySource, idx: number) => {
+                        const key = `${source.sourceName || ''}_${source.quality || ''}`;
+                        const count = sourceKeyMap.get(key) || 1;
+                        const idxInGroup = (keyIndexMap.get(key) || 0) + 1;
+                        keyIndexMap.set(key, idxInGroup);
+                        const baseTitle = `${source.sourceName || ''}${source.quality ? ` · ${source.quality}` : ''}`.trim() || '正片';
+                        const suffix = count > 1 ? ` (${idxInGroup})` : '';
+                        const title = `${baseTitle}${suffix}`;
+                        return (
+                          <div
+                            key={`${ep.id}-${source.id || idx}`}
+                            className="relative group"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/play/${ep.id}?source=${source.id}`)}
+                              className="relative px-3 py-1.5 rounded text-xs font-medium transition-all duration-200 bg-secondary text-foreground cursor-pointer hover:text-primary hover:bg-hover border border-transparent"
+                              title="点击播放"
+                            >
+                              {title}
+                            </button>
+                          </div>
+                        );
+                      });
+                    })
+                  ) : (
+                    episodes.map((ep: any) => {
+                      const sources = allPlaySources[ep.id] || [];
+                      const m3u8Source = sources.find(s => s.url.endsWith('.m3u8') || s.url.toLowerCase().includes('m3u8'));
+                      const title = ep.title || `第${ep.episodeNumber}集`;
+                      const isWatched = watchedEpisodes.has(ep.id);
+
                       return (
                         <div
-                          key={`${ep.id}-${source.id || idx}`}
+                          key={ep.id}
                           className="relative group"
                         >
                           <button
                             type="button"
-                            onClick={() => navigate(`/play/${ep.id}?source=${source.id}`)}
-                            className="relative px-3 py-1.5 rounded text-xs font-medium transition-all duration-200 bg-secondary text-foreground cursor-pointer hover:text-primary hover:bg-hover border border-transparent"
+                            onClick={() => navigate(`/play/${ep.id}${selectedSourceId ? `?sourceId=${selectedSourceId}` : ''}`)}
+                            className={`relative px-3 py-1.5 rounded text-xs font-medium transition-all duration-200 bg-secondary text-foreground cursor-pointer hover:text-primary hover:bg-hover border border-transparent${isWatched ? ' opacity-50' : ''}`}
                             title="点击播放"
                           >
                             {title}
                           </button>
                         </div>
                       );
-                    });
-                  })
-                ) : (
-                  episodes.map((ep: any) => {
-                    const sources = allPlaySources[ep.id] || [];
-                    const m3u8Source = sources.find(s => s.url.endsWith('.m3u8') || s.url.toLowerCase().includes('m3u8'));
-                    const title = ep.title || `第${ep.episodeNumber}集`;
-                    const isWatched = watchedEpisodes.has(ep.id);
-
-                    return (
-                      <div
-                        key={ep.id}
-                        className="relative group"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => navigate(`/play/${ep.id}`)}
-                          className={`relative px-3 py-1.5 rounded text-xs font-medium transition-all duration-200 bg-secondary text-foreground cursor-pointer hover:text-primary hover:bg-hover border border-transparent${isWatched ? ' opacity-50' : ''}`}
-                          title="点击播放"
-                        >
-                          {title}
-                        </button>
-                      </div>
-                    );
-                  })
-                )}
+                    })
+                  )}
+                </div>
               </div>
-            </div>
-
-
-          </>
-        )}
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

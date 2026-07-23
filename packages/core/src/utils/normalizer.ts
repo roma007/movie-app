@@ -367,6 +367,16 @@ export class DataNormalizer {
     return false;
   }
 
+  extractSeriesGroup(fingerprint: string): string | null {
+    const match = fingerprint.match(/^([a-z]+:[^:]+):\d{4}:s\d+$/);
+    return match ? match[1] : null;
+  }
+
+  extractSeriesSeason(fingerprint: string): number | null {
+    const match = fingerprint.match(/:s(\d+)$/);
+    return match ? parseInt(match[1], 10) : null;
+  }
+
   extractSeasonNumber(title: string): number | null {
     if (!title) return null;
 

@@ -34,6 +34,9 @@ function classifyError(err: unknown): TaskErrorType {
   if (msg.includes('500') || msg.includes('502') || msg.includes('503') || msg.includes('504')) {
     return 'NETWORK';
   }
+  if (msg.includes('429') || msg.includes('too many requests') || msg.includes('rate limit')) {
+    return 'RATE_LIMIT';
+  }
   if (msg.includes('json') || msg.includes('parse') || msg.includes('syntax') || msg.includes('unexpected token')) {
     return 'PARSE';
   }
@@ -41,6 +44,21 @@ function classifyError(err: unknown): TaskErrorType {
     return 'DB';
   }
   return 'UNKNOWN';
+}
+
+/** 错误类型 → 用户友好的中文提示 */
+function getFriendlyErrorMessage(errorType: TaskErrorType, page?: number): string {
+  const pageHint = page ? `（第${page}页）` : '';
+  const messages: Record<TaskErrorType, string> = {
+    NETWORK: `网络连接失败${pageHint}，请检查网络后重试`,
+    TIMEOUT: `请求超时${pageHint}，服务器响应过慢`,
+    RATE_LIMIT: `请求过于频繁${pageHint}，服务器限流，请稍后再试`,
+    PARSE: `数据解析失败${pageHint}，视频源返回格式异常`,
+    DB: `数据库操作失败${pageHint}，请重启应用后重试`,
+    CANCELLED: '采集任务已取消',
+    UNKNOWN: `采集失败${pageHint}，未知错误`,
+  };
+  return messages[errorType] || messages.UNKNOWN;
 }
 
 function parsePlayInfo(
@@ -163,7 +181,7 @@ export class CollectorService {
       const fingerprint = await normalizer.generateFingerprint(title, year, mediaType, seasonNumber);
 
       const existing = await this.db.getMediaByFingerprint(fingerprint);
-      const mediaId = existing?.id || generateId();
+      let mediaId = existing?.id || generateId();
 
       const genres = await normalizer.normalizeGenres(rawGenres, mediaType);
       const directors = await normalizer.normalizePersonList(item.vod_director);
@@ -221,6 +239,9 @@ export class CollectorService {
         }
       }
 
+      const seriesGroup = normalizer.extractSeriesGroup(fingerprint);
+      const seriesSeason = normalizer.extractSeriesSeason(fingerprint);
+
       const media: Media = {
         id: mediaId,
         title,
@@ -238,6 +259,8 @@ export class CollectorService {
         status,
         remarks: remarks || null,
         fingerprint,
+        seriesGroup,
+        seriesSeason,
         currentEpisodes,
         totalEpisodes,
         isShortDrama,
@@ -266,6 +289,14 @@ export class CollectorService {
         }
       } else {
         await this.db.upsertMedia(media);
+      }
+      // 防止并发竞态：upsertMedia 的 ON CONFLICT(fingerprint) 可能保留了已存在的 id，
+      // 而非当前调用者生成的 mediaId，需重新查询实际 id
+      const actualMedia = await this.db.getMediaByFingerprint(fingerprint);
+      if (actualMedia) {
+        mediaId = actualMedia.id;
+        currentMediaId = actualMedia.id;
+        media.id = actualMedia.id;
       }
       mediaWritten = true;
       await this.db.deleteEpisodesByMediaIdAndSourceId(mediaId, sourceId);
@@ -461,6 +492,15 @@ export class CollectorService {
           const item = detailResponse.list[0];
           console.log(`[Collector] Detail item: vod_name=${item.vod_name}, vod_year=${item.vod_year}, type_name=${item.type_name}`);
 
+          // 生成指纹以便异常时使用
+          const fingerprint = await normalizer.generateFingerprint(
+            item.vod_name,
+            item.vod_year ? parseInt(item.vod_year.match(/\d{4}/)?.[0] || '0', 10) : 0,
+            item.type_name || '',
+            normalizer.extractSeasonNumber(item.vod_name) || 1
+          );
+          console.log(`[Collector] Seq(${sourceId}) processItem called with listItem=${listItem.vod_name}, fingerprint=${fingerprint}`);
+
           const media = await this.processItem(item, sourceId, '', config.blacklistKeywords, config.minYear);
           if (media) {
             console.log(`[Collector] Media created: ${media.title} (${media.year})`);
@@ -472,6 +512,7 @@ export class CollectorService {
           await this.db.incrementSourceFailCount(sourceId);
           const errorMsg = `[Collector] 处理视频 ${listItem.vod_name} 失败: ${err instanceof Error ? err.message : String(err)}`;
           console.error(errorMsg);
+          
           await this.logToDb(errorMsg, 'error');
           failedCount++;
         }
@@ -505,10 +546,12 @@ export class CollectorService {
         const listItem = items[currentIndex];
 
         try {
-          console.log(`[Collector] Processing (worker): ${listItem.vod_name} (vod_id=${listItem.vod_id})`);
+          console.log(`[Collector] Processing (worker): ${listItem.vod_name} (vod_id=${listItem.vod_id}) index=${currentIndex}`);
 
           await this.db.incrementSourceRequestCount(sourceId);
+          console.log(`[Collector] Worker(${sourceId}) starting processItem for ${listItem.vod_name} at index ${currentIndex}`);
           const detailResponse = await adapter.getDetail(String(listItem.vod_id), signal);
+          console.log(`[Collector] Worker(${sourceId}) got detail response with ${detailResponse.list?.length || 0} items for ${listItem.vod_name}`);
 
           if (!detailResponse.list || detailResponse.list.length === 0) {
             await this.db.incrementSourceFailCount(sourceId);
@@ -518,11 +561,20 @@ export class CollectorService {
           }
 
           const item = detailResponse.list[0];
+          const fingerprint = await normalizer.generateFingerprint(
+            item.vod_name, 
+            item.vod_year ? parseInt(item.vod_year.match(/\d{4}/)?.[0] || '0', 10) : 0,
+            item.type_name || '', 
+            normalizer.extractSeasonNumber(item.vod_name) || 1
+          );
+          console.log(`[Collector] Worker(${sourceId}) processItem called with listItem=${listItem.vod_name}, fingerprint=${fingerprint}`);
           const media = await this.processItem(item, sourceId, '', config.blacklistKeywords, config.minYear);
+          console.log(`[Collector] Worker processItem returned: ${media ? media.title : 'null'}`);
 
           if (media) {
-            console.log(`[Collector] Media created: ${media.title} (${media.year})`);
             results.push(media);
+          } else {
+            console.log(`[Collector] processItem returned null for: ${item.vod_name}`);
           }
         } catch (err) {
           await this.db.incrementSourceFailCount(sourceId);
@@ -815,12 +867,13 @@ export class CollectorService {
           status: 'done',
         });
       } catch (err) {
+        const errType = classifyError(err);
         const errorMsg = err instanceof Error ? err.message : String(err);
         console.error(`采集源 ${source.name} 失败:`, errorMsg);
         await this.db.updateCollectTask(taskId, {
           status: 'FAILED' as TaskStatus,
-          errorMessage: errorMsg.slice(0, 500),
-          errorType: classifyError(err),
+          errorMessage: getFriendlyErrorMessage(errType),
+          errorType: errType,
           completedAt: new Date().toISOString(),
         });
 
@@ -1024,7 +1077,7 @@ export class CollectorService {
           await this.db.updateCollectTask(taskId, {
             currentPage: page,
             failedCount: failed,
-            errorMessage: errMsg.slice(0, 500),
+            errorMessage: getFriendlyErrorMessage(errType, page),
             errorType: errType,
             lastErrorPage: page,
           });
@@ -1051,7 +1104,7 @@ export class CollectorService {
       await this.db.updateCollectTask(taskId, {
         status: 'FAILED' as TaskStatus,
         currentPage: page,
-        errorMessage: finalErrMsg.slice(0, 500),
+        errorMessage: getFriendlyErrorMessage(errType),
         errorType: errType,
         lastErrorPage: page,
         completedAt: new Date().toISOString(),
@@ -1152,7 +1205,7 @@ export class CollectorService {
           await this.db.updateCollectTask(taskId, {
             currentPage: page,
             failedCount: failed,
-            errorMessage: errMsg.slice(0, 500),
+            errorMessage: getFriendlyErrorMessage(errType, page),
             errorType: errType,
             lastErrorPage: page,
           });
@@ -1179,7 +1232,7 @@ export class CollectorService {
       await this.db.updateCollectTask(taskId, {
         status: 'FAILED' as TaskStatus,
         currentPage: page,
-        errorMessage: finalErrMsg.slice(0, 500),
+        errorMessage: getFriendlyErrorMessage(errType),
         errorType: errType,
         lastErrorPage: page,
         completedAt: new Date().toISOString(),
@@ -1635,9 +1688,10 @@ export class CollectorService {
     } catch (error) {
       console.error(`[批量重新探测] 任务执行失败:`, error);
       await this.db.updateReprobeTaskProgress(taskId, { status: 'FAILED' });
+      const errType = classifyError(error);
       await this.db.updateCollectTask(taskId, {
-        errorMessage: error instanceof Error ? error.message : String(error),
-        errorType: classifyError(error),
+        errorMessage: getFriendlyErrorMessage(errType),
+        errorType: errType,
         completedAt: new Date().toISOString(),
       });
     } finally {

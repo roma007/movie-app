@@ -19,6 +19,11 @@ import HelpCenterScreen from './src/pages/HelpCenterScreen';
 import CollectGuideScreen from './src/pages/CollectGuideScreen';
 import VideoManagementScreen from './src/pages/VideoManagementScreen';
 import TestCollectScreen from './src/pages/TestCollectScreen';
+import MovieScreen from './src/pages/MovieScreen';
+import TVScreen from './src/pages/TVScreen';
+import VarietyScreen from './src/pages/VarietyScreen';
+import AnimeScreen from './src/pages/AnimeScreen';
+import DocumentaryScreen from './src/pages/DocumentaryScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -98,6 +103,31 @@ export default function App() {
           }}
         >
           <Stack.Screen name="Tabs" component={TabNavigator} />
+          <Stack.Screen
+            name="Movie"
+            component={MovieScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="TV"
+            component={TVScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Variety"
+            component={VarietyScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Anime"
+            component={AnimeScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Documentary"
+            component={DocumentaryScreen}
+            options={{ headerShown: false }}
+          />
           <Stack.Screen
             name="Detail"
             component={DetailScreen}

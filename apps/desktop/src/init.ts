@@ -1,5 +1,5 @@
 import { TauriSqlProvider } from './db/tauriSqlProvider';
-import { createAppStore, setHttpClient, setVideoFetchFn, type AppStore, type AppState, type HttpClient } from '@movie-app/core';
+import { createAppStore, setHttpClient, setVideoFetchFn, backfillSeriesGroup, type AppStore, type AppState, type HttpClient } from '@movie-app/core';
 
 let _provider: TauriSqlProvider | null = null;
 let _store: AppStore | null = null;
@@ -178,6 +178,15 @@ export async function initApp(onProgress?: (step: string) => void): Promise<void
       await _provider.init();
       report('Step 3: TauriSqlProvider 初始化完成');
       await logToDb('Initialized TauriSqlProvider');
+      try {
+        const updated = await backfillSeriesGroup(_provider);
+        if (updated > 0) await logToDb(`Backfilled series_group for ${updated} media`);
+        report(`Step 3b: 回填系列字段完成（${updated} 条）`);
+      } catch (err) {
+        const errMsg = `回填系列字段失败: ${err instanceof Error ? err.message : String(err)}`;
+        console.error(errMsg);
+        await logToDb(errMsg, 'error');
+      }
       
       report('Step 4: 创建 AppStore...');
       _store = createAppStore(_provider);

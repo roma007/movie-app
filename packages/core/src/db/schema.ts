@@ -1,4 +1,30 @@
 /**
+ * 将含 BEGIN...END 触发器体的 SQL 源串拆分为单条语句。
+ * naive split(';') 会把触发器体内的 INSERT 分号误判为语句边界，故按
+ * BEGIN/END 嵌套深度分组：仅当深度回到 0 且该行以 ';' 结尾时切分。
+ */
+export function splitSqlStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let buf = '';
+  let depth = 0;
+  for (const line of sql.split('\n')) {
+    const t = line.trim();
+    if (!t || t.startsWith('--')) continue;
+    buf += (buf ? '\n' : '') + line.trimEnd();
+    const begins = (t.match(/\bBEGIN\b/g) || []).length;
+    const ends = (t.match(/\bEND\b/g) || []).length;
+    depth += begins - ends;
+    if (depth <= 0 && t.endsWith(';')) {
+      statements.push(buf.replace(/;\s*$/, ''));
+      buf = '';
+      depth = 0;
+    }
+  }
+  if (buf.trim()) statements.push(buf.trim());
+  return statements;
+}
+
+/**
  * 数据库建表 SQL（两端共享：移动端 expo-sqlite、桌面端 tauri-plugin-sql）
  * 注意：包含 PRAGMA 和所有表 + FTS5 虚拟表
  */

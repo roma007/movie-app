@@ -1,10 +1,12 @@
-import { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
-import { ResizeMode, Video } from 'expo-av';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import { getProvider } from '../init';
 import { useAppStore } from '../useAppStore';
 import { ArrowLeft } from 'lucide-react-native';
-import type { PlaySource } from '@movie-app/core';
+import { SystemConfigService } from '@movie-app/core';
+import { NextEpisodeOverlay } from '../components/NextEpisodeOverlay';
+import type { PlaySource, VideoSource, Episode, Media } from '@movie-app/core';
 
 interface Props {
   route: any;
@@ -12,67 +14,194 @@ interface Props {
 }
 
 export default function PlayScreen({ route, navigation }: Props) {
-  const { episodeId, title } = route.params;
-  const { saveWatchProgress } = useAppStore();
-  const videoRef = useRef<Video>(null);
+  const { episodeId, mediaId: paramMediaId, sourceId: paramSourceId, title: paramTitle } = route.params;
+  const {
+    saveWatchProgress, episodes, seasons, episodeSources, seriesMedia,
+    loadEpisodes, loadSeasons, loadEpisodeSources, loadSeriesMedia,
+  } = useAppStore();
+
+  const [mediaId, setMediaId] = useState<string | null>(paramMediaId || null);
+  const [currentEpisodeId, setCurrentEpisodeId] = useState(episodeId);
+  const [currentTitle, setCurrentTitle] = useState(paramTitle || '');
+  const [currentSeason, setCurrentSeason] = useState(1);
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(paramSourceId || null);
+  const [playSources, setPlaySources] = useState<PlaySource[]>([]);
+  const [activePlayIdx, setActivePlayIdx] = useState(0);
+  const [videoUrl, setVideoUrl] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [videoUrl, setVideoUrl] = useState('');
-  const [playSources, setPlaySources] = useState<PlaySource[]>([]);
-  const [activeIdx, setActiveIdx] = useState(0);
-  const [failCount, setFailCount] = useState<Record<string, number>>({});
+  const [initialCurrentTime, setInitialCurrentTime] = useState(0);
+
+  // 功能1: 播放配置
+  const [outroThresholdMinutes, setOutroThresholdMinutes] = useState(10);
+  const [showNextEpisodeOverlay, setShowNextEpisodeOverlay] = useState(true);
+
+  // 功能2: 已看剧集
+  const [watchedEpisodes, setWatchedEpisodes] = useState<Set<string>>(new Set());
+
+  // 功能3: 影片信息
+  const [media, setMedia] = useState<Media | null>(null);
+
+  // 功能4: 下一集浮层
+  const [overlayVisible, setOverlayVisible] = useState(false);
+  const overlayDismissedRef = useRef(false);
+
+  // 功能6: 进度保存节流
+  const [lastSaveTime, setLastSaveTime] = useState(0);
 
   useEffect(() => {
-    if (!episodeId) return;
+    if (!mediaId) return;
+    loadSeasons(mediaId);
+    loadSeriesMedia(mediaId);
+  }, [mediaId]);
+
+  useEffect(() => {
+    if (!mediaId || currentSeason === 0) return;
+    loadEpisodeSources(mediaId, currentSeason);
+  }, [mediaId, currentSeason]);
+
+  useEffect(() => {
+    if (episodeSources.length === 0) return;
+    if (!selectedSourceId || !episodeSources.find(s => s.id === selectedSourceId)) {
+      setSelectedSourceId(episodeSources[0].id);
+    }
+  }, [episodeSources]);
+
+  useEffect(() => {
+    if (!mediaId || currentSeason === 0 || !selectedSourceId) return;
+    loadEpisodes(mediaId, currentSeason, selectedSourceId);
+  }, [mediaId, currentSeason, selectedSourceId]);
+
+  useEffect(() => {
+    if (seasons.length > 0 && !seasons.includes(currentSeason)) {
+      setCurrentSeason(seasons[0]);
+    }
+  }, [seasons]);
+
+  // 主加载逻辑: episode + media + sources + history + playbackConfig + watchedEpisodes
+  useEffect(() => {
+    if (!currentEpisodeId) return;
     let cancelled = false;
     (async () => {
       setIsLoading(true);
+      setError(null);
+      setOverlayVisible(false);
+      overlayDismissedRef.current = false;
       try {
         const provider = getProvider();
-        const episode = await provider.getEpisodeById(episodeId);
+        const episode = await provider.getEpisodeById(currentEpisodeId);
         if (cancelled || !episode) return;
-        const [media, sources] = await Promise.all([
+
+        const [m, sources, history, allHistory] = await Promise.all([
           provider.getMediaById(episode.mediaId),
           provider.getPlaySourcesByEpisodeId(episode.id),
+          provider.getWatchHistoryByMediaId(episode.mediaId),
+          provider.getAllWatchHistoryByMediaId(episode.mediaId),
         ]);
         if (cancelled) return;
+
+        // 影片信息
+        setMedia(m);
+        if (m && !mediaId) setMediaId(m.id);
+
+        // 播放配置
+        const configService = new SystemConfigService(provider);
+        const playbackConfig = await configService.getPlaybackConfig();
+        setOutroThresholdMinutes(playbackConfig.outroThresholdMinutes);
+        setShowNextEpisodeOverlay(playbackConfig.showNextEpisodeOverlay);
+
+        // 已看剧集
+        const watched = new Set<string>();
+        for (const h of allHistory) {
+          if (h.episodeId && h.episodeId !== m?.id && (h.progress > 60 || (h.duration > 0 && h.progress / h.duration >= 0.1))) {
+            watched.add(h.episodeId);
+          }
+        }
+        setWatchedEpisodes(watched);
+
+        // 恢复进度
+        let seekTime = 0;
+        if (history && history.episodeId === episode.id) {
+          const nearEnd = history.duration > 0 && history.progress >= history.duration - 5;
+          if (!nearEnd) seekTime = history.progress;
+        }
+        setInitialCurrentTime(seekTime);
         setPlaySources(sources);
         if (sources.length > 0) {
           setVideoUrl(sources[0].url);
+          setActivePlayIdx(0);
         } else {
           setError('无可播放的线路');
         }
-      } catch (err) {
+      } catch {
         setError('加载失败');
       } finally {
         setIsLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [episodeId]);
+  }, [currentEpisodeId]);
 
+  // 功能6: 进度保存节流 (10s + 接近片尾)
   const handleTimeUpdate = (currentTime: number, duration: number) => {
-    if (duration > 0) {
-      saveWatchProgress(episodeId || '', null, Math.floor(currentTime), Math.floor(duration));
+    if (duration > 0 && mediaId) {
+      const now = Date.now();
+      const nearEnd = Math.floor(currentTime) >= duration - 2;
+      if (now - lastSaveTime >= 10000 || nearEnd) {
+        saveWatchProgress(mediaId, currentEpisodeId, Math.floor(currentTime), Math.floor(duration));
+        setLastSaveTime(now);
+      }
     }
   };
 
-  const handleSourceFail = async (sourceId: string) => {
+  const playerRef = useRef<any>(null);
+  const player = useVideoPlayer(videoUrl as any, (p) => {
+    p.loop = false;
+    playerRef.current = p;
+    if (initialCurrentTime > 0) {
+      p.currentTime = initialCurrentTime;
+    }
+  });
+
+  useEffect(() => {
+    if (player && initialCurrentTime > 0) {
+      player.currentTime = initialCurrentTime;
+    }
+  }, [player, initialCurrentTime]);
+
+  // 定时保存进度 (10s) + 下一集浮层检测
+  useEffect(() => {
+    if (!player) return;
+    const interval = setInterval(() => {
+      if (player.playing) {
+        const ct = player.currentTime;
+        const dur = player.duration || 0;
+        handleTimeUpdate(ct, dur);
+
+        // 下一集浮层检测
+        const threshold = outroThresholdMinutes * 60;
+        const canShow =
+          !overlayDismissedRef.current &&
+          showNextEpisodeOverlay &&
+          nextEpisode != null &&
+          dur > threshold &&
+          ct > 0 &&
+          dur - ct <= threshold;
+        setOverlayVisible(canShow);
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [player, outroThresholdMinutes, showNextEpisodeOverlay]);
+
+  const handlePlaySourceFail = async (sourceId: string) => {
     const provider = getProvider();
     await provider.reportPlaySourceFail(sourceId);
-
-    const newFailCount = (failCount[sourceId] || 0) + 1;
-    setFailCount(prev => ({ ...prev, [sourceId]: newFailCount }));
-
-    const activeSources = playSources.filter(s => s.isActive !== false);
-    const currentIdx = activeSources.findIndex(s => s.id === sourceId);
-    const nextIdx = currentIdx + 1;
-
-    if (nextIdx < activeSources.length) {
-      setError(`线路 ${currentIdx + 1} 失败，正在尝试线路 ${nextIdx + 1}...`);
+    const nextIdx = activePlayIdx + 1;
+    if (nextIdx < playSources.length) {
+      setError(`线路 ${activePlayIdx + 1} 失败，正在尝试线路 ${nextIdx + 1}...`);
       setTimeout(() => {
-        setActiveIdx(nextIdx);
-        setVideoUrl(activeSources[nextIdx].url);
+        setActivePlayIdx(nextIdx);
+        setVideoUrl(playSources[nextIdx].url);
         setIsLoading(true);
         setError(null);
       }, 1500);
@@ -81,22 +210,80 @@ export default function PlayScreen({ route, navigation }: Props) {
     }
   };
 
-  const handleSourceChange = (idx: number) => {
-    setActiveIdx(idx);
+  const handlePlaySourceChange = (idx: number) => {
+    setActivePlayIdx(idx);
     setVideoUrl(playSources[idx].url);
     setIsLoading(true);
     setError(null);
   };
 
   const handleRetry = () => {
-    setFailCount({});
-    setActiveIdx(0);
-    setVideoUrl(playSources[0]?.url || '');
-    setIsLoading(true);
-    setError(null);
+    if (playSources.length > 0) {
+      setActivePlayIdx(0);
+      setVideoUrl(playSources[0].url);
+      setIsLoading(true);
+      setError(null);
+    }
   };
 
-  const activeSources = playSources.filter(s => s.isActive !== false);
+  // 功能2: 下一集
+  const filteredEpisodes = useMemo(() => {
+    if (!selectedSourceId) return episodes;
+    return episodes.filter(ep => ep.sourceId === selectedSourceId);
+  }, [episodes, selectedSourceId]);
+
+  const nextEpisode = useMemo(() => {
+    if (!currentEpisodeId || filteredEpisodes.length === 0 || media?.type === 'MOVIE') return null;
+    const idx = filteredEpisodes.findIndex((ep: Episode) => ep.id === currentEpisodeId);
+    if (idx < 0 || idx >= filteredEpisodes.length - 1) return null;
+    return filteredEpisodes[idx + 1] as Episode;
+  }, [currentEpisodeId, filteredEpisodes, media?.type]);
+
+  const handleNextEpisode = () => {
+    if (nextEpisode) {
+      setCurrentEpisodeId(nextEpisode.id);
+      setCurrentTitle(
+        (media?.title || '') + (nextEpisode.title ? ` · ${nextEpisode.title}` : ` · 第${nextEpisode.episodeNumber}集`)
+      );
+    }
+  };
+
+  const handleOverlayClose = () => {
+    setOverlayVisible(false);
+    overlayDismissedRef.current = true;
+  };
+
+  const seasonToMediaMap = new Map<number, string>();
+  seriesMedia.forEach(m => {
+    if (m.seriesSeason) seasonToMediaMap.set(m.seriesSeason, m.id);
+  });
+  const seasonsFromSeries = seriesMedia.map(m => m.seriesSeason ?? 1).sort((a, b) => a - b);
+  const displaySeasons = seasonsFromSeries.length > 0 ? seasonsFromSeries : seasons;
+
+  const handleSeasonChange = (season: number) => {
+    const targetId = seasonToMediaMap.get(season);
+    if (targetId && targetId !== mediaId) {
+      navigation.replace('Play', { episodeId: null, mediaId: targetId, sourceId: null, title: seriesMedia.find(m => m.id === targetId)?.title || '' });
+    } else {
+      setCurrentSeason(season);
+      setSelectedSourceId(null);
+    }
+  };
+
+  const handleSourceChange = (sourceId: string) => {
+    setSelectedSourceId(sourceId);
+  };
+
+  const handleEpisodePress = (ep: Episode) => {
+    setCurrentEpisodeId(ep.id);
+    setCurrentTitle(
+      (media?.title || paramTitle?.replace(/·.*$/, '').trim() || '') + (ep.title ? ` · ${ep.title}` : ` · 第${ep.episodeNumber}集`)
+    );
+  };
+
+  const nextEpisodeTitle = nextEpisode
+    ? `第${nextEpisode.episodeNumber}集${nextEpisode.title ? ` · ${nextEpisode.title}` : ''}`
+    : '';
 
   return (
     <View style={styles.container}>
@@ -104,7 +291,7 @@ export default function PlayScreen({ route, navigation }: Props) {
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <ArrowLeft size={20} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>{title || '正在播放'}</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>{currentTitle || '正在播放'}</Text>
         <View style={styles.placeholder} />
       </View>
 
@@ -112,15 +299,13 @@ export default function PlayScreen({ route, navigation }: Props) {
         {isLoading && (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#fff" />
-            <Text style={styles.loadingText}>
-              加载中...（线路 {activeIdx + 1}/{activeSources.length}）
-            </Text>
+            <Text style={styles.loadingText}>加载中...</Text>
           </View>
         )}
         {error && (
           <View style={styles.errorOverlay}>
             <Text style={styles.errorText}>{error}</Text>
-            {activeSources.length > 0 && (
+            {playSources.length > 0 && (
               <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
                 <Text style={styles.retryButtonText}>重试</Text>
               </TouchableOpacity>
@@ -128,61 +313,139 @@ export default function PlayScreen({ route, navigation }: Props) {
           </View>
         )}
         {videoUrl && !error && (
-          <Video
-            ref={videoRef}
+          <VideoView
             style={styles.video}
-            source={{ uri: videoUrl }}
-            useNativeControls
-            resizeMode={ResizeMode.CONTAIN}
-            isLooping={false}
-            onLoadStart={() => setIsLoading(true)}
-            onLoad={() => setIsLoading(false)}
-            onError={() => {
-              setIsLoading(false);
-              const currentSource = activeSources[activeIdx];
-              if (currentSource) {
-                handleSourceFail(currentSource.id);
-              } else {
-                setError('视频加载失败');
-              }
-            }}
-            onPlaybackStatusUpdate={(status) => {
-              if (status.isLoaded && status.positionMillis !== undefined && status.durationMillis !== undefined) {
-                handleTimeUpdate(status.positionMillis / 1000, status.durationMillis / 1000);
-              }
-            }}
+            player={player}
+            contentFit="contain"
+            fullscreenOptions={{ enable: true }}
           />
         )}
+        <NextEpisodeOverlay
+          show={overlayVisible}
+          nextEpisodeTitle={nextEpisodeTitle}
+          onNext={handleNextEpisode}
+          onClose={handleOverlayClose}
+        />
       </View>
 
-      {playSources.length > 1 && (
-        <View style={styles.sourcesContainer}>
-          <Text style={styles.sourcesLabel}>播放线路（当前：{playSources[activeIdx]?.sourceName || `线路${activeIdx + 1}`}）</Text>
-          <View style={styles.sourcesRow}>
-            {playSources.map((s, i) => (
-              <TouchableOpacity
-                key={s.id}
-                style={[
-                  styles.sourceButton,
-                  i === activeIdx && styles.sourceButtonActive,
-                  s.isActive === false && styles.sourceButtonDisabled,
-                ]}
-                onPress={() => s.isActive !== false && handleSourceChange(i)}
-                disabled={s.isActive === false}
-              >
-                <Text style={[
-                  styles.sourceText,
-                  i === activeIdx && styles.sourceTextActive,
-                  s.isActive === false && styles.sourceTextDisabled,
-                ]}>
-                  {s.sourceName || `线路${i + 1}`}
-                  {s.isActive === false && ' (不可用)'}
-                </Text>
-              </TouchableOpacity>
-            ))}
+      <ScrollView style={styles.body}>
+        {/* 影片信息 */}
+        {media && (
+          <View style={styles.mediaInfo}>
+            <Text style={styles.mediaTitle}>
+              {media.title}
+              {currentTitle?.includes('·') ? ` ${currentTitle}` : ''}
+            </Text>
+            <Text style={styles.mediaSubtitle}>
+              {media.year}{media.area ? ` · ${media.area}` : ''}
+            </Text>
+          </View>
+        )}
+
+        {/* 播放线路 (功能5: 质量标签) */}
+        {playSources.length > 1 && (() => {
+          const sourceKeyMap = new Map<string, number>();
+          playSources.forEach(s => {
+            const key = `${s.sourceName || ''}_${s.quality || ''}`;
+            sourceKeyMap.set(key, (sourceKeyMap.get(key) || 0) + 1);
+          });
+          const keyIndexMap = new Map<string, number>();
+          return (
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>播放线路（{activePlayIdx + 1}/{playSources.length}）</Text>
+              <View style={styles.row}>
+                {playSources.map((s, i) => {
+                  const key = `${s.sourceName || ''}_${s.quality || ''}`;
+                  const count = sourceKeyMap.get(key) || 1;
+                  const idx = (keyIndexMap.get(key) || 0) + 1;
+                  keyIndexMap.set(key, idx);
+                  const baseName = s.sourceName || `线路${i + 1}`;
+                  const qualityStr = s.quality ? ` · ${s.quality}` : '';
+                  const suffix = count > 1 ? ` (${idx})` : '';
+                  return (
+                    <TouchableOpacity
+                      key={s.id}
+                      style={[styles.chip, i === activePlayIdx && styles.chipActive, s.isActive === false && styles.chipDisabled]}
+                      onPress={() => s.isActive !== false && handlePlaySourceChange(i)}
+                      disabled={s.isActive === false}
+                    >
+                      <Text style={[styles.chipText, i === activePlayIdx && styles.chipTextActive, s.isActive === false && styles.chipTextDisabled]}>
+                        {baseName}{qualityStr}{suffix}
+                        {s.isActive === false && ' (不可用)'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          );
+        })()}
+
+        {episodeSources.length > 1 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>视频源</Text>
+            <View style={styles.row}>
+              {episodeSources.map((s: VideoSource) => (
+                <TouchableOpacity
+                  key={s.id}
+                  style={[styles.chip, selectedSourceId === s.id && styles.chipActive]}
+                  onPress={() => handleSourceChange(s.id)}
+                >
+                  <Text style={[styles.chipText, selectedSourceId === s.id && styles.chipTextActive]}>{s.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {displaySeasons.length > 1 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>季数</Text>
+            <View style={styles.row}>
+              {displaySeasons.map((s: number) => {
+                const isCurrent = seasonToMediaMap.get(s) === mediaId || (!seasonToMediaMap.has(s) && currentSeason === s);
+                return (
+                  <TouchableOpacity
+                    key={s}
+                    style={[styles.chip, isCurrent && styles.chipActive]}
+                    onPress={() => handleSeasonChange(s)}
+                  >
+                    <Text style={[styles.chipText, isCurrent && styles.chipTextActive]}>第{s}季</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
+        {/* 功能3: 已看剧集标记 */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>剧集（{filteredEpisodes.length}集）</Text>
+          <View style={styles.episodeGrid}>
+            {filteredEpisodes.map((ep: Episode) => {
+              const isWatched = watchedEpisodes.has(ep.id) && ep.id !== currentEpisodeId;
+              return (
+                <TouchableOpacity
+                  key={ep.id}
+                  style={[
+                    styles.episodeBtn,
+                    ep.id === currentEpisodeId && styles.episodeBtnActive,
+                    isWatched && styles.episodeBtnWatched,
+                  ]}
+                  onPress={() => handleEpisodePress(ep)}
+                >
+                  <Text style={[
+                    styles.episodeText,
+                    ep.id === currentEpisodeId && styles.episodeTextActive,
+                  ]}>
+                    {ep.title || `第${ep.episodeNumber}集`}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
-      )}
+      </ScrollView>
     </View>
   );
 }
@@ -201,13 +464,23 @@ const styles = StyleSheet.create({
   errorText: { color: '#ff6b6b', fontSize: 16, textAlign: 'center' },
   retryButton: { paddingHorizontal: 24, paddingVertical: 12, backgroundColor: '#4a9eff', borderRadius: 8, marginTop: 16 },
   retryButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  sourcesContainer: { padding: 15, backgroundColor: '#111' },
-  sourcesLabel: { fontSize: 14, color: '#888', marginBottom: 10 },
-  sourcesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  sourceButton: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#222', borderRadius: 6 },
-  sourceButtonActive: { backgroundColor: '#4a9eff' },
-  sourceButtonDisabled: { backgroundColor: '#222', opacity: 0.5 },
-  sourceText: { fontSize: 13, color: '#ccc' },
-  sourceTextActive: { color: '#fff' },
-  sourceTextDisabled: { color: '#666' },
+  body: { flex: 1 },
+  mediaInfo: { padding: 15, borderBottomWidth: 1, borderBottomColor: '#1a1a1a' },
+  mediaTitle: { fontSize: 18, fontWeight: '600', color: '#fff', marginBottom: 4 },
+  mediaSubtitle: { fontSize: 14, color: '#888' },
+  section: { padding: 15, borderBottomWidth: 1, borderBottomColor: '#1a1a1a' },
+  sectionLabel: { fontSize: 14, color: '#888', marginBottom: 10 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#222', borderRadius: 6 },
+  chipActive: { backgroundColor: '#4a9eff' },
+  chipDisabled: { opacity: 0.5 },
+  chipText: { fontSize: 13, color: '#ccc' },
+  chipTextActive: { color: '#fff' },
+  chipTextDisabled: { color: '#666' },
+  episodeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  episodeBtn: { width: '22%', paddingVertical: 10, backgroundColor: '#1f1f1f', borderRadius: 6, alignItems: 'center' },
+  episodeBtnActive: { backgroundColor: '#4a9eff' },
+  episodeBtnWatched: { opacity: 0.5 },
+  episodeText: { color: '#ccc', fontSize: 13 },
+  episodeTextActive: { color: '#fff' },
 });

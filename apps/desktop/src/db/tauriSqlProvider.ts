@@ -1,8 +1,10 @@
 import Database from '@tauri-apps/plugin-sql';
 import {
+  SCHEMA_SQL,
   INSERT_DEFAULT_SOURCE_SQL,
   COUNT_VIDEO_SOURCE_SQL,
   defaultSources,
+  splitSqlStatements,
   rowToMedia,
   rowToEpisode,
   rowToPlaySource,
@@ -26,8 +28,8 @@ import type {
 
 /**
  * DatabaseProvider 的 tauri-plugin-sql 实现（桌面端）。
- * SQL 语句与移动端 ExpoSqliteProvider 完全一致，仅底层 API 不同：
- *   - migrations（建表 + FTS5 触发器）由 Rust 侧 lib.rs 在 Database.load 时自动执行
+ * SQL 语句与移动端 ExpoSqliteProvider 共享 schema.ts，仅底层 API 不同：
+ *   - schema 由 TypeScript 层管理（幂等 DDL），不再使用 Rust 迁移
  *   - 单行查询用 select 返回数组的 [0]，对应移动端 getFirstAsync
  *   - 多行查询直接用 select 返回数组，对应移动端 getAllAsync
  *   - 写入用 execute，对应移动端 runAsync
@@ -104,6 +106,8 @@ export class TauriSqlProvider implements DatabaseProvider {
 
   async init(): Promise<void> {
     if (this.db) return;
+
+    // 1. 加载数据库连接
     try {
       const sqlModule = await import('@tauri-apps/plugin-sql');
       const SqlDatabase = sqlModule.default || sqlModule;
@@ -115,60 +119,112 @@ export class TauriSqlProvider implements DatabaseProvider {
       throw error;
     }
 
+    // 2. PRAGMA 设置
     await this.db!.execute('PRAGMA journal_mode = WAL;');
     await this.db!.execute('PRAGMA foreign_keys = ON;');
     await this.db!.execute('PRAGMA busy_timeout = 5000;');
     await this.db!.execute('PRAGMA synchronous = NORMAL;');
     await this.db!.execute('PRAGMA cache_size = -20000;');
 
-    // Add hidden column if it doesn't exist (migration for existing DBs)
-    try {
-      await this.db!.execute('ALTER TABLE media ADD COLUMN hidden INTEGER DEFAULT 0');
-    } catch {
-      // Column already exists, ignore
-    }
+    // 3. 检测并清理旧数据库（经历过 Rust 迁移的数据库）
+    await this.migrateFromOldSchema();
 
-    // Add remarks column if it doesn't exist (migration for existing DBs)
-    try {
-      await this.db!.execute('ALTER TABLE media ADD COLUMN remarks TEXT');
-    } catch {
-      // Column already exists, ignore
-    }
+    // 4. 执行完整 schema（幂等，全部 IF NOT EXISTS）
+    await this.initSchema();
 
-    // Add last_collected_at column if it doesn't exist (migration for existing DBs)
-    try {
-      await this.db!.execute('ALTER TABLE video_source ADD COLUMN last_collected_at TEXT');
-    } catch {
-      // Column already exists, ignore
-    }
-
-    // Add source_id column if it doesn't exist (migration for existing DBs)
-    try {
-      await this.db!.execute('ALTER TABLE episode ADD COLUMN source_id TEXT');
-    } catch {
-      // Column already exists, ignore
-    }
-
-    // Add series_group/series_season columns if they don't exist
-    try {
-      await this.db!.execute('ALTER TABLE media ADD COLUMN series_group TEXT');
-    } catch {
-      // Column already exists, ignore
-    }
-    try {
-      await this.db!.execute('ALTER TABLE media ADD COLUMN series_season INTEGER');
-    } catch {
-      // Column already exists, ignore
-    }
-
-    await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_episode_media_id ON episode(media_id);');
-    await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_episode_source_id ON episode(source_id);');
-    await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source(episode_id);');
-    await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_play_source_source_id_episode_id ON play_source(source_id, episode_id);');
-    await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_favorite_media_id ON favorite(media_id);');
-    await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_watch_history_media_id ON watch_history(media_id);');
-
+    // 5. 插入默认视频源
     await this.insertDefaultSources();
+  }
+
+  /**
+   * 检测旧数据库（含 _sqlx_migrations 表），清空所有表和索引，
+   * 以便后续 initSchema() 用共享 schema 重建完整结构。
+   */
+  private async migrateFromOldSchema(): Promise<void> {
+    const rows = await this.db!.select<{ name: string }[]>(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='_sqlx_migrations'"
+    );
+
+    if (rows.length === 0) return; // 新数据库或已迁移，无需处理
+
+    console.log('Detected old schema with _sqlx_migrations, resetting database...');
+
+    // 先删除 FTS5 触发器和虚拟表（必须在删除 media 表之前）
+    await this.db!.execute('DROP TRIGGER IF EXISTS media_ai');
+    await this.db!.execute('DROP TRIGGER IF EXISTS media_ad');
+    await this.db!.execute('DROP TRIGGER IF EXISTS media_au');
+    await this.db!.execute('DROP TABLE IF EXISTS media_fts');
+    await this.db!.execute('DROP TABLE IF EXISTS media_fts_data');
+    await this.db!.execute('DROP TABLE IF EXISTS media_fts_idx');
+    await this.db!.execute('DROP TABLE IF EXISTS media_fts_content');
+    await this.db!.execute('DROP TABLE IF EXISTS media_fts_docsize');
+
+    // 获取所有用户表名（排除 sqlite 内部表）
+    const tables = await this.db!.select<{ name: string }[]>(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    );
+    for (const table of tables) {
+      await this.db!.execute(`DROP TABLE IF EXISTS "${table.name}"`);
+    }
+
+    // 删除索引
+    const indexes = await this.db!.select<{ name: string }[]>(
+      "SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'"
+    );
+    for (const idx of indexes) {
+      await this.db!.execute(`DROP INDEX IF EXISTS "${idx.name}"`);
+    }
+
+    // 删除触发器
+    const triggers = await this.db!.select<{ name: string }[]>(
+      "SELECT name FROM sqlite_master WHERE type='trigger'"
+    );
+    for (const trig of triggers) {
+      await this.db!.execute(`DROP TRIGGER IF EXISTS "${trig.name}"`);
+    }
+
+    console.log('Old schema cleaned up successfully');
+  }
+
+  /**
+   * 使用共享 schema（schema.ts）执行幂等 DDL，确保所有表、FTS5、触发器、索引存在。
+   * 对于全新数据库：创建所有结构。
+   * 对于已清理的旧数据库：重新创建所有结构。
+   * 对于已完整的数据库：全部 IF NOT EXISTS 跳过，无副作用。
+   */
+  private async initSchema(): Promise<void> {
+    // 执行共享 schema（CREATE TABLE IF NOT EXISTS + FTS5 + 触发器 + 索引）
+    for (const stmt of splitSqlStatements(SCHEMA_SQL)) {
+      try {
+        await this.db!.execute(stmt);
+      } catch (e) {
+        console.warn('Schema statement failed:', stmt, e);
+      }
+    }
+
+    // 补齐 collect_task 表（schema.ts 中未包含，桌面端专用）
+    await this.db!.execute(`CREATE TABLE IF NOT EXISTS collect_task (
+      id TEXT PRIMARY KEY,
+      task_id TEXT UNIQUE NOT NULL,
+      source_code TEXT NOT NULL,
+      source_name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'PENDING',
+      current_page INTEGER DEFAULT 0,
+      total_pages INTEGER DEFAULT 0,
+      collected_count INTEGER DEFAULT 0,
+      failed_count INTEGER DEFAULT 0,
+      error_message TEXT,
+      error_type TEXT,
+      last_error_page INTEGER,
+      failed_pages TEXT,
+      probed_count INTEGER DEFAULT 0,
+      short_drama_count INTEGER DEFAULT 0,
+      long_drama_count INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      started_at TEXT,
+      completed_at TEXT
+    );`);
   }
 
   private async insertDefaultSources(): Promise<void> {

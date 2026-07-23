@@ -59,6 +59,18 @@ function getTypeLabel(type: string): string {
   }
 }
 
+function getErrorTypeLabel(errorType: string | null): { label: string; className: string } {
+  switch (errorType) {
+    case 'NETWORK': return { label: '网络错误', className: 'text-orange-500 bg-orange-500/10' };
+    case 'TIMEOUT': return { label: '请求超时', className: 'text-yellow-500 bg-yellow-500/10' };
+    case 'RATE_LIMIT': return { label: '限流', className: 'text-red-500 bg-red-500/10' };
+    case 'PARSE': return { label: '解析错误', className: 'text-purple-500 bg-purple-500/10' };
+    case 'DB': return { label: '数据库错误', className: 'text-pink-500 bg-pink-500/10' };
+    case 'CANCELLED': return { label: '已取消', className: 'text-gray-400 bg-gray-500/10' };
+    default: return { label: '', className: '' };
+  }
+}
+
 function formatTimeAgo(dateString: string): string {
   const date = new Date(dateString);
   const now = new Date();
@@ -222,11 +234,21 @@ export default function TaskListPage() {
                           {getStatusIcon(task.status)} {statusInfo.label}
                         </span>
                         {task.status === 'FAILED' && task.errorMessage && (
-                          <div
-                            className="text-xs text-error mt-1 max-w-[220px] truncate cursor-help"
-                            title={task.errorMessage}
-                          >
-                            {task.errorMessage}
+                          <div className="mt-1 max-w-[220px]">
+                            {task.errorType && (() => {
+                              const errorTypeInfo = getErrorTypeLabel(task.errorType);
+                              return errorTypeInfo.label ? (
+                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${errorTypeInfo.className}`}>
+                                  {errorTypeInfo.label}
+                                </span>
+                              ) : null;
+                            })()}
+                            <div
+                              className="text-xs text-error mt-0.5 truncate cursor-help"
+                              title={task.errorMessage}
+                            >
+                              {task.errorMessage}
+                            </div>
                           </div>
                         )}
                       </td>

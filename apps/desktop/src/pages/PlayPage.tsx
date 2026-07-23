@@ -8,7 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, Palette, Check, ChevronRight } from 'lucide-react';
 import { useThemeStore } from '../themes/store';
 import { SystemConfigService } from '@movie-app/core';
-import type { Episode, Media, PlaySource } from '@movie-app/core';
+import type { Episode, Media, PlaySource, VideoSource } from '@movie-app/core';
 
 const typeLabel: Record<string, string> = {
   MOVIE: '电影',
@@ -22,7 +22,7 @@ export default function PlayPage() {
   const { episodeId } = useParams<{ episodeId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  const { saveWatchProgress, episodes, seasons, loadSeasons, loadEpisodes } = useAppStore();
+  const { saveWatchProgress, episodes, episodesLoading, seasons, episodeSources, seriesMedia, loadSeasons, loadEpisodes, loadEpisodeSources, loadSeriesMedia } = useAppStore();
   const [episode, setEpisode] = useState<Episode | null>(null);
   const [media, setMedia] = useState<Media | null>(null);
   const [sources, setSources] = useState<PlaySource[]>([]);
@@ -50,16 +50,18 @@ export default function PlayPage() {
   const sourceParams = new URLSearchParams(location.search);
   const urlSourceId = sourceParams.get('sourceId');
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
+  const [currentEpisodeId, setCurrentEpisodeId] = useState(episodeId);
+  const initialLoadDone = useRef(false);
 
   useEffect(() => {
-    if (!episodeId) return;
+    if (!currentEpisodeId) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
       setInitialCurrentTime(0);
       setWatchedEpisodes(new Set());
       const provider = getProvider();
-      const ep = await provider.getEpisodeById(episodeId);
+      const ep = await provider.getEpisodeById(currentEpisodeId);
       if (cancelled) return;
       setEpisode(ep);
       if (ep) {
@@ -71,15 +73,18 @@ export default function PlayPage() {
         setMedia(m);
         setSources(ps);
 
-        const effectiveSourceId = urlSourceId || ep.sourceId || null;
-        if (effectiveSourceId) {
-          setSelectedSourceId(effectiveSourceId);
-          const matchingSource = ps.find(s => s.sourceId === effectiveSourceId && s.isActive !== false) || ps.find(s => s.sourceId === effectiveSourceId) || ps.find(s => s.isActive !== false) || ps[0] || null;
-          setActiveSource(matchingSource);
-        } else {
-          const firstActive = ps.find(s => s.isActive !== false) || ps[0] || null;
-          setSelectedSourceId(firstActive?.sourceId || null);
-          setActiveSource(firstActive);
+        if (!initialLoadDone.current) {
+          const effectiveSourceId = urlSourceId || ep.sourceId || null;
+          if (effectiveSourceId) {
+            setSelectedSourceId(effectiveSourceId);
+            const matchingSource = ps.find(s => s.sourceId === effectiveSourceId && s.isActive !== false) || ps.find(s => s.sourceId === effectiveSourceId) || ps.find(s => s.isActive !== false) || ps[0] || null;
+            setActiveSource(matchingSource);
+          } else {
+            const firstActive = ps.find(s => s.isActive !== false) || ps[0] || null;
+            setSelectedSourceId(firstActive?.sourceId || null);
+            setActiveSource(firstActive);
+          }
+          initialLoadDone.current = true;
         }
 
         if (m) {
@@ -100,7 +105,7 @@ export default function PlayPage() {
           setWatchedEpisodes(watched);
 
           if (saved && saved.progress > 0) {
-            const matchEpisode = !saved.episode_id || saved.episode_id === ep.id;
+            const matchEpisode = !saved.episodeId || saved.episodeId === ep.id;
             const nearEnd = saved.duration > 0 && saved.progress >= saved.duration - 5;
             if (matchEpisode && !nearEnd) {
               setInitialCurrentTime(saved.progress);
@@ -111,15 +116,25 @@ export default function PlayPage() {
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [episodeId, location.search]);
+  }, [currentEpisodeId]);
 
   const [lastSaveTime, setLastSaveTime] = useState(0);
+
+  useEffect(() => {
+    if (episodeSources.length === 0 || !selectedSourceId) return;
+    if (!episodeSources.find(s => s.id === selectedSourceId)) {
+      const id = episodeSources[0].id;
+      setSelectedSourceId(id);
+      const matchingSource = sources.find(s => s.sourceId === id && s.isActive !== false) || sources.find(s => s.sourceId === id);
+      if (matchingSource) setActiveSource(matchingSource);
+    }
+  }, [episodeSources]);
 
   const handleTimeUpdate = (currentTime: number, duration: number) => {
     if (media && duration > 0) {
       const now = Date.now();
       if (now - lastSaveTime >= 10000 || Math.floor(currentTime) >= duration - 2) {
-        saveWatchProgress(media.id, episodeId || null, Math.floor(currentTime), Math.floor(duration));
+        saveWatchProgress(media.id, currentEpisodeId || null, Math.floor(currentTime), Math.floor(duration));
         setLastSaveTime(now);
       }
     }
@@ -136,38 +151,30 @@ export default function PlayPage() {
   };
 
   const handleSwitchCmsSource = (sourceId: string) => {
+    setSelectedSourceId(sourceId);
     const matchingSource = sources.find(s => s.sourceId === sourceId && s.isActive !== false) || sources.find(s => s.sourceId === sourceId);
     if (matchingSource) {
-      setSelectedSourceId(sourceId);
       setActiveSource(matchingSource);
-    } else {
-      const firstEp = filteredEpisodes.find(ep => ep.sourceId === sourceId);
-      if (firstEp) {
-        navigate(`/play/${firstEp.id}?sourceId=${sourceId}`);
-      }
     }
   };
 
   const availableCmsSources = useMemo(() => {
-    const sourceIds = [...new Set(episodes.map(ep => ep.sourceId).filter(Boolean) as string[])];
-    const nameMap = new Map<string, string>();
-    for (const s of sources) {
-      if (s.sourceId && s.sourceName) {
-        nameMap.set(s.sourceId, s.sourceName);
-      }
+    return episodeSources.map(s => ({ id: s.id, name: s.name }));
+  }, [episodeSources]);
+
+  const filteredSources = sources;
+
+  const [displayedSourceId, setDisplayedSourceId] = useState(selectedSourceId);
+  useEffect(() => {
+    if (!episodesLoading) {
+      setDisplayedSourceId(selectedSourceId);
     }
-    return sourceIds.map(id => ({ id, name: nameMap.get(id) || `线路 ${id}` }));
-  }, [episodes, sources]);
+  }, [episodesLoading, selectedSourceId]);
 
   const filteredEpisodes = useMemo(() => {
-    if (!selectedSourceId) return episodes;
-    return episodes.filter(ep => ep.sourceId === selectedSourceId);
-  }, [episodes, selectedSourceId]);
-
-  const filteredSources = useMemo(() => {
-    if (!selectedSourceId) return sources;
-    return sources.filter(s => s.sourceId === selectedSourceId);
-  }, [sources, selectedSourceId]);
+    if (!displayedSourceId) return episodes;
+    return episodes.filter(ep => ep.sourceId === displayedSourceId);
+  }, [episodes, displayedSourceId]);
 
   const nextEpisode = useMemo(() => {
     if (!episode || filteredEpisodes.length === 0 || media?.type === 'MOVIE') return null;
@@ -178,25 +185,49 @@ export default function PlayPage() {
 
   const handleNextEpisode = () => {
     if (nextEpisode) {
-      navigate(`/play/${nextEpisode.id}${selectedSourceId ? `?sourceId=${selectedSourceId}` : ''}`);
+      setCurrentEpisodeId(nextEpisode.id);
     }
   };
 
   useEffect(() => {
     if (!media?.id) return;
     loadSeasons(media.id);
+    loadSeriesMedia(media.id);
   }, [media?.id]);
 
   useEffect(() => {
     if (!media?.id || currentSeason === 0) return;
-    loadEpisodes(media.id, currentSeason);
+    loadEpisodeSources(media.id, currentSeason);
   }, [media?.id, currentSeason]);
+
+  useEffect(() => {
+    if (!media?.id || currentSeason === 0 || !selectedSourceId) return;
+    loadEpisodes(media.id, currentSeason, selectedSourceId);
+  }, [media?.id, currentSeason, selectedSourceId]);
 
   useEffect(() => {
     if (seasons.length > 0 && !seasons.includes(currentSeason)) {
       setCurrentSeason(seasons[0]);
     }
   }, [seasons]);
+
+  const seasonToMediaMap = new Map<number, string>();
+  seriesMedia.forEach(m => {
+    if (m.seriesSeason) seasonToMediaMap.set(m.seriesSeason, m.id);
+  });
+  const seasonsFromSeries = seriesMedia.map(m => m.seriesSeason ?? 1).sort((a, b) => a - b);
+  const displaySeasons = seasonsFromSeries.length > 0 ? seasonsFromSeries : seasons;
+  const currentMediaSeason = media?.seriesSeason ?? 1;
+
+  const handleSeasonClick = (s: number) => {
+    const targetId = seasonToMediaMap.get(s);
+    if (targetId && targetId !== media?.id) {
+      navigate(`/media/${targetId}`, { replace: true });
+    } else {
+      setCurrentSeason(s);
+      setSelectedSourceId(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -218,8 +249,8 @@ export default function PlayPage() {
   }
 
   return (
-    <div className="p-6 space-y-4 max-w-7xl mx-auto">
-      <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pb-4 border-b border-border">
+    <div className="p-6 max-w-7xl mx-auto">
+      <div className="bg-background -mx-6 px-6 pb-4 border-b border-border">
         <div className="flex items-center">
           <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="hover:text-primary shrink-0">
             <ArrowLeft className="size-4" /> 返回
@@ -270,131 +301,139 @@ export default function PlayPage() {
         </div>
       </div>
 
-      <VideoPlayer
-        sources={filteredSources}
-        initialSourceId={activeSource?.id}
-        initialCurrentTime={initialCurrentTime}
-        nextEpisode={nextEpisode}
-        outroThresholdMinutes={outroThresholdMinutes}
-        showNextEpisodeOverlay={showNextEpisodeOverlay}
-        onTimeUpdate={handleTimeUpdate}
-        onNextEpisode={handleNextEpisode}
-        onSourceChange={handleSourceChange}
-        onSourceFail={handleSourceFail}
-      />
-
-      <div className="space-y-1">
-        <h1 className="text-xl font-semibold">
-          {media?.title}
-          {episode.title ? ` · ${episode.title}` : ` · 第${episode.episodeNumber}集`}
-        </h1>
-        {media && (
-          <p className="text-sm text-muted-foreground">
-            {media.year} · {media.area || '未知'}
-          </p>
-        )}
-      </div>
-
-      {availableCmsSources.length > 1 && (
-        <div className="space-y-1">
-          <div className="text-xs text-muted-foreground">线路源</div>
-          <div className="flex gap-2 flex-wrap">
-            {availableCmsSources.map((cms) => (
-              <Button
-                key={cms.id}
-                variant={selectedSourceId === cms.id ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleSwitchCmsSource(cms.id)}
-              >
-                {cms.name}
-              </Button>
-            ))}
+      <div className="flex flex-col gap-6 mt-5">
+        <div className="flex gap-6">
+          <div className="flex-1 min-w-0">
+            <VideoPlayer
+              sources={filteredSources}
+              initialSourceId={activeSource?.id}
+              initialCurrentTime={initialCurrentTime}
+              nextEpisode={nextEpisode}
+              outroThresholdMinutes={outroThresholdMinutes}
+              showNextEpisodeOverlay={showNextEpisodeOverlay}
+              onTimeUpdate={handleTimeUpdate}
+              onNextEpisode={handleNextEpisode}
+              onSourceChange={handleSourceChange}
+              onSourceFail={handleSourceFail}
+            />
           </div>
-        </div>
-      )}
 
-      <div className="space-y-2">
-        <div className="text-sm text-muted-foreground">
-          {filteredSources.length > 0 ? (() => {
-            const activeKey = activeSource ? `${activeSource.sourceName || ''}_${activeSource.quality || ''}` : '';
-            const count = filteredSources.filter(s => `${s.sourceName || ''}_${s.quality || ''}` === activeKey).length;
-            const activeIdx = filteredSources.findIndex(s => s.id === activeSource?.id);
-            const prevCount = filteredSources.slice(0, activeIdx).filter(s => `${s.sourceName || ''}_${s.quality || ''}` === activeKey).length;
-            const suffix = count > 1 ? ` (${prevCount + 1})` : '';
-            return `播放线路（当前：${activeSource?.sourceName || '线路1'}${activeSource?.quality ? ` · ${activeSource.quality}` : ''}${suffix}）`;
-          })() : '暂无播放线路'}
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          {(() => {
-            const sourceKeyMap = new Map<string, number>();
-            filteredSources.forEach(s => {
-              const key = `${s.sourceName || ''}_${s.quality || ''}`;
-              sourceKeyMap.set(key, (sourceKeyMap.get(key) || 0) + 1);
-            });
-            const keyIndexMap = new Map<string, number>();
-            return filteredSources.map((s, i) => {
-              const key = `${s.sourceName || ''}_${s.quality || ''}`;
-              const count = sourceKeyMap.get(key) || 1;
-              const idx = (keyIndexMap.get(key) || 0) + 1;
-              keyIndexMap.set(key, idx);
-              const baseName = s.sourceName || `线路${i + 1}`;
-              const qualityStr = s.quality ? ` · ${s.quality}` : '';
-              const suffix = count > 1 ? ` (${idx})` : '';
-              return (
-                <Button
-                  key={s.id}
-                  variant={s.isActive === false ? 'outline' : s.id === activeSource?.id ? 'default' : 'outline'}
-                  size="sm"
-                  disabled={s.isActive === false}
-                  className={`${s.isActive === false ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  onClick={() => handleSourceChange(s)}
-                >
-                  {baseName}{qualityStr}{suffix}
-                  {s.isActive === false && ' (不可用)'}
-                </Button>
-              );
-            });
-          })()}
-        </div>
-      </div>
+          <div className="w-80 shrink-0 space-y-4 max-h-[calc(100vh-120px)] overflow-y-auto">
+            <div className="space-y-1">
+              <h1 className="text-xl font-semibold">
+                {media?.title}
+                {episode.title ? ` · ${episode.title}` : ` · 第${episode.episodeNumber}集`}
+              </h1>
+              {media && (
+                <p className="text-sm text-muted-foreground">
+                  {media.year} · {media.area || '未知'}
+                </p>
+              )}
+            </div>
 
-      {seasons.length > 1 && (
-        <div className="rounded-lg border border-border bg-card card-shadow p-4 flex gap-2 flex-wrap">
-          {seasons.map((s) => (
-            <Button
-              key={s}
-              variant={currentSeason === s ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => { setCurrentSeason(s); if (media?.id) loadEpisodes(media.id, s); }}
-            >
-              第 {s} 季
-            </Button>
-          ))}
-        </div>
-      )}
-
-      {media?.type !== 'MOVIE' && filteredEpisodes.length > 0 && (
-        <div className="rounded-lg border border-border bg-card card-shadow">
-          <div className="px-5 py-3 border-b border-border">
-            <h3 className="text-base font-medium">集数</h3>
-          </div>
-          <div className="px-5 py-3">
-            <div className="flex flex-wrap gap-1.5">
-              {filteredEpisodes.map((ep: any) => (
-                <Button
-                  key={ep.id}
-                  variant={ep.id === episodeId ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => navigate(`/play/${ep.id}${selectedSourceId ? `?sourceId=${selectedSourceId}` : ''}`)}
-                  className={ep.id !== episodeId && watchedEpisodes.has(ep.id) ? 'opacity-50' : ''}
-                >
-                  {ep.title || `第${ep.episodeNumber}集`}
-                </Button>
-              ))}
+            <div className="space-y-2">
+              <div className="text-sm text-muted-foreground">
+                {filteredSources.length > 0 ? '播放线路' : '暂无播放线路'}
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                {(() => {
+                  const sourceKeyMap = new Map<string, number>();
+                  filteredSources.forEach(s => {
+                    const key = `${s.sourceName || ''}_${s.quality || ''}`;
+                    sourceKeyMap.set(key, (sourceKeyMap.get(key) || 0) + 1);
+                  });
+                  const keyIndexMap = new Map<string, number>();
+                  return filteredSources.map((s, i) => {
+                    const key = `${s.sourceName || ''}_${s.quality || ''}`;
+                    const count = sourceKeyMap.get(key) || 1;
+                    const idx = (keyIndexMap.get(key) || 0) + 1;
+                    keyIndexMap.set(key, idx);
+                    const baseName = s.sourceName || `线路${i + 1}`;
+                    const qualityStr = s.quality ? ` · ${s.quality}` : '';
+                    const suffix = count > 1 ? ` (${idx})` : '';
+                    return (
+                      <Button
+                        key={s.id}
+                        variant={s.isActive === false ? 'outline' : s.id === activeSource?.id ? 'default' : 'outline'}
+                        size="sm"
+                        disabled={s.isActive === false}
+                        className={`${s.isActive === false ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        onClick={() => handleSourceChange(s)}
+                      >
+                        {baseName}{qualityStr}{suffix}
+                        {s.isActive === false && ' (不可用)'}
+                      </Button>
+                    );
+                  });
+                })()}
+              </div>
             </div>
           </div>
         </div>
-      )}
+
+        <div className="space-y-4">
+          {displaySeasons.length > 1 && (
+            <div className="space-y-1">
+              <div className="text-sm text-muted-foreground">季数</div>
+              <div className="flex gap-2 flex-wrap">
+                {displaySeasons.map((s) => {
+                  const isCurrent = seasonToMediaMap.get(s) === media?.id || (!seasonToMediaMap.has(s) && currentSeason === s);
+                  return (
+                    <Button
+                      key={s}
+                      variant={isCurrent ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handleSeasonClick(s)}
+                    >
+                      第 {s} 季
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {media?.type !== 'MOVIE' && filteredEpisodes.length > 0 && (
+            <div className="rounded-lg overflow-hidden">
+              <div className="flex">
+                {availableCmsSources.length > 1 && (
+                  <div className="w-28 shrink-0 bg-muted/30">
+                    {availableCmsSources.map((cms) => (
+                      <button
+                        key={cms.id}
+                        onClick={() => handleSwitchCmsSource(cms.id)}
+                        className={`w-full text-left px-3 py-2.5 transition-colors ${
+                          selectedSourceId === cms.id
+                            ? 'text-lg bg-sidebar text-foreground font-medium'
+                            : 'text-sm text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {cms.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex-1 min-w-0 p-4 bg-sidebar">
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(80px,1fr))] gap-2">
+                    {filteredEpisodes.map((ep: any) => (
+                      <Button
+                        key={ep.id}
+                        variant={ep.id === currentEpisodeId ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setCurrentEpisodeId(ep.id)}
+                        className={ep.id !== currentEpisodeId && watchedEpisodes.has(ep.id) ? 'opacity-50' : ''}
+                      >
+                        {ep.title || `第${ep.episodeNumber}集`}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -26,12 +26,13 @@ export { getHttpClient, setHttpClient, type HttpClient } from './utils/httpClien
 // 服务
 export { CMSAdapter } from './services/cmsAdapter';
 export { CollectorService } from './services/collectorService';
+export { backfillSeriesGroup } from './services/backfillService';
 export { SystemConfigService, type CollectConfig, type ShortDramaConfig } from './services/systemConfigService';
 export { VideoDurationService, setVideoFetchFn, getVideoFetchFn } from './services/videoDurationService';
 export { SourceImportService } from './services/sourceImportService';
 
 // 数据库抽象层
-export { PRAGMA_SQL, SCHEMA_SQL, INSERT_DEFAULT_SOURCE_SQL, COUNT_VIDEO_SOURCE_SQL } from './db/schema';
+export { PRAGMA_SQL, SCHEMA_SQL, INSERT_DEFAULT_SOURCE_SQL, COUNT_VIDEO_SOURCE_SQL, splitSqlStatements } from './db/schema';
 export { type DatabaseProvider } from './db/provider';
 export {
   rowToMedia,
