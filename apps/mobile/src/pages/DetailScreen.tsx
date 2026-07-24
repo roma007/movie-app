@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useAppStore } from '../useAppStore';
 import { getProvider } from '../init';
 import { VideoDurationService } from '@movie-app/core';
 import { Heart } from 'lucide-react-native';
 import type { Episode, PlaySource, VideoSource } from '@movie-app/core';
+import { useThemeColors } from '../themes/useThemeColors';
 
 interface Props {
   route: any;
@@ -14,6 +15,7 @@ interface Props {
 export default function DetailScreen({ route, navigation }: Props) {
   const { id } = route.params;
   const { currentMedia, episodes, seasons, isLoading, episodeSources, seriesMedia, loadMediaDetail, loadEpisodes, loadSeasons, loadSeasonEpisodes, loadSeriesMedia } = useAppStore();
+  const colors = useThemeColors();
   const [currentSeason, setCurrentSeason] = useState(1);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [episodeDurations, setEpisodeDurations] = useState<Record<string, number | null>>({});
@@ -27,6 +29,48 @@ export default function DetailScreen({ route, navigation }: Props) {
 
   // 功能5: 已看剧集
   const [watchedEpisodes, setWatchedEpisodes] = useState<Set<string>>(new Set());
+
+  const styles = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    loadingContainer: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
+    header: { flexDirection: 'row', padding: 20, paddingTop: 60 },
+    poster: { width: 120, height: 170, borderRadius: 8, backgroundColor: colors.card },
+    info: { flex: 1, marginLeft: 15, justifyContent: 'center' },
+    titleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 },
+    title: { fontSize: 20, fontWeight: 'bold', color: colors.text, flex: 1, marginRight: 8 },
+    favButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: colors.card, gap: 4 },
+    favButtonActive: { backgroundColor: colors.favorite },
+    favText: { fontSize: 12, color: colors.textSecondary },
+    favTextActive: { color: colors.text },
+    alias: { fontSize: 13, color: colors.mutedForeground, marginBottom: 4 },
+    subtitle: { fontSize: 14, color: colors.textSecondary, marginBottom: 4 },
+    updateTime: { fontSize: 13, color: colors.favorite, marginBottom: 8 },
+    genreRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    genre: { fontSize: 12, color: colors.primary, backgroundColor: colors.primaryLight, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, overflow: 'hidden' },
+    section: { padding: 20, borderTopWidth: 1, borderTopColor: colors.surface },
+    sectionTitle: { fontSize: 16, fontWeight: '600', color: colors.text, marginBottom: 10 },
+    description: { fontSize: 14, color: colors.textSecondary, lineHeight: 22 },
+    text: { fontSize: 14, color: colors.textSecondary },
+    seasonRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+    seasonButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderLight },
+    seasonButtonActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+    seasonText: { color: colors.textSecondary, fontSize: 14 },
+    seasonTextActive: { color: colors.text },
+    sourceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+    sourceButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderLight },
+    sourceButtonActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+    sourceText: { color: colors.textSecondary, fontSize: 14 },
+    sourceTextActive: { color: colors.text },
+    episodesPlaceholder: { paddingVertical: 30, alignItems: 'center' },
+    episodesPlaceholderText: { color: colors.mutedForeground, fontSize: 14 },
+    episodesPlaceholderHint: { color: colors.disabledForeground, fontSize: 12, marginTop: 4 },
+    episodeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+    episodeButton: { width: '22%', paddingVertical: 10, backgroundColor: colors.surface, borderRadius: 6, alignItems: 'center' },
+    episodeButtonWatched: { opacity: 0.5 },
+    episodeText: { color: colors.textSecondary, fontSize: 13 },
+    episodeDuration: { color: colors.disabledForeground, fontSize: 11, marginTop: 4 },
+    error: { color: colors.error, textAlign: 'center', marginTop: 50 },
+  }), [colors]);
 
   useEffect(() => {
     loadMediaDetail(id);
@@ -135,7 +179,7 @@ export default function DetailScreen({ route, navigation }: Props) {
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#fff" />
+        <ActivityIndicator size="large" color={colors.text} />
       </View>
     );
   }
@@ -160,7 +204,7 @@ export default function DetailScreen({ route, navigation }: Props) {
           <View style={styles.titleRow}>
             <Text style={styles.title} numberOfLines={2}>{currentMedia.title}</Text>
             <TouchableOpacity style={[styles.favButton, isFav && styles.favButtonActive]} onPress={handleFav}>
-              <Heart size={16} color={isFav ? '#fff' : '#aaa'} fill={isFav ? '#fff' : 'none'} />
+              <Heart size={16} color={isFav ? colors.text : colors.textSecondary} fill={isFav ? colors.text : 'none'} />
               <Text style={[styles.favText, isFav && styles.favTextActive]}>{isFav ? '已收藏' : '收藏'}</Text>
             </TouchableOpacity>
           </View>
@@ -243,7 +287,7 @@ export default function DetailScreen({ route, navigation }: Props) {
         <Text style={styles.sectionTitle}>{isMovie ? '播放源' : `剧集 (${episodes.length}集)`}</Text>
         {isEpisodesLoading ? (
           <View style={styles.episodesPlaceholder}>
-            <ActivityIndicator size="small" color="#4a9eff" />
+            <ActivityIndicator size="small" color={colors.primary} />
             <Text style={styles.episodesPlaceholderText}>加载中...</Text>
           </View>
         ) : episodes.length === 0 ? (
@@ -311,45 +355,3 @@ export default function DetailScreen({ route, navigation }: Props) {
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f0f' },
-  loadingContainer: { flex: 1, backgroundColor: '#0f0f0f', justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', padding: 20, paddingTop: 60 },
-  poster: { width: 120, height: 170, borderRadius: 8, backgroundColor: '#222' },
-  info: { flex: 1, marginLeft: 15, justifyContent: 'center' },
-  titleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 },
-  title: { fontSize: 20, fontWeight: 'bold', color: '#fff', flex: 1, marginRight: 8 },
-  favButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: '#222', gap: 4 },
-  favButtonActive: { backgroundColor: '#e74c3c' },
-  favText: { fontSize: 12, color: '#aaa' },
-  favTextActive: { color: '#fff' },
-  alias: { fontSize: 13, color: '#999', marginBottom: 4 },
-  subtitle: { fontSize: 14, color: '#aaa', marginBottom: 4 },
-  updateTime: { fontSize: 13, color: '#e74c3c', marginBottom: 8 },
-  genreRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  genre: { fontSize: 12, color: '#4a9eff', backgroundColor: 'rgba(74, 158, 255, 0.1)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, overflow: 'hidden' },
-  section: { padding: 20, borderTopWidth: 1, borderTopColor: '#1f1f1f' },
-  sectionTitle: { fontSize: 16, fontWeight: '600', color: '#fff', marginBottom: 10 },
-  description: { fontSize: 14, color: '#bbb', lineHeight: 22 },
-  text: { fontSize: 14, color: '#bbb' },
-  seasonRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  seasonButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: '#1f1f1f', borderWidth: 1, borderColor: '#333' },
-  seasonButtonActive: { backgroundColor: '#4a9eff', borderColor: '#4a9eff' },
-  seasonText: { color: '#ccc', fontSize: 14 },
-  seasonTextActive: { color: '#fff' },
-  sourceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  sourceButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: '#1f1f1f', borderWidth: 1, borderColor: '#333' },
-  sourceButtonActive: { backgroundColor: '#4a9eff', borderColor: '#4a9eff' },
-  sourceText: { color: '#ccc', fontSize: 14 },
-  sourceTextActive: { color: '#fff' },
-  episodesPlaceholder: { paddingVertical: 30, alignItems: 'center' },
-  episodesPlaceholderText: { color: '#999', fontSize: 14 },
-  episodesPlaceholderHint: { color: '#666', fontSize: 12, marginTop: 4 },
-  episodeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  episodeButton: { width: '22%', paddingVertical: 10, backgroundColor: '#1f1f1f', borderRadius: 6, alignItems: 'center' },
-  episodeButtonWatched: { opacity: 0.5 },
-  episodeText: { color: '#ccc', fontSize: 13 },
-  episodeDuration: { color: '#666', fontSize: 11, marginTop: 4 },
-  error: { color: '#ff6b6b', textAlign: 'center', marginTop: 50 },
-});

@@ -63,6 +63,8 @@ export const SCHEMA_SQL = `
     favorite_count INTEGER DEFAULT 0,
     search_count INTEGER DEFAULT 0,
     hidden INTEGER DEFAULT 0,
+    series_group TEXT,
+    series_season INTEGER,
     created_at TEXT,
     updated_at TEXT
   );

@@ -1,4 +1,6 @@
+import { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { useThemeColors } from '../themes/useThemeColors';
 
 interface Props {
   navigation: any;
@@ -34,6 +36,27 @@ const STEPS = [
 ];
 
 export default function CollectGuideScreen(_: Props) {
+  const colors = useThemeColors();
+
+  const styles = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    header: { padding: 20, paddingTop: 60 },
+    title: { fontSize: 24, fontWeight: 'bold', color: colors.text },
+    content: { paddingHorizontal: 15, gap: 12, paddingBottom: 30 },
+    card: { backgroundColor: colors.card, borderRadius: 12, padding: 16 },
+    cardTitle: { fontSize: 16, fontWeight: '600', color: colors.text, marginBottom: 8 },
+    text: { fontSize: 14, color: colors.textSecondary, lineHeight: 22 },
+    featureText: { fontSize: 13, color: colors.primary, marginBottom: 8 },
+    codeBox: { backgroundColor: colors.surfaceElevated, borderRadius: 6, padding: 10, marginBottom: 8 },
+    codeText: { fontFamily: 'monospace', fontSize: 12, color: colors.mutedForeground },
+    sectionTitle: { fontSize: 18, fontWeight: 'bold', color: colors.text, marginTop: 8, marginBottom: 4 },
+    stepsCard: { backgroundColor: colors.card, borderRadius: 12, padding: 16, gap: 12 },
+    stepRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    stepBadge: { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' },
+    stepBadgeText: { color: colors.text, fontSize: 13, fontWeight: 'bold' },
+    stepText: { fontSize: 14, color: colors.textSecondary, flex: 1 },
+  }), [colors]);
+
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
@@ -74,22 +97,3 @@ export default function CollectGuideScreen(_: Props) {
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f0f' },
-  header: { padding: 20, paddingTop: 60 },
-  title: { fontSize: 24, fontWeight: 'bold', color: '#fff' },
-  content: { paddingHorizontal: 15, gap: 12, paddingBottom: 30 },
-  card: { backgroundColor: '#1a1a1a', borderRadius: 12, padding: 16 },
-  cardTitle: { fontSize: 16, fontWeight: '600', color: '#fff', marginBottom: 8 },
-  text: { fontSize: 14, color: '#bbb', lineHeight: 22 },
-  featureText: { fontSize: 13, color: '#4a9eff', marginBottom: 8 },
-  codeBox: { backgroundColor: '#111', borderRadius: 6, padding: 10, marginBottom: 8 },
-  codeText: { fontFamily: 'monospace', fontSize: 12, color: '#888' },
-  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#fff', marginTop: 8, marginBottom: 4 },
-  stepsCard: { backgroundColor: '#1a1a1a', borderRadius: 12, padding: 16, gap: 12 },
-  stepRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  stepBadge: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#4a9eff', justifyContent: 'center', alignItems: 'center' },
-  stepBadgeText: { color: '#fff', fontSize: 13, fontWeight: 'bold' },
-  stepText: { fontSize: 14, color: '#ccc', flex: 1 },
-});

@@ -1,12 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, TextInput, FlatList, TouchableOpacity, Image } from 'react-native';
 import { useAppStore, getCollector, getProvider } from '../useAppStore';
+import { useThemeColors } from '../themes/useThemeColors';
 
 interface Props {
   navigation: any;
 }
 
 export default function SearchScreen({ navigation }: Props) {
+  const colors = useThemeColors();
   const [keyword, setKeyword] = useState('');
   const [searching, setSearching] = useState(false);
   const [searchHistory, setSearchHistory] = useState<{ keyword: string; count: number }[]>([]);
@@ -71,13 +73,39 @@ export default function SearchScreen({ navigation }: Props) {
     </TouchableOpacity>
   );
 
+  const styles = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    searchBar: { flexDirection: 'row', padding: 15, paddingTop: 60, gap: 10 },
+    input: { flex: 1, backgroundColor: colors.surface, color: colors.text, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 8, fontSize: 16 },
+    searchButton: { backgroundColor: colors.primary, paddingHorizontal: 20, justifyContent: 'center', borderRadius: 8 },
+    searchButtonText: { color: colors.text, fontSize: 16, fontWeight: '600' },
+    item: { flexDirection: 'row', padding: 15, borderBottomWidth: 1, borderBottomColor: colors.surface },
+    poster: { width: 80, height: 110, borderRadius: 6, backgroundColor: colors.card },
+    itemInfo: { flex: 1, marginLeft: 12, justifyContent: 'center' },
+    itemTitle: { fontSize: 16, color: colors.text, fontWeight: '500', marginBottom: 6 },
+    itemSubtitle: { fontSize: 13, color: colors.mutedForeground },
+    empty: { color: colors.disabledForeground, textAlign: 'center', marginTop: 50, fontSize: 15 },
+    historyContainer: { padding: 15 },
+    section: { marginBottom: 20 },
+    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+    sectionTitle: { fontSize: 14, color: colors.mutedForeground, fontWeight: '500' },
+    clearButton: { fontSize: 13, color: colors.primary },
+    tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    tagContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: 6, overflow: 'hidden' },
+    tag: { paddingHorizontal: 12, paddingVertical: 8 },
+    tagText: { fontSize: 14, color: colors.textSecondary },
+    deleteIcon: { fontSize: 14, color: colors.disabledForeground, paddingRight: 8 },
+    hotTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#2a1f1f', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 8 },
+    hotIndex: { fontSize: 12, color: colors.error, marginRight: 6 },
+  }), [colors]);
+
   return (
     <View style={styles.container}>
       <View style={styles.searchBar}>
         <TextInput
           style={styles.input}
           placeholder="搜索电影、电视剧、综艺..."
-          placeholderTextColor="#888"
+          placeholderTextColor={colors.mutedForeground}
           value={keyword}
           onChangeText={setKeyword}
           onSubmitEditing={handleSearch}
@@ -148,29 +176,3 @@ export default function SearchScreen({ navigation }: Props) {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f0f' },
-  searchBar: { flexDirection: 'row', padding: 15, paddingTop: 60, gap: 10 },
-  input: { flex: 1, backgroundColor: '#1f1f1f', color: '#fff', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 8, fontSize: 16 },
-  searchButton: { backgroundColor: '#4a9eff', paddingHorizontal: 20, justifyContent: 'center', borderRadius: 8 },
-  searchButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  item: { flexDirection: 'row', padding: 15, borderBottomWidth: 1, borderBottomColor: '#1f1f1f' },
-  poster: { width: 80, height: 110, borderRadius: 6, backgroundColor: '#222' },
-  itemInfo: { flex: 1, marginLeft: 12, justifyContent: 'center' },
-  itemTitle: { fontSize: 16, color: '#fff', fontWeight: '500', marginBottom: 6 },
-  itemSubtitle: { fontSize: 13, color: '#888' },
-  empty: { color: '#666', textAlign: 'center', marginTop: 50, fontSize: 15 },
-  historyContainer: { padding: 15 },
-  section: { marginBottom: 20 },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  sectionTitle: { fontSize: 14, color: '#888', fontWeight: '500' },
-  clearButton: { fontSize: 13, color: '#4a9eff' },
-  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  tagContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1f1f1f', borderRadius: 6, overflow: 'hidden' },
-  tag: { paddingHorizontal: 12, paddingVertical: 8 },
-  tagText: { fontSize: 14, color: '#ccc' },
-  deleteIcon: { fontSize: 14, color: '#666', paddingRight: 8 },
-  hotTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#2a1f1f', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 8 },
-  hotIndex: { fontSize: 12, color: '#ff6b6b', marginRight: 6 },
-});

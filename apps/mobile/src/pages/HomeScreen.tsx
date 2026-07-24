@@ -1,23 +1,17 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, Image } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAppStore, getProvider } from '../useAppStore';
+import { useThemeColors } from '../themes/useThemeColors';
 import MediaCard from '../components/MediaCard';
 import UsageGuideModal from '../components/UsageGuideModal';
+import CategoryHeader from '../components/CategoryHeader';
 import type { Media, UserUsageType } from '@movie-app/core';
-
-const TYPES = [
-  { key: 'HOME', label: '首页', route: 'Tabs' },
-  { key: 'MOVIE', label: '电影', route: 'Movie' },
-  { key: 'TV', label: '电视剧', route: 'TV' },
-  { key: 'VARIETY', label: '综艺', route: 'Variety' },
-  { key: 'ANIME', label: '动漫', route: 'Anime' },
-  { key: 'DOCUMENTARY', label: '纪录片', route: 'Documentary' },
-];
 
 export default function HomeScreen() {
   const navigation = useNavigation<any>();
   const provider = getProvider();
+  const colors = useThemeColors();
   const {
     favorites, watchHistory, loadFavorites, loadWatchHistory,
     userUsageTypes, loadUserUsageTypes,
@@ -139,7 +133,7 @@ export default function HomeScreen() {
         <TextInput
           style={styles.quickSearchInput}
           placeholder="输入电影/电视剧名称..."
-          placeholderTextColor="#666"
+          placeholderTextColor={colors.disabledForeground}
           value={quickKeyword}
           onChangeText={setQuickKeyword}
           onSubmitEditing={handleQuickPreview}
@@ -286,29 +280,180 @@ export default function HomeScreen() {
     </View>
   );
 
+  const styles = useMemo(() => StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    scrollContent: {
+      paddingBottom: 20,
+    },
+    usageCard: {
+      marginHorizontal: 15,
+      marginTop: 16,
+      backgroundColor: colors.card,
+      borderRadius: 12,
+      padding: 14,
+    },
+    usageCardTitle: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: colors.text,
+      marginBottom: 4,
+    },
+    usageCardDesc: {
+      fontSize: 12,
+      color: colors.mutedForeground,
+      marginBottom: 10,
+    },
+    cardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 4,
+    },
+    emptyCardText: {
+      fontSize: 13,
+      color: colors.mutedForeground,
+      textAlign: 'center',
+      paddingVertical: 16,
+    },
+    usageCardSubtitle: {
+      fontSize: 13,
+      color: colors.textSecondary,
+      marginTop: 10,
+      marginBottom: 8,
+    },
+    quickSearchRow: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    quickSearchInput: {
+      flex: 1,
+      backgroundColor: colors.background,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      fontSize: 14,
+      color: colors.text,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    quickSearchBtn: {
+      backgroundColor: colors.primary,
+      borderRadius: 8,
+      paddingHorizontal: 16,
+      justifyContent: 'center',
+    },
+    quickSearchBtnText: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    previewList: {
+      marginTop: 10,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      paddingTop: 10,
+    },
+    previewItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 8,
+      gap: 10,
+    },
+    previewCheck: {
+      fontSize: 18,
+      color: colors.primary,
+    },
+    previewPoster: {
+      width: 36,
+      height: 54,
+      borderRadius: 4,
+      backgroundColor: colors.card,
+    },
+    previewInfo: {
+      flex: 1,
+    },
+    previewTitle: {
+      fontSize: 14,
+      color: colors.text,
+      fontWeight: '500',
+    },
+    previewMeta: {
+      fontSize: 11,
+      color: colors.mutedForeground,
+      marginTop: 2,
+    },
+    collectAllBtn: {
+      backgroundColor: colors.primary,
+      borderRadius: 8,
+      paddingVertical: 12,
+      alignItems: 'center',
+      marginTop: 8,
+    },
+    collectAllBtnText: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    collectActionBtn: {
+      backgroundColor: colors.primary,
+      borderRadius: 8,
+      paddingVertical: 12,
+      alignItems: 'center',
+      marginTop: 8,
+    },
+    collectActionBtnText: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    tvItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.card,
+      gap: 8,
+    },
+    tvItemLeft: {
+      flex: 1,
+    },
+    tvItemTitle: {
+      fontSize: 14,
+      color: colors.text,
+      marginBottom: 6,
+    },
+    progressBar: {
+      height: 4,
+      backgroundColor: colors.borderLight,
+      borderRadius: 2,
+      overflow: 'hidden',
+    },
+    progressFill: {
+      height: '100%',
+      backgroundColor: colors.primary,
+      borderRadius: 2,
+    },
+    tvItemPct: {
+      fontSize: 12,
+      color: colors.primary,
+      fontWeight: '600',
+      width: 36,
+      textAlign: 'right',
+    },
+    tvItemAction: {
+      fontSize: 12,
+      color: colors.primary,
+      fontWeight: '600',
+    },
+  }), [colors]);
+
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <Text style={styles.appTitle}>Movie App</Text>
-        </View>
-
-        <TouchableOpacity style={styles.searchBar} onPress={() => navigation.navigate('搜索')}>
-          <Text style={styles.searchIcon}>🔍</Text>
-          <Text style={styles.searchPlaceholder}>搜索电影、电视剧、综艺...</Text>
-        </TouchableOpacity>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.typeTabs}>
-          {TYPES.map(t => (
-            <TouchableOpacity
-              key={t.key}
-              style={styles.typeTab}
-              onPress={() => navigation.navigate(t.route)}
-            >
-              <Text style={styles.typeTabText}>{t.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        <CategoryHeader activeType="首页" />
 
         {userUsageTypes.includes('SEARCH_FIRST') && renderSearchFirstCard()}
         {userUsageTypes.includes('NEW_MOVIES') && renderNewMoviesCard()}
@@ -320,217 +465,3 @@ export default function HomeScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0f0f0f',
-  },
-  scrollContent: {
-    paddingBottom: 20,
-  },
-  header: {
-    paddingHorizontal: 15,
-    paddingTop: 56,
-    paddingBottom: 4,
-  },
-  appTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1f1f1f',
-    marginHorizontal: 15,
-    marginTop: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 10,
-  },
-  searchIcon: {
-    fontSize: 16,
-    marginRight: 8,
-  },
-  searchPlaceholder: {
-    fontSize: 15,
-    color: '#666',
-  },
-  typeTabs: {
-    marginTop: 16,
-    paddingHorizontal: 15,
-  },
-  typeTab: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginRight: 8,
-    borderRadius: 8,
-    backgroundColor: '#1a1a1a',
-  },
-  typeTabText: {
-    fontSize: 14,
-    color: '#999',
-    fontWeight: '500',
-  },
-  usageCard: {
-    marginHorizontal: 15,
-    marginTop: 16,
-    backgroundColor: '#1a1a1a',
-    borderRadius: 12,
-    padding: 14,
-  },
-  usageCardTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
-    marginBottom: 4,
-  },
-  usageCardDesc: {
-    fontSize: 12,
-    color: '#888',
-    marginBottom: 10,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  emptyCardText: {
-    fontSize: 13,
-    color: '#888',
-    textAlign: 'center',
-    paddingVertical: 16,
-  },
-  usageCardSubtitle: {
-    fontSize: 13,
-    color: '#aaa',
-    marginTop: 10,
-    marginBottom: 8,
-  },
-  quickSearchRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  quickSearchInput: {
-    flex: 1,
-    backgroundColor: '#0f0f0f',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: '#fff',
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-  },
-  quickSearchBtn: {
-    backgroundColor: '#4a9eff',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    justifyContent: 'center',
-  },
-  quickSearchBtnText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  previewList: {
-    marginTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#2a2a2a',
-    paddingTop: 10,
-  },
-  previewItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    gap: 10,
-  },
-  previewCheck: {
-    fontSize: 18,
-    color: '#4a9eff',
-  },
-  previewPoster: {
-    width: 36,
-    height: 54,
-    borderRadius: 4,
-    backgroundColor: '#222',
-  },
-  previewInfo: {
-    flex: 1,
-  },
-  previewTitle: {
-    fontSize: 14,
-    color: '#fff',
-    fontWeight: '500',
-  },
-  previewMeta: {
-    fontSize: 11,
-    color: '#888',
-    marginTop: 2,
-  },
-  collectAllBtn: {
-    backgroundColor: '#4a9eff',
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  collectAllBtnText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  collectActionBtn: {
-    backgroundColor: '#4a9eff',
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  collectActionBtnText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  tvItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#222',
-    gap: 8,
-  },
-  tvItemLeft: {
-    flex: 1,
-  },
-  tvItemTitle: {
-    fontSize: 14,
-    color: '#fff',
-    marginBottom: 6,
-  },
-  progressBar: {
-    height: 4,
-    backgroundColor: '#333',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#4a9eff',
-    borderRadius: 2,
-  },
-  tvItemPct: {
-    fontSize: 12,
-    color: '#4a9eff',
-    fontWeight: '600',
-    width: 36,
-    textAlign: 'right',
-  },
-  tvItemAction: {
-    fontSize: 12,
-    color: '#4a9eff',
-    fontWeight: '600',
-  },
-});

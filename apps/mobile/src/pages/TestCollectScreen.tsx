@@ -1,13 +1,15 @@
-import { useState, useRef } from 'react';
+import { useMemo, useState, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { getCollector } from '../useAppStore';
 import type { CollectionLog } from '@movie-app/core';
+import { useThemeColors } from '../themes/useThemeColors';
 
 interface Props {
   navigation: any;
 }
 
 export default function TestCollectScreen(_: Props) {
+  const colors = useThemeColors();
   const [logs, setLogs] = useState<CollectionLog[]>([]);
   const [running, setRunning] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
@@ -38,6 +40,23 @@ export default function TestCollectScreen(_: Props) {
     }
   };
 
+  const styles = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    header: { padding: 20, paddingTop: 60 },
+    title: { fontSize: 24, fontWeight: 'bold', color: colors.text },
+    startBtn: { marginHorizontal: 15, paddingVertical: 16, backgroundColor: colors.primary, borderRadius: 12, alignItems: 'center', marginBottom: 20 },
+    btnDisabled: { opacity: 0.5 },
+    startBtnText: { color: colors.text, fontSize: 16, fontWeight: '600' },
+    logContainer: { flex: 1, marginHorizontal: 15, backgroundColor: colors.surfaceElevated, borderRadius: 8, padding: 12, marginBottom: 30 },
+    logTitle: { fontSize: 14, color: colors.mutedForeground, fontWeight: '500', marginBottom: 8 },
+    logScroll: { flex: 1 },
+    logLine: { fontFamily: 'monospace', fontSize: 12, lineHeight: 20 },
+    logInfo: { color: colors.primary },
+    logWarn: { color: colors.warning },
+    logError: { color: colors.error },
+    logEmpty: { color: colors.disabledForeground, textAlign: 'center', paddingVertical: 40, fontSize: 14 },
+  }), [colors]);
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -50,7 +69,7 @@ export default function TestCollectScreen(_: Props) {
         disabled={running}
       >
         {running ? (
-          <ActivityIndicator size="small" color="#fff" />
+          <ActivityIndicator size="small" color={colors.text} />
         ) : (
           <Text style={styles.startBtnText}>开始测试采集</Text>
         )}
@@ -77,20 +96,3 @@ export default function TestCollectScreen(_: Props) {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f0f' },
-  header: { padding: 20, paddingTop: 60 },
-  title: { fontSize: 24, fontWeight: 'bold', color: '#fff' },
-  startBtn: { marginHorizontal: 15, paddingVertical: 16, backgroundColor: '#4a9eff', borderRadius: 12, alignItems: 'center', marginBottom: 20 },
-  btnDisabled: { opacity: 0.5 },
-  startBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  logContainer: { flex: 1, marginHorizontal: 15, backgroundColor: '#111', borderRadius: 8, padding: 12, marginBottom: 30 },
-  logTitle: { fontSize: 14, color: '#888', fontWeight: '500', marginBottom: 8 },
-  logScroll: { flex: 1 },
-  logLine: { fontFamily: 'monospace', fontSize: 12, lineHeight: 20 },
-  logInfo: { color: '#4a9eff' },
-  logWarn: { color: '#eab308' },
-  logError: { color: '#ef4444' },
-  logEmpty: { color: '#555', textAlign: 'center', paddingVertical: 40, fontSize: 14 },
-});

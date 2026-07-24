@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity } from 'react-native';
+import { useThemeColors } from '../themes/useThemeColors';
 import { useAppStore } from '../useAppStore';
 import type { UserUsageType } from '@movie-app/core';
 
@@ -10,9 +11,127 @@ const OPTIONS: { type: UserUsageType; label: string; desc: string; icon: string 
 ];
 
 export default function UsageGuideModal() {
+  const colors = useThemeColors();
   const [visible, setVisible] = useState(false);
   const [selected, setSelected] = useState<Set<UserUsageType>>(new Set());
   const { setUserUsageTypes, checkGuideShown, markGuideShown } = useAppStore();
+
+  const styles = useMemo(() => StyleSheet.create({
+    overlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.7)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 30,
+    },
+    container: {
+      width: '100%',
+      backgroundColor: colors.card,
+      borderRadius: 16,
+      padding: 24,
+    },
+    title: {
+      fontSize: 20,
+      fontWeight: 'bold',
+      color: colors.text,
+      textAlign: 'center',
+      marginBottom: 8,
+    },
+    subtitle: {
+      fontSize: 13,
+      color: colors.mutedForeground,
+      textAlign: 'center',
+      marginBottom: 20,
+      lineHeight: 18,
+    },
+    option: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 14,
+      padding: 14,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: 10,
+      backgroundColor: colors.background,
+    },
+    optionActive: {
+      borderColor: colors.primary,
+      backgroundColor: 'rgba(74, 158, 255, 0.08)',
+    },
+    checkbox: {
+      width: 22,
+      height: 22,
+      borderRadius: 4,
+      borderWidth: 2,
+      borderColor: colors.disabledForeground,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    checkboxActive: {
+      borderColor: colors.primary,
+      backgroundColor: colors.primary,
+    },
+    checkmark: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: 'bold',
+    },
+    optionIcon: {
+      fontSize: 24,
+    },
+    optionTextWrap: {
+      flex: 1,
+    },
+    optionLabel: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: colors.text,
+      marginBottom: 2,
+    },
+    optionLabelActive: {
+      color: colors.primary,
+    },
+    optionDesc: {
+      fontSize: 12,
+      color: colors.mutedForeground,
+    },
+    btnRow: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 6,
+    },
+    skipBtn: {
+      flex: 1,
+      borderRadius: 10,
+      paddingVertical: 14,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    skipBtnText: {
+      color: colors.mutedForeground,
+      fontSize: 14,
+    },
+    confirmBtn: {
+      flex: 1,
+      backgroundColor: colors.primary,
+      borderRadius: 10,
+      paddingVertical: 14,
+      alignItems: 'center',
+    },
+    confirmBtnDisabled: {
+      backgroundColor: colors.borderLight,
+    },
+    confirmBtnText: {
+      color: colors.text,
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    confirmBtnTextDisabled: {
+      color: colors.disabledForeground,
+    },
+  }), [colors]);
 
   useEffect(() => {
     checkGuideShown().then((shown) => {
@@ -93,119 +212,3 @@ export default function UsageGuideModal() {
   );
 }
 
-const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 30,
-  },
-  container: {
-    width: '100%',
-    backgroundColor: '#1a1a1a',
-    borderRadius: 16,
-    padding: 24,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 13,
-    color: '#888',
-    textAlign: 'center',
-    marginBottom: 20,
-    lineHeight: 18,
-  },
-  option: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    marginBottom: 10,
-    backgroundColor: '#0f0f0f',
-  },
-  optionActive: {
-    borderColor: '#4a9eff',
-    backgroundColor: 'rgba(74, 158, 255, 0.08)',
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: '#666',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxActive: {
-    borderColor: '#4a9eff',
-    backgroundColor: '#4a9eff',
-  },
-  checkmark: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  optionIcon: {
-    fontSize: 24,
-  },
-  optionTextWrap: {
-    flex: 1,
-  },
-  optionLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 2,
-  },
-  optionLabelActive: {
-    color: '#4a9eff',
-  },
-  optionDesc: {
-    fontSize: 12,
-    color: '#888',
-  },
-  btnRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 6,
-  },
-  skipBtn: {
-    flex: 1,
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-  },
-  skipBtnText: {
-    color: '#888',
-    fontSize: 14,
-  },
-  confirmBtn: {
-    flex: 1,
-    backgroundColor: '#4a9eff',
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  confirmBtnDisabled: {
-    backgroundColor: '#333',
-  },
-  confirmBtnText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  confirmBtnTextDisabled: {
-    color: '#666',
-  },
-});

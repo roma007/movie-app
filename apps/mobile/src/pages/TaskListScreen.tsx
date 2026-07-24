@@ -1,25 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { useAppStore } from '../useAppStore';
+import { useThemeColors } from '../themes/useThemeColors';
 import type { CollectTask } from '@movie-app/core';
 
 interface Props {
   navigation: any;
-}
-
-function getStatusStyle(status: string) {
-  switch (status) {
-    case 'PENDING':
-      return { label: '等待中', color: '#888', bg: '#2a2a2a' };
-    case 'RUNNING':
-      return { label: '运行中', color: '#4a9eff', bg: 'rgba(74,158,255,0.1)' };
-    case 'COMPLETED':
-      return { label: '已完成', color: '#22c55e', bg: 'rgba(34,197,94,0.1)' };
-    case 'FAILED':
-      return { label: '失败', color: '#ef4444', bg: 'rgba(239,68,68,0.1)' };
-    default:
-      return { label: status, color: '#888', bg: '#2a2a2a' };
-  }
 }
 
 function getTypeLabel(type: string): string {
@@ -32,21 +18,37 @@ function getTypeLabel(type: string): string {
   }
 }
 
-function getErrorTypeLabel(errorType: string | null): { label: string; color: string } {
-  switch (errorType) {
-    case 'NETWORK': return { label: '网络错误', color: '#f97316' };
-    case 'TIMEOUT': return { label: '请求超时', color: '#eab308' };
-    case 'RATE_LIMIT': return { label: '限流', color: '#ef4444' };
-    case 'PARSE': return { label: '解析错误', color: '#a855f7' };
-    case 'DB': return { label: '数据库错误', color: '#ec4899' };
-    case 'CANCELLED': return { label: '已取消', color: '#888' };
-    default: return { label: '', color: '#888' };
-  }
-}
-
 export default function TaskListScreen({ navigation }: Props) {
   const { collectTasks, loadCollectTasks, deleteCollectTask, deleteOldTasks } = useAppStore();
+  const colors = useThemeColors();
   const [isLoading, setIsLoading] = useState(true);
+
+  function getStatusStyle(status: string) {
+    switch (status) {
+      case 'PENDING':
+        return { label: '等待中', color: colors.mutedForeground, bg: colors.border };
+      case 'RUNNING':
+        return { label: '运行中', color: colors.primary, bg: colors.primaryLight };
+      case 'COMPLETED':
+        return { label: '已完成', color: colors.success, bg: 'rgba(34,197,94,0.1)' };
+      case 'FAILED':
+        return { label: '失败', color: colors.error, bg: 'rgba(239,68,68,0.1)' };
+      default:
+        return { label: status, color: colors.mutedForeground, bg: colors.border };
+    }
+  }
+
+  function getErrorTypeLabel(errorType: string | null): { label: string; color: string } {
+    switch (errorType) {
+      case 'NETWORK': return { label: '网络错误', color: '#f97316' };
+      case 'TIMEOUT': return { label: '请求超时', color: colors.warning };
+      case 'RATE_LIMIT': return { label: '限流', color: colors.error };
+      case 'PARSE': return { label: '解析错误', color: '#a855f7' };
+      case 'DB': return { label: '数据库错误', color: '#ec4899' };
+      case 'CANCELLED': return { label: '已取消', color: colors.mutedForeground };
+      default: return { label: '', color: colors.mutedForeground };
+    }
+  }
 
   useEffect(() => {
     loadCollectTasks().finally(() => setIsLoading(false));
@@ -77,6 +79,42 @@ export default function TaskListScreen({ navigation }: Props) {
     ]);
   };
 
+  const styles = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    header: { padding: 20, paddingTop: 60 },
+    title: { fontSize: 24, fontWeight: 'bold', color: colors.text },
+    statsRow: { flexDirection: 'row', paddingHorizontal: 15, gap: 10, marginBottom: 10 },
+    statCard: { flex: 1, backgroundColor: colors.card, borderRadius: 10, padding: 14, borderLeftWidth: 3 },
+    statNumber: { fontSize: 24, fontWeight: 'bold' },
+    statLabel: { fontSize: 12, color: colors.mutedForeground, marginTop: 4 },
+    listActions: { flexDirection: 'row', gap: 10, paddingHorizontal: 15, marginBottom: 15 },
+    refreshBtn: { flex: 1, paddingVertical: 10, backgroundColor: colors.card, borderRadius: 8, alignItems: 'center' },
+    refreshBtnText: { color: colors.primary, fontSize: 14 },
+    clearBtn: { flex: 1, paddingVertical: 10, backgroundColor: colors.card, borderRadius: 8, alignItems: 'center' },
+    clearBtnText: { color: colors.error, fontSize: 14 },
+    empty: { color: colors.mutedForeground, textAlign: 'center', marginTop: 60, fontSize: 16 },
+    taskList: { paddingHorizontal: 15, gap: 10, paddingBottom: 30 },
+    taskCard: { backgroundColor: colors.card, borderRadius: 12, padding: 15 },
+    taskHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+    taskInfo: { flex: 1 },
+    taskSource: { fontSize: 16, fontWeight: '600', color: colors.text, marginBottom: 2 },
+    taskType: { fontSize: 12, color: colors.mutedForeground },
+    statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
+    statusText: { fontSize: 12, fontWeight: '500' },
+    taskProgress: { marginBottom: 10 },
+    progressBar: { height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden', marginBottom: 4 },
+    progressFill: { height: '100%', backgroundColor: colors.primary, borderRadius: 2 },
+    progressText: { fontSize: 11, color: colors.disabledForeground, textAlign: 'right' },
+    taskMeta: { flexDirection: 'row', gap: 12, marginBottom: 4 },
+    taskStat: { fontSize: 12, color: colors.mutedForeground },
+    taskDate: { fontSize: 11, color: colors.disabledForeground, marginLeft: 'auto' },
+    taskError: { fontSize: 12, color: colors.error, marginBottom: 8, backgroundColor: 'rgba(239,68,68,0.05)', padding: 8, borderRadius: 6 },
+    errorTypeBadge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, borderWidth: 1, marginBottom: 4 },
+    errorTypeText: { fontSize: 11, fontWeight: '500' },
+    deleteTaskBtn: { alignSelf: 'flex-end', paddingHorizontal: 14, paddingVertical: 6, backgroundColor: 'rgba(255,107,107,0.1)', borderRadius: 6 },
+    deleteTaskBtnText: { color: colors.error, fontSize: 13 },
+  }), [colors]);
+
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
@@ -84,16 +122,16 @@ export default function TaskListScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.statsRow}>
-        <View style={[styles.statCard, { borderLeftColor: '#4a9eff' }]}>
-          <Text style={[styles.statNumber, { color: '#4a9eff' }]}>{runningCount}</Text>
+        <View style={[styles.statCard, { borderLeftColor: colors.primary }]}>
+          <Text style={[styles.statNumber, { color: colors.primary }]}>{runningCount}</Text>
           <Text style={styles.statLabel}>运行中</Text>
         </View>
-        <View style={[styles.statCard, { borderLeftColor: '#22c55e' }]}>
-          <Text style={[styles.statNumber, { color: '#22c55e' }]}>{completedCount}</Text>
+        <View style={[styles.statCard, { borderLeftColor: colors.success }]}>
+          <Text style={[styles.statNumber, { color: colors.success }]}>{completedCount}</Text>
           <Text style={styles.statLabel}>已完成</Text>
         </View>
-        <View style={[styles.statCard, { borderLeftColor: '#ef4444' }]}>
-          <Text style={[styles.statNumber, { color: '#ef4444' }]}>{failedCount}</Text>
+        <View style={[styles.statCard, { borderLeftColor: colors.error }]}>
+          <Text style={[styles.statNumber, { color: colors.error }]}>{failedCount}</Text>
           <Text style={styles.statLabel}>失败</Text>
         </View>
       </View>
@@ -108,7 +146,7 @@ export default function TaskListScreen({ navigation }: Props) {
       </View>
 
       {isLoading ? (
-        <ActivityIndicator size="large" color="#4a9eff" style={{ marginTop: 40 }} />
+        <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 40 }} />
       ) : collectTasks.length === 0 ? (
         <Text style={styles.empty}>暂无采集任务</Text>
       ) : (
@@ -169,39 +207,3 @@ export default function TaskListScreen({ navigation }: Props) {
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f0f' },
-  header: { padding: 20, paddingTop: 60 },
-  title: { fontSize: 24, fontWeight: 'bold', color: '#fff' },
-  statsRow: { flexDirection: 'row', paddingHorizontal: 15, gap: 10, marginBottom: 10 },
-  statCard: { flex: 1, backgroundColor: '#1a1a1a', borderRadius: 10, padding: 14, borderLeftWidth: 3 },
-  statNumber: { fontSize: 24, fontWeight: 'bold' },
-  statLabel: { fontSize: 12, color: '#888', marginTop: 4 },
-  listActions: { flexDirection: 'row', gap: 10, paddingHorizontal: 15, marginBottom: 15 },
-  refreshBtn: { flex: 1, paddingVertical: 10, backgroundColor: '#1a1a1a', borderRadius: 8, alignItems: 'center' },
-  refreshBtnText: { color: '#4a9eff', fontSize: 14 },
-  clearBtn: { flex: 1, paddingVertical: 10, backgroundColor: '#1a1a1a', borderRadius: 8, alignItems: 'center' },
-  clearBtnText: { color: '#ef4444', fontSize: 14 },
-  empty: { color: '#888', textAlign: 'center', marginTop: 60, fontSize: 16 },
-  taskList: { paddingHorizontal: 15, gap: 10, paddingBottom: 30 },
-  taskCard: { backgroundColor: '#1a1a1a', borderRadius: 12, padding: 15 },
-  taskHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  taskInfo: { flex: 1 },
-  taskSource: { fontSize: 16, fontWeight: '600', color: '#fff', marginBottom: 2 },
-  taskType: { fontSize: 12, color: '#888' },
-  statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
-  statusText: { fontSize: 12, fontWeight: '500' },
-  taskProgress: { marginBottom: 10 },
-  progressBar: { height: 4, backgroundColor: '#2a2a2a', borderRadius: 2, overflow: 'hidden', marginBottom: 4 },
-  progressFill: { height: '100%', backgroundColor: '#4a9eff', borderRadius: 2 },
-  progressText: { fontSize: 11, color: '#666', textAlign: 'right' },
-  taskMeta: { flexDirection: 'row', gap: 12, marginBottom: 4 },
-  taskStat: { fontSize: 12, color: '#888' },
-  taskDate: { fontSize: 11, color: '#555', marginLeft: 'auto' },
-  taskError: { fontSize: 12, color: '#ef4444', marginBottom: 8, backgroundColor: 'rgba(239,68,68,0.05)', padding: 8, borderRadius: 6 },
-  errorTypeBadge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, borderWidth: 1, marginBottom: 4 },
-  errorTypeText: { fontSize: 11, fontWeight: '500' },
-  deleteTaskBtn: { alignSelf: 'flex-end', paddingHorizontal: 14, paddingVertical: 6, backgroundColor: 'rgba(255,107,107,0.1)', borderRadius: 6 },
-  deleteTaskBtnText: { color: '#ff6b6b', fontSize: 13 },
-});

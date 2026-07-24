@@ -7,6 +7,8 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { initApp } from './src/init';
+import { useThemeStore } from './src/themes/store';
+import { useThemeColors } from './src/themes/useThemeColors';
 import HomeScreen from './src/pages/HomeScreen';
 import SearchScreen from './src/pages/SearchScreen';
 import SettingsScreen from './src/pages/SettingsScreen';
@@ -29,16 +31,17 @@ const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 function TabNavigator() {
+  const colors = useThemeColors();
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: '#0f0f0f',
-          borderTopColor: '#1f1f1f',
+          backgroundColor: colors.background,
+          borderTopColor: colors.border,
         },
-        tabBarActiveTintColor: '#4a9eff',
-        tabBarInactiveTintColor: '#666',
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.disabledForeground,
       }}
     >
       <Tab.Screen
@@ -72,22 +75,58 @@ function TabNavigator() {
   );
 }
 
+function RootNavigator() {
+  const colors = useThemeColors();
+  const isLight = useThemeStore((s) => s.currentTheme === 'light');
+  return (
+    <>
+      <StatusBar style={isLight ? 'dark' : 'light'} />
+      <Stack.Navigator
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: colors.background },
+        }}
+      >
+        <Stack.Screen name="Tabs" component={TabNavigator} />
+        <Stack.Screen name="Movie" component={MovieScreen} />
+        <Stack.Screen name="TV" component={TVScreen} />
+        <Stack.Screen name="Variety" component={VarietyScreen} />
+        <Stack.Screen name="Anime" component={AnimeScreen} />
+        <Stack.Screen name="Documentary" component={DocumentaryScreen} />
+        <Stack.Screen name="Detail" component={DetailScreen} />
+        <Stack.Screen name="Play" component={PlayScreen} />
+        <Stack.Screen name="SourceManager" component={SourceManagerScreen} />
+        <Stack.Screen name="CollectConfig" component={CollectConfigScreen} />
+        <Stack.Screen name="TaskList" component={TaskListScreen} />
+        <Stack.Screen name="HelpCenter" component={HelpCenterScreen} />
+        <Stack.Screen name="CollectGuide" component={CollectGuideScreen} />
+        <Stack.Screen name="VideoManagement" component={VideoManagementScreen} />
+        <Stack.Screen name="TestCollect" component={TestCollectScreen} />
+      </Stack.Navigator>
+    </>
+  );
+}
+
 export default function App() {
   const [ready, setReady] = useState(false);
+  const initTheme = useThemeStore((s) => s.initTheme);
+  const colors = useThemeColors();
 
   useEffect(() => {
-    initApp().then(() => setReady(true)).catch(err => {
-      console.error('初始化失败:', err);
-      setReady(true);
-    });
+    Promise.all([initApp(), initTheme()])
+      .then(() => setReady(true))
+      .catch((err) => {
+        console.error('初始化失败:', err);
+        setReady(true);
+      });
   }, []);
 
   if (!ready) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
         <StatusBar style="light" />
-        <ActivityIndicator size="large" color="#4a9eff" />
-        <Text style={styles.loadingText}>正在加载...</Text>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>正在加载...</Text>
       </View>
     );
   }
@@ -95,85 +134,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <NavigationContainer>
-        <StatusBar style="light" />
-        <Stack.Navigator
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: '#0f0f0f' },
-          }}
-        >
-          <Stack.Screen name="Tabs" component={TabNavigator} />
-          <Stack.Screen
-            name="Movie"
-            component={MovieScreen}
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="TV"
-            component={TVScreen}
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="Variety"
-            component={VarietyScreen}
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="Anime"
-            component={AnimeScreen}
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="Documentary"
-            component={DocumentaryScreen}
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="Detail"
-            component={DetailScreen}
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="Play"
-            component={PlayScreen}
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="SourceManager"
-            component={SourceManagerScreen}
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="CollectConfig"
-            component={CollectConfigScreen}
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="TaskList"
-            component={TaskListScreen}
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="HelpCenter"
-            component={HelpCenterScreen}
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="CollectGuide"
-            component={CollectGuideScreen}
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="VideoManagement"
-            component={VideoManagementScreen}
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="TestCollect"
-            component={TestCollectScreen}
-            options={{ headerShown: false }}
-          />
-        </Stack.Navigator>
+        <RootNavigator />
       </NavigationContainer>
     </SafeAreaProvider>
   );
@@ -182,12 +143,10 @@ export default function App() {
 const styles = StyleSheet.create({
   loadingContainer: {
     flex: 1,
-    backgroundColor: '#0f0f0f',
     justifyContent: 'center',
     alignItems: 'center',
   },
   loadingText: {
-    color: '#888',
     marginTop: 12,
     fontSize: 14,
   },

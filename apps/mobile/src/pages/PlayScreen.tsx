@@ -5,6 +5,7 @@ import { getProvider } from '../init';
 import { useAppStore } from '../useAppStore';
 import { ArrowLeft } from 'lucide-react-native';
 import { SystemConfigService } from '@movie-app/core';
+import { useThemeColors } from '../themes/useThemeColors';
 import { NextEpisodeOverlay } from '../components/NextEpisodeOverlay';
 import type { PlaySource, VideoSource, Episode, Media } from '@movie-app/core';
 
@@ -48,6 +49,43 @@ export default function PlayScreen({ route, navigation }: Props) {
 
   // 功能6: 进度保存节流
   const [lastSaveTime, setLastSaveTime] = useState(0);
+
+  const colors = useThemeColors();
+
+  const styles = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.playerBg },
+    header: { flexDirection: 'row', alignItems: 'center', padding: 15, paddingTop: 50, backgroundColor: colors.playerHeader },
+    backButton: { padding: 8 },
+    headerTitle: { flex: 1, fontSize: 16, fontWeight: '600', color: colors.text, marginLeft: 8 },
+    placeholder: { width: 40 },
+    videoContainer: { width: '100%', aspectRatio: 16 / 9, backgroundColor: colors.playerBg },
+    video: { width: '100%', height: '100%' },
+    loadingOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1 },
+    loadingText: { color: colors.textSecondary, fontSize: 14, marginTop: 8 },
+    errorOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 1, padding: 20 },
+    errorText: { color: colors.error, fontSize: 16, textAlign: 'center' },
+    retryButton: { paddingHorizontal: 24, paddingVertical: 12, backgroundColor: colors.primary, borderRadius: 8, marginTop: 16 },
+    retryButtonText: { color: colors.text, fontSize: 16, fontWeight: '600' },
+    body: { flex: 1 },
+    mediaInfo: { padding: 15, borderBottomWidth: 1, borderBottomColor: colors.card },
+    mediaTitle: { fontSize: 18, fontWeight: '600', color: colors.text, marginBottom: 4 },
+    mediaSubtitle: { fontSize: 14, color: colors.mutedForeground },
+    section: { padding: 15, borderBottomWidth: 1, borderBottomColor: colors.card },
+    sectionLabel: { fontSize: 14, color: colors.mutedForeground, marginBottom: 10 },
+    row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    chip: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: colors.card, borderRadius: 6 },
+    chipActive: { backgroundColor: colors.primary },
+    chipDisabled: { opacity: 0.5 },
+    chipText: { fontSize: 13, color: colors.textSecondary },
+    chipTextActive: { color: colors.text },
+    chipTextDisabled: { color: colors.disabledForeground },
+    episodeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+    episodeBtn: { width: '22%', paddingVertical: 10, backgroundColor: colors.surface, borderRadius: 6, alignItems: 'center' },
+    episodeBtnActive: { backgroundColor: colors.primary },
+    episodeBtnWatched: { opacity: 0.5 },
+    episodeText: { color: colors.textSecondary, fontSize: 13 },
+    episodeTextActive: { color: colors.text },
+  }), [colors]);
 
   useEffect(() => {
     if (!mediaId) return;
@@ -449,38 +487,3 @@ export default function PlayScreen({ route, navigation }: Props) {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  header: { flexDirection: 'row', alignItems: 'center', padding: 15, paddingTop: 50, backgroundColor: '#111' },
-  backButton: { padding: 8 },
-  headerTitle: { flex: 1, fontSize: 16, fontWeight: '600', color: '#fff', marginLeft: 8 },
-  placeholder: { width: 40 },
-  videoContainer: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000' },
-  video: { width: '100%', height: '100%' },
-  loadingOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1 },
-  loadingText: { color: '#ccc', fontSize: 14, marginTop: 8 },
-  errorOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 1, padding: 20 },
-  errorText: { color: '#ff6b6b', fontSize: 16, textAlign: 'center' },
-  retryButton: { paddingHorizontal: 24, paddingVertical: 12, backgroundColor: '#4a9eff', borderRadius: 8, marginTop: 16 },
-  retryButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  body: { flex: 1 },
-  mediaInfo: { padding: 15, borderBottomWidth: 1, borderBottomColor: '#1a1a1a' },
-  mediaTitle: { fontSize: 18, fontWeight: '600', color: '#fff', marginBottom: 4 },
-  mediaSubtitle: { fontSize: 14, color: '#888' },
-  section: { padding: 15, borderBottomWidth: 1, borderBottomColor: '#1a1a1a' },
-  sectionLabel: { fontSize: 14, color: '#888', marginBottom: 10 },
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#222', borderRadius: 6 },
-  chipActive: { backgroundColor: '#4a9eff' },
-  chipDisabled: { opacity: 0.5 },
-  chipText: { fontSize: 13, color: '#ccc' },
-  chipTextActive: { color: '#fff' },
-  chipTextDisabled: { color: '#666' },
-  episodeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  episodeBtn: { width: '22%', paddingVertical: 10, backgroundColor: '#1f1f1f', borderRadius: 6, alignItems: 'center' },
-  episodeBtnActive: { backgroundColor: '#4a9eff' },
-  episodeBtnWatched: { opacity: 0.5 },
-  episodeText: { color: '#ccc', fontSize: 13 },
-  episodeTextActive: { color: '#fff' },
-});

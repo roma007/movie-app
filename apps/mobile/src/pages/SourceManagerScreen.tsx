@@ -1,42 +1,16 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Alert, Modal, TextInput, ActivityIndicator } from 'react-native';
 import { useAppStore } from '../useAppStore';
 import { SourceImportService, AI_SOURCE_PROMPT, AI_SOURCE_IMPORT_SAMPLE } from '@movie-app/core';
 import type { VideoSource, CollectTask, CollectPreviewItem, ImportSourceItem, ParsedImportSource } from '@movie-app/core';
 import Toast, { showToast } from '../components/Toast';
+import { useThemeColors } from '../themes/useThemeColors';
 
 interface Props {
   navigation: any;
 }
 
 const RATE_BARS = [2, 4, 6, 8, 10];
-
-function getBarColor(level: number, threshold: number): string {
-  if (level >= threshold) return '#22c55e';
-  if (level >= threshold - 1) return '#eab308';
-  return '#4b5563';
-}
-
-function getHealthLabel(source: VideoSource): { label: string; color: string } {
-  const failCount = source.failCount || 0;
-  const totalRequests = source.totalRequests || 0;
-  const status = source.healthStatus;
-  const failRate = totalRequests > 0 ? (failCount / totalRequests) * 100 : 0;
-
-  if (status === 'DOWN' || status === 'unhealthy') {
-    return { label: '源不可用，建议降速', color: '#ef4444' };
-  }
-  if (failRate > 20) {
-    return { label: '失败较多，建议降速', color: '#ef4444' };
-  }
-  if (status === 'DEGRADED' || status === 'degraded' || failRate > 10) {
-    return { label: '状态不稳定，建议降速', color: '#eab308' };
-  }
-  if (failRate < 5 && (source.rateLimit || 0) < 5) {
-    return { label: '状态良好，可以加速', color: '#22c55e' };
-  }
-  return { label: '状态稳定，保持速率', color: '#22c55e' };
-}
 
 function formatLogTime(timestamp: string): string {
   try {
@@ -72,6 +46,152 @@ export default function SourceManagerScreen({ navigation }: Props) {
     searchKeywordPreview, saveSelectedPreviewItems, clearPreviewResults,
     batchImportSources, validateImportSources,
   } = useAppStore();
+
+  const colors = useThemeColors();
+
+  const styles = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    scrollContainer: { flex: 1 },
+    header: { padding: 20, paddingTop: 60 },
+    title: { fontSize: 24, fontWeight: 'bold', color: colors.foreground },
+    list: { paddingHorizontal: 15, gap: 12 },
+    sourceCard: { backgroundColor: colors.card, borderRadius: 12, padding: 15 },
+    sourceHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+    sourceMain: { flex: 1 },
+    sourceName: { fontSize: 17, fontWeight: '600', color: colors.foreground, marginBottom: 4 },
+    sourceCode: { fontSize: 12, color: colors.disabledForeground },
+    sourceUrl: { fontSize: 13, color: colors.mutedForeground, marginBottom: 10 },
+    rateRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+    rateButton: { padding: 4 },
+    rateButtonText: { color: colors.textSecondary, fontSize: 14 },
+    rateBars: { flexDirection: 'row', gap: 3 },
+    rateBar: { width: 8, height: 16, borderRadius: 2 },
+    rateLabel: { fontSize: 14, color: colors.textSecondary, width: 24, textAlign: 'center' },
+    healthLabel: { fontSize: 12, marginBottom: 4 },
+    lastCollectText: { fontSize: 11, color: colors.disabledForeground, marginBottom: 10 },
+    sourceFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    actions: { flexDirection: 'row', gap: 8 },
+    actionButton: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: colors.border, borderRadius: 6 },
+    actionButtonDisabled: { opacity: 0.4 },
+    actionText: { color: colors.textSecondary, fontSize: 13 },
+    deleteButton: { backgroundColor: 'rgba(255, 107, 107, 0.15)' },
+    deleteText: { color: colors.error },
+    sourceActions: { flexDirection: 'row', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border },
+    sourceActionBtn: { flex: 1, paddingVertical: 10, backgroundColor: colors.border, borderRadius: 8, alignItems: 'center', justifyContent: 'center', minHeight: 40 },
+    sourceActionBtnDisabled: { opacity: 0.5 },
+    sourceActionBtnText: { color: colors.primary, fontSize: 13, fontWeight: '500' },
+    progressContainer: { marginTop: 10 },
+    progressBar: { height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden' },
+    progressFill: { height: '100%', backgroundColor: colors.primary, borderRadius: 2 },
+    progressText: { fontSize: 11, color: colors.mutedForeground, marginTop: 4, textAlign: 'center' },
+    addButton: { margin: 15, paddingVertical: 16, backgroundColor: colors.primary, borderRadius: 12, alignItems: 'center' },
+    addButtonText: { color: colors.foreground, fontSize: 16, fontWeight: '600' },
+    bottomActions: { flexDirection: 'row', gap: 10, marginHorizontal: 15, marginBottom: 30 },
+    logToggle: { flex: 1, paddingVertical: 12, backgroundColor: colors.card, borderRadius: 8, alignItems: 'center' },
+    logToggleText: { color: colors.mutedForeground, fontSize: 13 },
+    keywordBtn: { flex: 1, paddingVertical: 12, backgroundColor: colors.card, borderRadius: 8, alignItems: 'center' },
+    keywordBtnText: { color: colors.primary, fontSize: 13, fontWeight: '500' },
+    logPanel: { marginHorizontal: 15, marginBottom: 20, backgroundColor: colors.surfaceElevated, borderRadius: 8, padding: 12, maxHeight: 300 },
+    logPanelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+    logPanelTitle: { fontSize: 14, color: colors.mutedForeground, fontWeight: '500' },
+    clearLogBtn: { fontSize: 13, color: colors.primary },
+    logEmpty: { color: colors.disabledForeground, fontSize: 13, textAlign: 'center', paddingVertical: 20 },
+    logItem: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 4 },
+    logTime: { fontSize: 11, color: colors.disabledForeground, marginRight: 4, fontFamily: 'monospace' },
+    logLevel: { fontSize: 11, fontWeight: 'bold', marginRight: 4, fontFamily: 'monospace' },
+    logLevelError: { color: colors.error },
+    logLevelWarn: { color: colors.warning },
+    logLevelInfo: { color: colors.primary },
+    logSource: { fontSize: 11, color: colors.mutedForeground, marginRight: 4 },
+    logMessage: { fontSize: 11, color: colors.textSecondary, flex: 1 },
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+    modalContent: { width: '100%', backgroundColor: colors.card, borderRadius: 16, padding: 24, gap: 16 },
+    modalTitle: { fontSize: 20, fontWeight: 'bold', color: colors.foreground, textAlign: 'center' },
+    input: { backgroundColor: colors.border, color: colors.foreground, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 8, fontSize: 15 },
+    inputRow: { flexDirection: 'row', gap: 12 },
+    inputHalf: { flex: 1 },
+    modalButtons: { flexDirection: 'row', gap: 12, marginTop: 8 },
+    modalButton: { flex: 1, paddingVertical: 14, backgroundColor: colors.primary, borderRadius: 8, alignItems: 'center' },
+    modalButtonOutline: { backgroundColor: colors.border, borderWidth: 1, borderColor: colors.borderLight },
+    modalButtonText: { color: colors.foreground, fontSize: 16, fontWeight: '600' },
+    keywordModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', paddingTop: 60 },
+    keywordModalContent: { flex: 1, backgroundColor: colors.background, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, gap: 12 },
+    keywordSearchRow: { flexDirection: 'row', gap: 8 },
+    keywordInput: { flex: 1 },
+    keywordSearchBtn: { paddingHorizontal: 20, backgroundColor: colors.primary, borderRadius: 8, justifyContent: 'center' },
+    keywordSearchBtnText: { color: colors.foreground, fontSize: 15, fontWeight: '600' },
+    optionRow: { flexDirection: 'row', gap: 8 },
+    optionChip: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: colors.card, borderRadius: 6, borderWidth: 1, borderColor: colors.border },
+    optionChipActive: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+    optionChipText: { fontSize: 13, color: colors.mutedForeground },
+    optionChipTextActive: { color: colors.primary },
+    previewLoading: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 30, gap: 8 },
+    previewLoadingText: { color: colors.mutedForeground, fontSize: 14 },
+    previewEmpty: { color: colors.disabledForeground, textAlign: 'center', paddingVertical: 30, fontSize: 15 },
+    previewHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    selectAllText: { color: colors.primary, fontSize: 14 },
+    selectedCount: { color: colors.mutedForeground, fontSize: 13 },
+    previewList: { maxHeight: 400 },
+    previewItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: colors.card, borderRadius: 6 },
+    previewItemSelected: { backgroundColor: 'rgba(74,158,255,0.05)' },
+    previewCheckbox: { width: 22, height: 22, borderRadius: 4, borderWidth: 1.5, borderColor: colors.disabledForeground, marginRight: 12, justifyContent: 'center', alignItems: 'center' },
+    previewCheckmark: { color: colors.primary, fontSize: 14, fontWeight: 'bold' },
+    previewItemInfo: { flex: 1 },
+    previewItemTitle: { fontSize: 15, color: colors.foreground, marginBottom: 2 },
+    previewItemMeta: { fontSize: 12, color: colors.mutedForeground, marginBottom: 1 },
+    previewItemDetail: { fontSize: 11, color: colors.disabledForeground },
+    aiModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', paddingTop: 60 },
+    aiModalContent: { flex: 1, backgroundColor: colors.background, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, gap: 12 },
+    aiSubtitle: { fontSize: 13, color: colors.mutedForeground, textAlign: 'center', lineHeight: 18 },
+    aiPromptScroll: { flex: 1, backgroundColor: colors.surfaceElevated, borderRadius: 8, padding: 12 },
+    aiPromptText: { fontSize: 12, color: colors.textSecondary, lineHeight: 18 },
+    aiTextarea: { flex: 1, backgroundColor: colors.surfaceElevated, color: colors.textSecondary, borderRadius: 8, padding: 12, fontSize: 13, fontFamily: 'monospace', textAlignVertical: 'top', minHeight: 200 },
+    aiSampleRow: { flexDirection: 'row', justifyContent: 'flex-end' },
+    aiSampleText: { color: colors.primary, fontSize: 13 },
+    aiPreviewList: { flex: 1 },
+    aiPreviewItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 12, borderRadius: 8, marginBottom: 8, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
+    aiPreviewItemValid: { borderColor: 'rgba(34, 197, 94, 0.3)', backgroundColor: 'rgba(34, 197, 94, 0.05)' },
+    aiPreviewItemWarn: { borderColor: 'rgba(234, 179, 8, 0.3)', backgroundColor: 'rgba(234, 179, 8, 0.05)' },
+    aiPreviewItemError: { borderColor: 'rgba(239, 68, 68, 0.3)', backgroundColor: 'rgba(239, 68, 68, 0.05)' },
+    aiPreviewIcon: { fontSize: 18 },
+    aiPreviewInfo: { flex: 1 },
+    aiPreviewName: { fontSize: 14, color: colors.foreground },
+    aiPreviewCode: { fontSize: 12, color: colors.mutedForeground },
+    aiPreviewUrl: { fontSize: 11, color: colors.disabledForeground, marginTop: 2 },
+    aiPreviewError: { fontSize: 11, color: colors.error, marginTop: 2 },
+    aiPreviewWarn: { fontSize: 11, color: colors.warning, marginTop: 2 },
+    aiResultContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40, gap: 8 },
+    aiResultIcon: { fontSize: 40 },
+    aiResultText: { fontSize: 18, color: colors.success, fontWeight: '600' },
+    aiResultSubtext: { fontSize: 14, color: colors.mutedForeground },
+  }), [colors]);
+
+  const getBarColor = (level: number, threshold: number): string => {
+    if (level >= threshold) return colors.success;
+    if (level >= threshold - 1) return colors.warning;
+    return colors.disabledForeground;
+  };
+
+  const getHealthLabel = (source: VideoSource): { label: string; color: string } => {
+    const failCount = source.failCount || 0;
+    const totalRequests = source.totalRequests || 0;
+    const status = source.healthStatus;
+    const failRate = totalRequests > 0 ? (failCount / totalRequests) * 100 : 0;
+
+    if (status === 'DOWN' || status === 'unhealthy') {
+      return { label: '源不可用，建议降速', color: colors.error };
+    }
+    if (failRate > 20) {
+      return { label: '失败较多，建议降速', color: colors.error };
+    }
+    if (status === 'DEGRADED' || status === 'degraded' || failRate > 10) {
+      return { label: '状态不稳定，建议降速', color: colors.warning };
+    }
+    if (failRate < 5 && (source.rateLimit || 0) < 5) {
+      return { label: '状态良好，可以加速', color: colors.success };
+    }
+    return { label: '状态稳定，保持速率', color: colors.success };
+  };
 
   const [modalVisible, setModalVisible] = useState(false);
   const [form, setForm] = useState({ code: '', name: '', baseUrl: '', rateLimit: '5' });
@@ -342,8 +462,8 @@ export default function SourceManagerScreen({ navigation }: Props) {
                   <Switch
                     value={source.isEnabled}
                     onValueChange={(value) => toggleSourceEnabled(source.id, value)}
-                    trackColor={{ false: '#333', true: '#4a9eff' }}
-                    thumbColor={source.isEnabled ? '#fff' : '#666'}
+                    trackColor={{ false: colors.switchTrack, true: colors.primary }}
+                    thumbColor={source.isEnabled ? colors.foreground : colors.disabledForeground}
                   />
                 </View>
                 <Text style={styles.sourceUrl}>{source.baseUrl}</Text>
@@ -396,7 +516,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
                     disabled={checking}
                   >
                     {checking ? (
-                      <ActivityIndicator size="small" color="#4a9eff" />
+                      <ActivityIndicator size="small" color={colors.primary} />
                     ) : (
                       <Text style={styles.sourceActionBtnText}>检测</Text>
                     )}
@@ -498,21 +618,21 @@ export default function SourceManagerScreen({ navigation }: Props) {
             <TextInput
               style={styles.input}
               placeholder="编码（唯一标识）"
-              placeholderTextColor="#666"
+              placeholderTextColor={colors.disabledForeground}
               value={form.code}
               onChangeText={(text) => setForm({ ...form, code: text })}
             />
             <TextInput
               style={styles.input}
               placeholder="名称"
-              placeholderTextColor="#666"
+              placeholderTextColor={colors.disabledForeground}
               value={form.name}
               onChangeText={(text) => setForm({ ...form, name: text })}
             />
             <TextInput
               style={styles.input}
               placeholder="API 地址"
-              placeholderTextColor="#666"
+              placeholderTextColor={colors.disabledForeground}
               value={form.baseUrl}
               onChangeText={(text) => setForm({ ...form, baseUrl: text })}
             />
@@ -520,7 +640,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
               <TextInput
                 style={[styles.input, styles.inputHalf]}
                 placeholder="速率限制"
-                placeholderTextColor="#666"
+                placeholderTextColor={colors.disabledForeground}
                 keyboardType="numeric"
                 value={form.rateLimit}
                 onChangeText={(text) => setForm({ ...form, rateLimit: text })}
@@ -552,7 +672,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
               <TextInput
                 style={[styles.input, styles.keywordInput]}
                 placeholder="输入关键词..."
-                placeholderTextColor="#666"
+                placeholderTextColor={colors.disabledForeground}
                 value={keywordInput}
                 onChangeText={setKeywordInput}
                 onSubmitEditing={handleKeywordSearch}
@@ -584,7 +704,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
 
             {previewLoading && (
               <View style={styles.previewLoading}>
-                <ActivityIndicator size="small" color="#4a9eff" />
+                <ActivityIndicator size="small" color={colors.primary} />
                 <Text style={styles.previewLoadingText}>搜索中...</Text>
               </View>
             )}
@@ -645,7 +765,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
                 disabled={isSaving}
               >
                 {isSaving ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={colors.foreground} />
                 ) : (
                   <Text style={styles.modalButtonText}>保存选中 ({selectedPreviewIds.size})</Text>
                 )}
@@ -702,7 +822,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
                   style={styles.aiTextarea}
                   multiline
                   placeholder="在此粘贴 AI 返回的 JSON 数据..."
-                  placeholderTextColor="#666"
+                  placeholderTextColor={colors.disabledForeground}
                   value={aiPastedText}
                   onChangeText={setAiPastedText}
                   textAlignVertical="top"
@@ -805,7 +925,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
                         disabled={aiImporting || aiPreview.filter(p => p.status === 'valid').length === 0}
                       >
                         {aiImporting ? (
-                          <ActivityIndicator size="small" color="#fff" />
+                          <ActivityIndicator size="small" color={colors.foreground} />
                         ) : (
                           <Text style={styles.modalButtonText}>
                             导入 {aiPreview.filter(p => p.status === 'valid').length} 个
@@ -823,120 +943,3 @@ export default function SourceManagerScreen({ navigation }: Props) {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f0f' },
-  scrollContainer: { flex: 1 },
-  header: { padding: 20, paddingTop: 60 },
-  title: { fontSize: 24, fontWeight: 'bold', color: '#fff' },
-  list: { paddingHorizontal: 15, gap: 12 },
-  sourceCard: { backgroundColor: '#1a1a1a', borderRadius: 12, padding: 15 },
-  sourceHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  sourceMain: { flex: 1 },
-  sourceName: { fontSize: 17, fontWeight: '600', color: '#fff', marginBottom: 4 },
-  sourceCode: { fontSize: 12, color: '#666' },
-  sourceUrl: { fontSize: 13, color: '#888', marginBottom: 10 },
-  rateRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  rateButton: { padding: 4 },
-  rateButtonText: { color: '#ccc', fontSize: 14 },
-  rateBars: { flexDirection: 'row', gap: 3 },
-  rateBar: { width: 8, height: 16, borderRadius: 2 },
-  rateLabel: { fontSize: 14, color: '#ccc', width: 24, textAlign: 'center' },
-  healthLabel: { fontSize: 12, marginBottom: 4 },
-  lastCollectText: { fontSize: 11, color: '#666', marginBottom: 10 },
-  sourceFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  actions: { flexDirection: 'row', gap: 8 },
-  actionButton: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#2a2a2a', borderRadius: 6 },
-  actionButtonDisabled: { opacity: 0.4 },
-  actionText: { color: '#ccc', fontSize: 13 },
-  deleteButton: { backgroundColor: 'rgba(255, 107, 107, 0.15)' },
-  deleteText: { color: '#ff6b6b' },
-  sourceActions: { flexDirection: 'row', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#2a2a2a' },
-  sourceActionBtn: { flex: 1, paddingVertical: 10, backgroundColor: '#2a2a2a', borderRadius: 8, alignItems: 'center', justifyContent: 'center', minHeight: 40 },
-  sourceActionBtnDisabled: { opacity: 0.5 },
-  sourceActionBtnText: { color: '#4a9eff', fontSize: 13, fontWeight: '500' },
-  progressContainer: { marginTop: 10 },
-  progressBar: { height: 4, backgroundColor: '#2a2a2a', borderRadius: 2, overflow: 'hidden' },
-  progressFill: { height: '100%', backgroundColor: '#4a9eff', borderRadius: 2 },
-  progressText: { fontSize: 11, color: '#888', marginTop: 4, textAlign: 'center' },
-  addButton: { margin: 15, paddingVertical: 16, backgroundColor: '#4a9eff', borderRadius: 12, alignItems: 'center' },
-  addButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  bottomActions: { flexDirection: 'row', gap: 10, marginHorizontal: 15, marginBottom: 30 },
-  logToggle: { flex: 1, paddingVertical: 12, backgroundColor: '#1a1a1a', borderRadius: 8, alignItems: 'center' },
-  logToggleText: { color: '#888', fontSize: 13 },
-  keywordBtn: { flex: 1, paddingVertical: 12, backgroundColor: '#1a1a1a', borderRadius: 8, alignItems: 'center' },
-  keywordBtnText: { color: '#4a9eff', fontSize: 13, fontWeight: '500' },
-  logPanel: { marginHorizontal: 15, marginBottom: 20, backgroundColor: '#111', borderRadius: 8, padding: 12, maxHeight: 300 },
-  logPanelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  logPanelTitle: { fontSize: 14, color: '#888', fontWeight: '500' },
-  clearLogBtn: { fontSize: 13, color: '#4a9eff' },
-  logEmpty: { color: '#555', fontSize: 13, textAlign: 'center', paddingVertical: 20 },
-  logItem: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 4 },
-  logTime: { fontSize: 11, color: '#555', marginRight: 4, fontFamily: 'monospace' },
-  logLevel: { fontSize: 11, fontWeight: 'bold', marginRight: 4, fontFamily: 'monospace' },
-  logLevelError: { color: '#ef4444' },
-  logLevelWarn: { color: '#eab308' },
-  logLevelInfo: { color: '#4a9eff' },
-  logSource: { fontSize: 11, color: '#888', marginRight: 4 },
-  logMessage: { fontSize: 11, color: '#ccc', flex: 1 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  modalContent: { width: '100%', backgroundColor: '#1a1a1a', borderRadius: 16, padding: 24, gap: 16 },
-  modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#fff', textAlign: 'center' },
-  input: { backgroundColor: '#2a2a2a', color: '#fff', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 8, fontSize: 15 },
-  inputRow: { flexDirection: 'row', gap: 12 },
-  inputHalf: { flex: 1 },
-  modalButtons: { flexDirection: 'row', gap: 12, marginTop: 8 },
-  modalButton: { flex: 1, paddingVertical: 14, backgroundColor: '#4a9eff', borderRadius: 8, alignItems: 'center' },
-  modalButtonOutline: { backgroundColor: '#2a2a2a', borderWidth: 1, borderColor: '#444' },
-  modalButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  keywordModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', paddingTop: 60 },
-  keywordModalContent: { flex: 1, backgroundColor: '#0f0f0f', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, gap: 12 },
-  keywordSearchRow: { flexDirection: 'row', gap: 8 },
-  keywordInput: { flex: 1 },
-  keywordSearchBtn: { paddingHorizontal: 20, backgroundColor: '#4a9eff', borderRadius: 8, justifyContent: 'center' },
-  keywordSearchBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-  optionRow: { flexDirection: 'row', gap: 8 },
-  optionChip: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#1a1a1a', borderRadius: 6, borderWidth: 1, borderColor: '#2a2a2a' },
-  optionChipActive: { borderColor: '#4a9eff', backgroundColor: 'rgba(74,158,255,0.1)' },
-  optionChipText: { fontSize: 13, color: '#999' },
-  optionChipTextActive: { color: '#4a9eff' },
-  previewLoading: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 30, gap: 8 },
-  previewLoadingText: { color: '#888', fontSize: 14 },
-  previewEmpty: { color: '#666', textAlign: 'center', paddingVertical: 30, fontSize: 15 },
-  previewHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  selectAllText: { color: '#4a9eff', fontSize: 14 },
-  selectedCount: { color: '#888', fontSize: 13 },
-  previewList: { maxHeight: 400 },
-  previewItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#1a1a1a', borderRadius: 6 },
-  previewItemSelected: { backgroundColor: 'rgba(74,158,255,0.05)' },
-  previewCheckbox: { width: 22, height: 22, borderRadius: 4, borderWidth: 1.5, borderColor: '#555', marginRight: 12, justifyContent: 'center', alignItems: 'center' },
-  previewCheckmark: { color: '#4a9eff', fontSize: 14, fontWeight: 'bold' },
-  previewItemInfo: { flex: 1 },
-  previewItemTitle: { fontSize: 15, color: '#fff', marginBottom: 2 },
-  previewItemMeta: { fontSize: 12, color: '#888', marginBottom: 1 },
-  previewItemDetail: { fontSize: 11, color: '#666' },
-  aiModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', paddingTop: 60 },
-  aiModalContent: { flex: 1, backgroundColor: '#0f0f0f', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, gap: 12 },
-  aiSubtitle: { fontSize: 13, color: '#888', textAlign: 'center', lineHeight: 18 },
-  aiPromptScroll: { flex: 1, backgroundColor: '#111', borderRadius: 8, padding: 12 },
-  aiPromptText: { fontSize: 12, color: '#aaa', lineHeight: 18 },
-  aiTextarea: { flex: 1, backgroundColor: '#111', color: '#ccc', borderRadius: 8, padding: 12, fontSize: 13, fontFamily: 'monospace', textAlignVertical: 'top', minHeight: 200 },
-  aiSampleRow: { flexDirection: 'row', justifyContent: 'flex-end' },
-  aiSampleText: { color: '#4a9eff', fontSize: 13 },
-  aiPreviewList: { flex: 1 },
-  aiPreviewItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 12, borderRadius: 8, marginBottom: 8, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#2a2a2a' },
-  aiPreviewItemValid: { borderColor: 'rgba(34, 197, 94, 0.3)', backgroundColor: 'rgba(34, 197, 94, 0.05)' },
-  aiPreviewItemWarn: { borderColor: 'rgba(234, 179, 8, 0.3)', backgroundColor: 'rgba(234, 179, 8, 0.05)' },
-  aiPreviewItemError: { borderColor: 'rgba(239, 68, 68, 0.3)', backgroundColor: 'rgba(239, 68, 68, 0.05)' },
-  aiPreviewIcon: { fontSize: 18 },
-  aiPreviewInfo: { flex: 1 },
-  aiPreviewName: { fontSize: 14, color: '#fff' },
-  aiPreviewCode: { fontSize: 12, color: '#888' },
-  aiPreviewUrl: { fontSize: 11, color: '#666', marginTop: 2 },
-  aiPreviewError: { fontSize: 11, color: '#ef4444', marginTop: 2 },
-  aiPreviewWarn: { fontSize: 11, color: '#eab308', marginTop: 2 },
-  aiResultContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40, gap: 8 },
-  aiResultIcon: { fontSize: 40 },
-  aiResultText: { fontSize: 18, color: '#22c55e', fontWeight: '600' },
-  aiResultSubtext: { fontSize: 14, color: '#888' },
-});

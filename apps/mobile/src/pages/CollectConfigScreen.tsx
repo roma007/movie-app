@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { useAppStore } from '../useAppStore';
 import { ArrowLeft, Save, RotateCcw } from 'lucide-react-native';
+import { useThemeColors } from '../themes/useThemeColors';
 
 interface Props {
   navigation: any;
@@ -9,6 +10,7 @@ interface Props {
 
 export default function CollectConfigScreen({ navigation }: Props) {
   const { collectConfig, loadCollectConfig, updateCollectConfig } = useAppStore();
+  const colors = useThemeColors();
   const [localConfig, setLocalConfig] = useState({
     minYear: '2025',
     blacklistKeywords: '',
@@ -81,12 +83,32 @@ export default function CollectConfigScreen({ navigation }: Props) {
     });
   };
 
+  const styles = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    header: { paddingTop: 50, paddingHorizontal: 15, paddingBottom: 15, backgroundColor: colors.surfaceElevated },
+    headerRow: { flexDirection: 'row', alignItems: 'center' },
+    backButton: { padding: 8 },
+    title: { flex: 1, fontSize: 18, fontWeight: 'bold', color: colors.text, textAlign: 'center' },
+    placeholder: { width: 40 },
+    content: { padding: 15 },
+    formItem: { marginBottom: 20 },
+    label: { fontSize: 15, fontWeight: '600', color: colors.text, marginBottom: 8 },
+    input: { backgroundColor: colors.card, color: colors.text, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 8, fontSize: 15 },
+    textarea: { minHeight: 120, textAlignVertical: 'top' },
+    hint: { fontSize: 12, color: colors.disabledForeground, marginTop: 6 },
+    buttonRow: { flexDirection: 'row', gap: 12, marginTop: 10 },
+    button: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, backgroundColor: colors.primary, borderRadius: 8 },
+    buttonOutline: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
+    buttonIcon: { marginRight: 6 },
+    buttonText: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  }), [colors]);
+
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <View style={styles.headerRow}>
           <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <ArrowLeft size={20} color="#fff" />
+            <ArrowLeft size={20} color={colors.text} />
           </TouchableOpacity>
           <Text style={styles.title}>采集配置</Text>
           <View style={styles.placeholder} />
@@ -191,18 +213,18 @@ export default function CollectConfigScreen({ navigation }: Props) {
             value={localConfig.blacklistKeywords}
             onChangeText={(text) => setLocalConfig({ ...localConfig, blacklistKeywords: text })}
             placeholder="每行一个关键词"
-            placeholderTextColor="#666"
+            placeholderTextColor={colors.disabledForeground}
           />
           <Text style={styles.hint}>采集时会过滤包含这些关键词的内容</Text>
         </View>
 
         <View style={styles.buttonRow}>
           <TouchableOpacity style={[styles.button, styles.buttonOutline]} onPress={handleReset}>
-            <RotateCcw size={18} color="#fff" style={styles.buttonIcon} />
+            <RotateCcw size={18} color={colors.text} style={styles.buttonIcon} />
             <Text style={styles.buttonText}>重置默认</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.button} onPress={handleSave}>
-            <Save size={18} color="#fff" style={styles.buttonIcon} />
+            <Save size={18} color={colors.text} style={styles.buttonIcon} />
             <Text style={styles.buttonText}>保存配置</Text>
           </TouchableOpacity>
         </View>
@@ -210,23 +232,3 @@ export default function CollectConfigScreen({ navigation }: Props) {
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f0f' },
-  header: { paddingTop: 50, paddingHorizontal: 15, paddingBottom: 15, backgroundColor: '#111' },
-  headerRow: { flexDirection: 'row', alignItems: 'center' },
-  backButton: { padding: 8 },
-  title: { flex: 1, fontSize: 18, fontWeight: 'bold', color: '#fff', textAlign: 'center' },
-  placeholder: { width: 40 },
-  content: { padding: 15 },
-  formItem: { marginBottom: 20 },
-  label: { fontSize: 15, fontWeight: '600', color: '#fff', marginBottom: 8 },
-  input: { backgroundColor: '#1a1a1a', color: '#fff', paddingHorizontal: 14, paddingVertical: 12, borderRadius: 8, fontSize: 15 },
-  textarea: { minHeight: 120, textAlignVertical: 'top' },
-  hint: { fontSize: 12, color: '#666', marginTop: 6 },
-  buttonRow: { flexDirection: 'row', gap: 12, marginTop: 10 },
-  button: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, backgroundColor: '#4a9eff', borderRadius: 8 },
-  buttonOutline: { backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#333' },
-  buttonIcon: { marginRight: 6 },
-  buttonText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-});

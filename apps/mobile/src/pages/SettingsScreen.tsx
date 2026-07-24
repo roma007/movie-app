@@ -1,6 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Alert } from 'react-native';
 import { useAppStore } from '../useAppStore';
+import { useThemeColors } from '../themes/useThemeColors';
+import ThemeSwitcher from '../themes/ThemeSwitcher';
 import type { UserUsageType } from '@movie-app/core';
 
 interface Props {
@@ -15,6 +17,7 @@ const USAGE_OPTIONS: { type: UserUsageType; label: string; desc: string; icon: s
 
 export default function SettingsScreen({ navigation }: Props) {
   const { videoSources, loadVideoSources, toggleSourceEnabled, clearHistory, userUsageTypes, loadUserUsageTypes, setUserUsageTypes } = useAppStore();
+  const colors = useThemeColors();
 
   useEffect(() => {
     loadVideoSources();
@@ -35,10 +38,76 @@ export default function SettingsScreen({ navigation }: Props) {
     ]);
   };
 
+  const styles = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    header: { padding: 20, paddingTop: 60 },
+    title: { fontSize: 28, fontWeight: 'bold', color: colors.text },
+    section: { marginHorizontal: 15, marginBottom: 20, backgroundColor: colors.card, borderRadius: 12, overflow: 'hidden' },
+    sectionTitle: { fontSize: 14, color: colors.mutedForeground, paddingHorizontal: 15, paddingTop: 15, paddingBottom: 10 },
+    sourceItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 15, borderBottomWidth: 1, borderBottomColor: colors.border },
+    sourceInfo: { flex: 1 },
+    sourceName: { fontSize: 15, color: colors.text, marginBottom: 4 },
+    sourceUrl: { fontSize: 12, color: colors.disabledForeground },
+    manageButton: { paddingVertical: 14, alignItems: 'center', backgroundColor: colors.surface },
+    manageButtonText: { color: colors.primary, fontSize: 15 },
+    menuItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 15, borderBottomWidth: 1, borderBottomColor: colors.border },
+    menuText: { fontSize: 15, color: colors.text },
+    menuValue: { fontSize: 14, color: colors.mutedForeground },
+    usageRow: {
+      flexDirection: 'row',
+      paddingHorizontal: 15,
+      paddingBottom: 15,
+      gap: 10,
+    },
+    usageOption: {
+      flex: 1,
+      alignItems: 'center',
+      paddingVertical: 14,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+    },
+    usageOptionActive: {
+      borderColor: colors.primary,
+      backgroundColor: colors.primaryLight,
+    },
+    usageCheck: {
+      position: 'absolute',
+      top: 4,
+      right: 8,
+      fontSize: 14,
+      color: colors.primary,
+      fontWeight: 'bold',
+    },
+    usageIcon: {
+      fontSize: 20,
+      marginBottom: 4,
+    },
+    usageLabel: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.text,
+      marginBottom: 2,
+    },
+    usageLabelActive: {
+      color: colors.primary,
+    },
+    usageDesc: {
+      fontSize: 11,
+      color: colors.mutedForeground,
+    },
+  }), [colors]);
+
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>设置</Text>
+      </View>
+
+      <View style={[styles.section, { backgroundColor: colors.card }]}>
+        <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>🎨 主题切换</Text>
+        <ThemeSwitcher />
       </View>
 
       <View style={styles.section}>
@@ -52,8 +121,8 @@ export default function SettingsScreen({ navigation }: Props) {
             <Switch
               value={source.isEnabled}
               onValueChange={(value) => toggleSourceEnabled(source.id, value)}
-              trackColor={{ false: '#333', true: '#4a9eff' }}
-              thumbColor={source.isEnabled ? '#fff' : '#666'}
+              trackColor={{ false: colors.switchTrack, true: colors.primary }}
+              thumbColor={source.isEnabled ? colors.primaryForeground : colors.disabledForeground}
             />
           </View>
         ))}
@@ -119,70 +188,9 @@ export default function SettingsScreen({ navigation }: Props) {
         <Text style={styles.sectionTitle}>关于</Text>
         <View style={styles.menuItem}>
           <Text style={styles.menuText}>版本</Text>
-          <Text style={styles.menuValue}>1.0.16</Text>
+          <Text style={styles.menuValue}>1.0.17</Text>
         </View>
       </View>
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f0f' },
-  header: { padding: 20, paddingTop: 60 },
-  title: { fontSize: 28, fontWeight: 'bold', color: '#fff' },
-  section: { marginHorizontal: 15, marginBottom: 20, backgroundColor: '#1a1a1a', borderRadius: 12, overflow: 'hidden' },
-  sectionTitle: { fontSize: 14, color: '#888', paddingHorizontal: 15, paddingTop: 15, paddingBottom: 10 },
-  sourceItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 15, borderBottomWidth: 1, borderBottomColor: '#222' },
-  sourceInfo: { flex: 1 },
-  sourceName: { fontSize: 15, color: '#fff', marginBottom: 4 },
-  sourceUrl: { fontSize: 12, color: '#666' },
-  manageButton: { paddingVertical: 14, alignItems: 'center', backgroundColor: '#1f1f1f' },
-  manageButtonText: { color: '#4a9eff', fontSize: 15 },
-  menuItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 15, borderBottomWidth: 1, borderBottomColor: '#222' },
-  menuText: { fontSize: 15, color: '#fff' },
-  menuValue: { fontSize: 14, color: '#888' },
-  usageRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 15,
-    paddingBottom: 15,
-    gap: 10,
-  },
-  usageOption: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    backgroundColor: '#1a1a1a',
-  },
-  usageOptionActive: {
-    borderColor: '#4a9eff',
-    backgroundColor: 'rgba(74, 158, 255, 0.1)',
-  },
-  usageCheck: {
-    position: 'absolute',
-    top: 4,
-    right: 8,
-    fontSize: 14,
-    color: '#4a9eff',
-    fontWeight: 'bold',
-  },
-  usageIcon: {
-    fontSize: 20,
-    marginBottom: 4,
-  },
-  usageLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 2,
-  },
-  usageLabelActive: {
-    color: '#4a9eff',
-  },
-  usageDesc: {
-    fontSize: 11,
-    color: '#888',
-  },
-});

@@ -1,4 +1,6 @@
+import { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { useThemeColors } from '../themes/useThemeColors';
 
 interface Props {
   navigation: any;
@@ -28,6 +30,19 @@ const FAQS = [
 ];
 
 export default function HelpCenterScreen(_: Props) {
+  const colors = useThemeColors();
+
+  const styles = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    header: { padding: 20, paddingTop: 60 },
+    title: { fontSize: 24, fontWeight: 'bold', color: colors.text },
+    content: { paddingHorizontal: 15, gap: 12 },
+    card: { backgroundColor: colors.card, borderRadius: 12, padding: 16 },
+    question: { fontSize: 16, fontWeight: '600', color: colors.text, marginBottom: 8 },
+    answer: { fontSize: 14, color: colors.textSecondary, lineHeight: 22 },
+    footer: { textAlign: 'center', color: colors.disabledForeground, fontSize: 13, paddingVertical: 30 },
+  }), [colors]);
+
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
@@ -45,14 +60,3 @@ export default function HelpCenterScreen(_: Props) {
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f0f' },
-  header: { padding: 20, paddingTop: 60 },
-  title: { fontSize: 24, fontWeight: 'bold', color: '#fff' },
-  content: { paddingHorizontal: 15, gap: 12 },
-  card: { backgroundColor: '#1a1a1a', borderRadius: 12, padding: 16 },
-  question: { fontSize: 16, fontWeight: '600', color: '#fff', marginBottom: 8 },
-  answer: { fontSize: 14, color: '#bbb', lineHeight: 22 },
-  footer: { textAlign: 'center', color: '#666', fontSize: 13, paddingVertical: 30 },
-});

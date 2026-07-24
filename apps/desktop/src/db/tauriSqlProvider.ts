@@ -193,14 +193,23 @@ export class TauriSqlProvider implements DatabaseProvider {
    * 对于已完整的数据库：全部 IF NOT EXISTS 跳过，无副作用。
    */
   private async initSchema(): Promise<void> {
-    // 执行共享 schema（CREATE TABLE IF NOT EXISTS + FTS5 + 触发器 + 索引）
+    // 执行共享 schema（CREATE TABLE IF NOT EXISTS + 索引）
+    // 跳过 FTS5 相关语句（虚拟表 + 触发器），由 rebuildFts5() 统一创建
     for (const stmt of splitSqlStatements(SCHEMA_SQL)) {
+      if (stmt.includes('media_fts')) continue;
       try {
         await this.db!.execute(stmt);
       } catch (e) {
         console.warn('Schema statement failed:', stmt, e);
       }
     }
+
+    // 增量迁移：为已有 media 表补齐 series_group / series_season 列
+    await this.addColumnIfMissing('media', 'series_group', 'TEXT');
+    await this.addColumnIfMissing('media', 'series_season', 'INTEGER');
+
+    // 始终重建 FTS5：确保虚拟表和辅助表状态一致，不受历史损坏影响
+    await this.rebuildFts5();
 
     // 补齐 collect_task 表（schema.ts 中未包含，桌面端专用）
     await this.db!.execute(`CREATE TABLE IF NOT EXISTS collect_task (
@@ -225,6 +234,92 @@ export class TauriSqlProvider implements DatabaseProvider {
       started_at TEXT,
       completed_at TEXT
     );`);
+  }
+
+  /**
+   * 若表已存在但缺少指定列，则通过 ALTER TABLE ADD COLUMN 补齐。
+   * 用 PRAGMA table_info 检测，不存在则添加，已存在则静默跳过。
+   */
+  private async addColumnIfMissing(table: string, column: string, type: string): Promise<void> {
+    const cols = await this.db!.select<{ name: string }[]>(
+      `PRAGMA table_info(${table})`
+    );
+    if (cols.some(c => c.name === column)) return;
+    await this.db!.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
+
+  /**
+   * Drop 并重建 media_fts 虚拟表及其触发器，然后从 media 表重建索引。
+   * 每次启动时调用，确保 FTS5 虚拟表和辅助表状态一致。
+   *
+   * 3 阶段策略：
+   *   1. 检测 FTS5 是否可用，可用则跳过（正常启动零开销）。
+   *   2. 尝试常规 DROP（辅助表 + 虚拟表）。
+   *   3. 若 DROP 失败（孤立虚拟表），用 writable_schema 清理 sqlite_master 后重建。
+   */
+  private async rebuildFts5(): Promise<void> {
+    // ── 阶段 1：检测 FTS5 是否可用 ──
+    try {
+      await this.db!.execute('SELECT count(*) FROM media_fts LIMIT 1');
+      return; // FTS5 正常，跳过重建
+    } catch {
+      // FTS5 不可用，继续修复
+    }
+
+    // ── 阶段 2：尝试常规清理 ──
+    let needWritableView = false;
+    try {
+      // 先删触发器
+      await this.db!.execute('DROP TRIGGER IF EXISTS media_ai');
+      await this.db!.execute('DROP TRIGGER IF EXISTS media_ad');
+      await this.db!.execute('DROP TRIGGER IF EXISTS media_au');
+
+      // 再删辅助表（普通表，DROP 一定成功）
+      await this.db!.execute('DROP TABLE IF EXISTS media_fts_data');
+      await this.db!.execute('DROP TABLE IF EXISTS media_fts_idx');
+      await this.db!.execute('DROP TABLE IF EXISTS media_fts_content');
+      await this.db!.execute('DROP TABLE IF EXISTS media_fts_docsize');
+
+      // 最后删虚拟表
+      await this.db!.execute('DROP TABLE IF EXISTS media_fts');
+    } catch {
+      // DROP 失败 —— 孤立虚拟表（辅助表缺失，xConnect 无法调用）
+      needWritableView = true;
+    }
+
+    // ── 阶段 3：修复孤立虚拟表 ──
+    if (needWritableView) {
+      await this.db!.execute('PRAGMA writable_schema = ON');
+      await this.db!.execute("DELETE FROM sqlite_master WHERE type='table' AND name LIKE 'media_fts%'");
+      await this.db!.execute('PRAGMA writable_schema = OFF');
+      await this.db!.execute('PRAGMA integrity_check');
+    }
+
+    // ── 阶段 4：重建 FTS5 虚拟表 + 触发器 + 索引 ──
+    await this.db!.execute(
+      `CREATE VIRTUAL TABLE IF NOT EXISTS media_fts USING fts5(
+        title, alias, original_title, director, cast,
+        content='media',
+        content_rowid='rowid'
+      )`
+    );
+
+    await this.db!.execute(`CREATE TRIGGER IF NOT EXISTS media_ai AFTER INSERT ON media BEGIN
+      INSERT INTO media_fts(rowid, title, alias, original_title, director, cast)
+      VALUES (new.rowid, new.title, new.alias, new.original_title, new.director, new.cast);
+    END;`);
+    await this.db!.execute(`CREATE TRIGGER IF NOT EXISTS media_ad AFTER DELETE ON media BEGIN
+      INSERT INTO media_fts(media_fts, rowid, title, alias, original_title, director, cast)
+      VALUES ('delete', old.rowid, old.title, old.alias, old.original_title, old.director, old.cast);
+    END;`);
+    await this.db!.execute(`CREATE TRIGGER IF NOT EXISTS media_au AFTER UPDATE ON media BEGIN
+      INSERT INTO media_fts(media_fts, rowid, title, alias, original_title, director, cast)
+      VALUES ('delete', old.rowid, old.title, old.alias, old.original_title, old.director, old.cast);
+      INSERT INTO media_fts(rowid, title, alias, original_title, director, cast)
+      VALUES (new.rowid, new.title, new.alias, new.original_title, new.director, new.cast);
+    END;`);
+
+    await this.db!.execute(`INSERT INTO media_fts(media_fts) VALUES('rebuild')`);
   }
 
   private async insertDefaultSources(): Promise<void> {

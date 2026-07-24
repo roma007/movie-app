@@ -1,8 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ScrollView, ActivityIndicator, Dimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { getProvider } from '../useAppStore';
+import { useThemeColors } from '../themes/useThemeColors';
 import MediaCard from '../components/MediaCard';
+import CategoryHeader from '../components/CategoryHeader';
 import type { Media, PaginatedMeta } from '@movie-app/core';
 
 const PAGE_SIZE = 20;
@@ -23,6 +25,7 @@ interface CategoryScreenProps {
 export default function CategoryScreen({ type }: CategoryScreenProps) {
   const navigation = useNavigation<any>();
   const provider = getProvider();
+  const colors = useThemeColors();
 
   const [mediaList, setMediaList] = useState<Media[]>([]);
   const [meta, setMeta] = useState<PaginatedMeta | null>(null);
@@ -135,12 +138,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
 
   const renderHeader = () => (
     <View>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Text style={styles.backBtnText}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>{typeNames[type] || type}</Text>
-      </View>
+      <CategoryHeader activeType={typeNames[type] || type} />
 
       <View style={styles.filtersContainer}>
         {renderFilterChips('分类', subTypes, selectedSubType || undefined, (v) => setSelectedSubType(v || ''))}
@@ -158,7 +156,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
     if (!isLoading) return null;
     return (
       <View style={styles.footer}>
-        <ActivityIndicator size="small" color="#4a9eff" />
+        <ActivityIndicator size="small" color={colors.primary} />
         <Text style={styles.footerText}>加载中...</Text>
       </View>
     );
@@ -172,6 +170,79 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
       </View>
     );
   };
+
+  const styles = useMemo(() => StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    listContent: {
+      paddingBottom: 20,
+    },
+    filtersContainer: {
+      paddingHorizontal: 15,
+      marginTop: 12,
+    },
+    filterRow: {
+      marginBottom: 10,
+    },
+    filterLabel: {
+      fontSize: 13,
+      color: colors.mutedForeground,
+      marginBottom: 6,
+    },
+    filterChip: {
+      paddingHorizontal: 14,
+      paddingVertical: 6,
+      marginRight: 8,
+      borderRadius: 6,
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    filterChipActive: {
+      backgroundColor: colors.primaryLight,
+      borderColor: colors.primary,
+    },
+    filterChipText: {
+      fontSize: 13,
+      color: colors.mutedForeground,
+    },
+    filterChipTextActive: {
+      color: colors.primary,
+      fontWeight: '500',
+    },
+    count: {
+      fontSize: 13,
+      color: colors.disabledForeground,
+      paddingHorizontal: 15,
+      marginTop: 4,
+      marginBottom: 8,
+    },
+    row: {
+      paddingHorizontal: 15,
+      gap: 10,
+    },
+    footer: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingVertical: 20,
+      gap: 8,
+    },
+    footerText: {
+      fontSize: 13,
+      color: colors.mutedForeground,
+    },
+    emptyContainer: {
+      paddingVertical: 60,
+      alignItems: 'center',
+    },
+    emptyText: {
+      color: colors.mutedForeground,
+      fontSize: 16,
+    },
+  }), [colors]);
 
   return (
     <View style={styles.container}>
@@ -200,96 +271,3 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0f0f0f',
-  },
-  listContent: {
-    paddingBottom: 20,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 15,
-    paddingTop: 56,
-    paddingBottom: 4,
-  },
-  backBtn: {
-    marginRight: 12,
-    padding: 4,
-  },
-  backBtnText: {
-    fontSize: 22,
-    color: '#fff',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  filtersContainer: {
-    paddingHorizontal: 15,
-    marginTop: 12,
-  },
-  filterRow: {
-    marginBottom: 10,
-  },
-  filterLabel: {
-    fontSize: 13,
-    color: '#888',
-    marginBottom: 6,
-  },
-  filterChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    marginRight: 8,
-    borderRadius: 6,
-    backgroundColor: '#1a1a1a',
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-  },
-  filterChipActive: {
-    backgroundColor: 'rgba(74, 158, 255, 0.15)',
-    borderColor: '#4a9eff',
-  },
-  filterChipText: {
-    fontSize: 13,
-    color: '#999',
-  },
-  filterChipTextActive: {
-    color: '#4a9eff',
-    fontWeight: '500',
-  },
-  count: {
-    fontSize: 13,
-    color: '#666',
-    paddingHorizontal: 15,
-    marginTop: 4,
-    marginBottom: 8,
-  },
-  row: {
-    paddingHorizontal: 15,
-    gap: 10,
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 20,
-    gap: 8,
-  },
-  footerText: {
-    fontSize: 13,
-    color: '#888',
-  },
-  emptyContainer: {
-    paddingVertical: 60,
-    alignItems: 'center',
-  },
-  emptyText: {
-    color: '#888',
-    fontSize: 16,
-  },
-});

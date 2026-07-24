@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { useAppStore } from '../useAppStore';
+import { useThemeColors } from '../themes/useThemeColors';
 
 interface Props {
   navigation: any;
@@ -11,6 +12,7 @@ export default function VideoManagementScreen(_: Props) {
     deleteAllMedia, deleteMediaWithoutPlaySource, deleteMediaByGenres,
     getSubTypesByType, getHiddenMediaCount, hideMediaByGenres, unhideMediaByGenres,
   } = useAppStore();
+  const colors = useThemeColors();
 
   const [deletingAll, setDeletingAll] = useState(false);
   const [deletingOrphans, setDeletingOrphans] = useState(false);
@@ -62,6 +64,20 @@ export default function VideoManagementScreen(_: Props) {
     );
   };
 
+  const styles = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    header: { padding: 20, paddingTop: 60 },
+    title: { fontSize: 24, fontWeight: 'bold', color: colors.text },
+    content: { paddingHorizontal: 15, gap: 12 },
+    card: { backgroundColor: colors.card, borderRadius: 12, padding: 16, gap: 12 },
+    cardTitle: { fontSize: 16, fontWeight: '600', color: colors.text },
+    text: { fontSize: 14, color: colors.textSecondary, lineHeight: 22 },
+    warningText: { fontSize: 13, color: colors.error },
+    dangerBtn: { paddingVertical: 14, backgroundColor: 'rgba(239,68,68,0.15)', borderRadius: 8, alignItems: 'center' },
+    btnDisabled: { opacity: 0.5 },
+    dangerBtnText: { color: colors.error, fontSize: 15, fontWeight: '500' },
+  }), [colors]);
+
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
@@ -79,7 +95,7 @@ export default function VideoManagementScreen(_: Props) {
             disabled={deletingAll}
           >
             {deletingAll ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <ActivityIndicator size="small" color={colors.text} />
             ) : (
               <Text style={styles.dangerBtnText}>删除所有视频</Text>
             )}
@@ -91,7 +107,7 @@ export default function VideoManagementScreen(_: Props) {
             disabled={deletingOrphans}
           >
             {deletingOrphans ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <ActivityIndicator size="small" color={colors.text} />
             ) : (
               <Text style={styles.dangerBtnText}>删除无播放源视频</Text>
             )}
@@ -107,17 +123,3 @@ export default function VideoManagementScreen(_: Props) {
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f0f' },
-  header: { padding: 20, paddingTop: 60 },
-  title: { fontSize: 24, fontWeight: 'bold', color: '#fff' },
-  content: { paddingHorizontal: 15, gap: 12 },
-  card: { backgroundColor: '#1a1a1a', borderRadius: 12, padding: 16, gap: 12 },
-  cardTitle: { fontSize: 16, fontWeight: '600', color: '#fff' },
-  text: { fontSize: 14, color: '#bbb', lineHeight: 22 },
-  warningText: { fontSize: 13, color: '#ef4444' },
-  dangerBtn: { paddingVertical: 14, backgroundColor: 'rgba(239,68,68,0.15)', borderRadius: 8, alignItems: 'center' },
-  btnDisabled: { opacity: 0.5 },
-  dangerBtnText: { color: '#ef4444', fontSize: 15, fontWeight: '500' },
-});
