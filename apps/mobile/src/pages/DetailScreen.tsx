@@ -6,6 +6,7 @@ import { VideoDurationService } from '@movie-app/core';
 import { Heart } from 'lucide-react-native';
 import type { Episode, PlaySource, VideoSource } from '@movie-app/core';
 import { useThemeColors } from '../themes/useThemeColors';
+import BlurredBackground from '../components/BlurredBackground';
 
 interface Props {
   route: any;
@@ -31,7 +32,7 @@ export default function DetailScreen({ route, navigation }: Props) {
   const [watchedEpisodes, setWatchedEpisodes] = useState<Set<string>>(new Set());
 
   const styles = useMemo(() => StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
+    container: { flex: 1 },
     loadingContainer: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
     header: { flexDirection: 'row', padding: 20, paddingTop: 60 },
     poster: { width: 120, height: 170, borderRadius: 8, backgroundColor: colors.card },
@@ -178,23 +179,28 @@ export default function DetailScreen({ route, navigation }: Props) {
 
   if (isLoading) {
     return (
+      <BlurredBackground imageUrl={null}>
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.text} />
       </View>
+      </BlurredBackground>
     );
   }
 
   if (!currentMedia) {
     return (
+      <BlurredBackground imageUrl={null}>
       <View style={styles.container}>
         <Text style={styles.error}>加载失败</Text>
       </View>
+      </BlurredBackground>
     );
   }
 
   const isMovie = currentMedia.type === 'MOVIE';
 
   return (
+    <BlurredBackground imageUrl={currentMedia.posterUrl}>
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         {currentMedia.posterUrl && (
@@ -353,5 +359,6 @@ export default function DetailScreen({ route, navigation }: Props) {
         )}
       </View>
     </ScrollView>
+    </BlurredBackground>
   );
 }

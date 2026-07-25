@@ -1,6 +1,8 @@
 import React, { useMemo } from 'react';
 import { Image, Text, TouchableOpacity, StyleSheet, View, Dimensions } from 'react-native';
 import { useThemeColors } from '../themes/useThemeColors';
+import { useThemeStore } from '../themes/store';
+import { hexToRgba } from '../themes/colorUtils';
 import type { Media } from '@movie-app/core';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -14,11 +16,15 @@ interface MediaCardProps {
 
 export default function MediaCard({ media, onPress, compact = false }: MediaCardProps) {
   const colors = useThemeColors();
+  const cardOpacity = useThemeStore((s) => s.cardOpacity);
 
   const styles = useMemo(() => StyleSheet.create({
     card: {
       width: CARD_WIDTH,
       marginBottom: 14,
+      backgroundColor: hexToRgba(colors.card, cardOpacity / 100),
+      borderRadius: 8,
+      overflow: 'hidden',
     },
     poster: {
       width: CARD_WIDTH,
@@ -66,7 +72,7 @@ export default function MediaCard({ media, onPress, compact = false }: MediaCard
       marginTop: 4,
       textAlign: 'center',
     },
-  }), [colors]);
+  }), [colors, cardOpacity]);
 
   if (compact) {
     return (

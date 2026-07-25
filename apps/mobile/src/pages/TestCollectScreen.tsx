@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { getCollector } from '../useAppStore';
 import type { CollectionLog } from '@movie-app/core';
 import { useThemeColors } from '../themes/useThemeColors';
+import BlurredBackground from '../components/BlurredBackground';
 
 interface Props {
   navigation: any;
@@ -41,7 +42,7 @@ export default function TestCollectScreen(_: Props) {
   };
 
   const styles = useMemo(() => StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
+    container: { flex: 1 },
     header: { padding: 20, paddingTop: 60 },
     title: { fontSize: 24, fontWeight: 'bold', color: colors.text },
     startBtn: { marginHorizontal: 15, paddingVertical: 16, backgroundColor: colors.primary, borderRadius: 12, alignItems: 'center', marginBottom: 20 },
@@ -58,6 +59,7 @@ export default function TestCollectScreen(_: Props) {
   }), [colors]);
 
   return (
+    <BlurredBackground imageUrl={null}>
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>测试采集</Text>
@@ -94,5 +96,6 @@ export default function TestCollectScreen(_: Props) {
         </ScrollView>
       </View>
     </View>
+    </BlurredBackground>
   );
 }

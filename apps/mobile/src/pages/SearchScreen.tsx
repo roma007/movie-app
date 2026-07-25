@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, TextInput, FlatList, TouchableOpacity, Image } from 'react-native';
 import { useAppStore, getCollector, getProvider } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
+import BlurredBackground from '../components/BlurredBackground';
 
 interface Props {
   navigation: any;
@@ -74,7 +75,7 @@ export default function SearchScreen({ navigation }: Props) {
   );
 
   const styles = useMemo(() => StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
+    container: { flex: 1 },
     searchBar: { flexDirection: 'row', padding: 15, paddingTop: 60, gap: 10 },
     input: { flex: 1, backgroundColor: colors.surface, color: colors.text, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 8, fontSize: 16 },
     searchButton: { backgroundColor: colors.primary, paddingHorizontal: 20, justifyContent: 'center', borderRadius: 8 },
@@ -99,7 +100,10 @@ export default function SearchScreen({ navigation }: Props) {
     hotIndex: { fontSize: 12, color: colors.error, marginRight: 6 },
   }), [colors]);
 
+  const bgImageUrl = mediaList.length > 0 ? mediaList[0].posterUrl : null;
+
   return (
+    <BlurredBackground imageUrl={bgImageUrl}>
     <View style={styles.container}>
       <View style={styles.searchBar}>
         <TextInput
@@ -174,5 +178,6 @@ export default function SearchScreen({ navigation }: Props) {
         </View>
       )}
     </View>
+    </BlurredBackground>
   );
 }

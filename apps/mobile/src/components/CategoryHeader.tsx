@@ -1,7 +1,12 @@
-import { useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { useMemo, useRef, useCallback, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useThemeColors } from '../themes/useThemeColors';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const TAB_GAP = 0;
+const TAB_PADDING_H = 16;
+const SCREEN_PADDING = 15;
 
 const TYPES = [
   { key: 'HOME', label: '首页', route: 'Tabs' },
@@ -19,23 +24,58 @@ interface CategoryHeaderProps {
 export default function CategoryHeader({ activeType }: CategoryHeaderProps) {
   const navigation = useNavigation<any>();
   const colors = useThemeColors();
+  const scrollRef = useRef<ScrollView>(null);
+  const [tabWidths, setTabWidths] = useState<number[]>([]);
+  const screenWidth = Dimensions.get('window').width;
+  const insets = useSafeAreaInsets();
+
+  const activeIndex = TYPES.findIndex(t => t.label === activeType);
+
+  const scrollToActive = useCallback((index: number) => {
+    if (index < 0 || tabWidths.length === 0) return;
+
+    const screenWidth = Dimensions.get('window').width;
+
+    let centerDistance = 0;
+    for (let i = 0; i <= index; i++) {
+      const w = tabWidths[i] || 80;
+      if (i === index) {
+        centerDistance += (w + TAB_GAP) / 2;
+      } else {
+        centerDistance += w + TAB_GAP;
+      }
+    }
+
+    const scrollAmount = centerDistance - screenWidth / 2 + SCREEN_PADDING;
+
+    const totalWidth = tabWidths.reduce((sum, w) => sum + w + TAB_GAP, 0);
+    const maxScroll = Math.max(0, totalWidth - screenWidth + SCREEN_PADDING * 2);
+    const clampedScroll = Math.max(Math.min(scrollAmount, maxScroll), 0);
+
+    scrollRef.current?.scrollTo({ x: clampedScroll, animated: true });
+  }, [tabWidths]);
+
+  useEffect(() => {
+    if (activeIndex >= 0) {
+      scrollToActive(activeIndex);
+    }
+  }, [activeIndex, scrollToActive]);
+
+  const handleTabLayout = useCallback((index: number, width: number) => {
+    setTabWidths(prev => {
+      if (prev[index] === width) return prev;
+      const next = [...prev];
+      next[index] = width;
+      return next;
+    });
+  }, []);
 
   const styles = useMemo(() => StyleSheet.create({
-    header: {
-      paddingHorizontal: 15,
-      paddingTop: 56,
-      paddingBottom: 4,
-    },
-    appTitle: {
-      fontSize: 28,
-      fontWeight: 'bold',
-      color: colors.text,
-    },
     searchBar: {
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: colors.surface,
-      marginHorizontal: 15,
+      marginHorizontal: SCREEN_PADDING,
       marginTop: 12,
       paddingHorizontal: 14,
       paddingVertical: 12,
@@ -51,49 +91,54 @@ export default function CategoryHeader({ activeType }: CategoryHeaderProps) {
     },
     typeTabs: {
       marginTop: 16,
-      paddingHorizontal: 15,
+    },
+    typeTabsContent: {
+      paddingHorizontal: SCREEN_PADDING,
+      alignItems: 'center',
     },
     typeTab: {
-      paddingHorizontal: 16,
+      paddingHorizontal: TAB_PADDING_H,
       paddingVertical: 8,
-      marginRight: 8,
-      borderRadius: 8,
-      backgroundColor: colors.card,
-    },
-    typeTabActive: {
-      backgroundColor: colors.primary,
+      marginRight: TAB_GAP,
     },
     typeTabText: {
-      fontSize: 14,
-      color: colors.mutedForeground,
-      fontWeight: '500',
+      fontSize: 16,
+      color: colors.foreground,
+      fontWeight: '400',
+      opacity: 0.6,
     },
     typeTabTextActive: {
-      color: colors.primaryForeground,
+      fontSize: 20,
+      color: colors.text,
+      fontWeight: '700',
+      opacity: 1,
     },
   }), [colors]);
 
   return (
-    <View>
-      <View style={styles.header}>
-        <Text style={styles.appTitle}>Movie App</Text>
-      </View>
-
+    <View style={{ paddingTop: insets.top + 8 }}>
       <TouchableOpacity style={styles.searchBar} onPress={() => navigation.navigate('搜索')}>
         <Text style={styles.searchIcon}>🔍</Text>
         <Text style={styles.searchPlaceholder}>搜索电影、电视剧、综艺...</Text>
       </TouchableOpacity>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.typeTabs}>
-        {TYPES.map(t => {
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.typeTabs}
+        contentContainerStyle={styles.typeTabsContent}
+      >
+        {TYPES.map((t, i) => {
           const isActive = activeType === t.label;
           return (
             <TouchableOpacity
               key={t.key}
-              style={[styles.typeTab, isActive && styles.typeTabActive]}
+              style={styles.typeTab}
               onPress={() => navigation.navigate(t.route)}
+              onLayout={(e) => handleTabLayout(i, e.nativeEvent.layout.width)}
             >
-              <Text style={[styles.typeTabText, isActive && styles.typeTabTextActive]}>{t.label}</Text>
+              <Text style={[styles.typeTabText, isActive && styles.typeTabTextActive, isActive && { transform: [{ translateY: -4 }] }]}>{t.label}</Text>
             </TouchableOpacity>
           );
         })}

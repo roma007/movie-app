@@ -1,14 +1,27 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ScrollView, ActivityIndicator, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Dimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { getProvider } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
 import MediaCard from '../components/MediaCard';
 import CategoryHeader from '../components/CategoryHeader';
+import FilterDropdown from '../components/FilterDropdown';
+import BlurredBackground from '../components/BlurredBackground';
 import type { Media, PaginatedMeta } from '@movie-app/core';
 
 const PAGE_SIZE = 20;
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+const filterCache = new Map<string, { subTypes: string[]; years: number[]; areas: string[] }>();
+const shortDramaCache = new Map<string, boolean>();
+
+function useDebounce(fn: () => void, delay: number, deps: any[]) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(fn, delay);
+    return () => { if (timer.current) clearTimeout(timer.current); };
+  }, deps);
+}
 
 const typeNames: Record<string, string> = {
   MOVIE: '电影',
@@ -39,6 +52,10 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
   const [selectedSubType, setSelectedSubType] = useState('');
   const [selectedYear, setSelectedYear] = useState<number | undefined>();
   const [selectedArea, setSelectedArea] = useState('');
+  const [selectedEpisodeType, setSelectedEpisodeType] = useState<'short' | 'long' | undefined>();
+  const [showShortDramaFilter, setShowShortDramaFilter] = useState(false);
+
+  const [expandedFilter, setExpandedFilter] = useState<string | null>(null);
 
   const isLoadingRef = useRef(false);
   const flatListRef = useRef<FlatList>(null);
@@ -52,6 +69,8 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
       if (selectedSubType) params.subType = selectedSubType;
       if (selectedYear) params.year = selectedYear;
       if (selectedArea) params.area = selectedArea;
+      if (selectedEpisodeType === 'short') params.isShortDrama = true;
+      else if (selectedEpisodeType === 'long') params.isShortDrama = false;
 
       const result = await provider.listMedia(params);
 
@@ -72,15 +91,23 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
       setIsLoading(false);
       isLoadingRef.current = false;
     }
-  }, [type, selectedSubType, selectedYear, selectedArea, provider]);
+  }, [type, selectedSubType, selectedYear, selectedArea, selectedEpisodeType, provider]);
 
   const loadFilterOptions = useCallback(async () => {
+    const cached = filterCache.get(type);
+    if (cached) {
+      setSubTypes(cached.subTypes);
+      setYears(cached.years);
+      setAreas(cached.areas);
+      return;
+    }
     try {
       const [subs, yrs, areasList] = await Promise.all([
         provider.getSubTypesByType(type),
         provider.getYearsByType(type),
         provider.getAreasByType(type),
       ]);
+      filterCache.set(type, { subTypes: subs, years: yrs, areas: areasList });
       setSubTypes(subs);
       setYears(yrs);
       setAreas(areasList);
@@ -94,8 +121,24 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
   }, [loadFilterOptions]);
 
   useEffect(() => {
+    if (type === 'TV') {
+      const cached = shortDramaCache.get(type);
+      if (cached !== undefined) {
+        setShowShortDramaFilter(cached);
+        return;
+      }
+      provider.hasShortDrama('TV').then((has) => {
+        shortDramaCache.set(type, has);
+        setShowShortDramaFilter(has);
+      }).catch(() => setShowShortDramaFilter(false));
+    } else {
+      setShowShortDramaFilter(false);
+    }
+  }, [type, provider]);
+
+  useDebounce(() => {
     loadList(1, true);
-  }, [selectedSubType, selectedYear, selectedArea, loadList]);
+  }, 200, [selectedSubType, selectedYear, selectedArea, selectedEpisodeType, loadList]);
 
   const handleEndReached = () => {
     if (isLoadingRef.current || !meta || page >= meta.totalPages) return;
@@ -107,45 +150,31 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
     loadList(1, true).finally(() => setIsRefreshing(false));
   };
 
-  const renderFilterChips = (label: string, options: (string | number)[], selected: string | number | undefined, onSelect: (val: any) => void) => {
-    if (options.length === 0) return null;
-    return (
-      <View style={styles.filterRow}>
-        <Text style={styles.filterLabel}>{label}</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <TouchableOpacity
-            style={[styles.filterChip, !selected && styles.filterChipActive]}
-            onPress={() => onSelect(undefined)}
-          >
-            <Text style={[styles.filterChipText, !selected && styles.filterChipTextActive]}>全部</Text>
-          </TouchableOpacity>
-          {options.map(opt => {
-            const isActive = selected === opt;
-            return (
-              <TouchableOpacity
-                key={String(opt)}
-                style={[styles.filterChip, isActive && styles.filterChipActive]}
-                onPress={() => onSelect(isActive ? undefined : opt)}
-              >
-                <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>{String(opt)}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
-    );
+  const toggleFilter = (name: string) => {
+    setExpandedFilter(prev => prev === name ? null : name);
   };
+
+  const subTypeOptions = useMemo(() =>
+    subTypes.map(s => ({ label: s, value: s })),
+  [subTypes]);
+
+  const yearOptions = useMemo(() =>
+    years.map(y => ({ label: String(y), value: y })),
+  [years]);
+
+  const areaOptions = useMemo(() =>
+    areas.map(a => ({ label: a, value: a })),
+  [areas]);
+
+  const episodeOptions = useMemo(() => [
+    { label: '短剧', value: 'short' },
+    { label: '长剧', value: 'long' },
+  ], []);
+
+  const hasAnyFilter = subTypes.length > 0 || years.length > 0 || areas.length > 0 || showShortDramaFilter;
 
   const renderHeader = () => (
     <View>
-      <CategoryHeader activeType={typeNames[type] || type} />
-
-      <View style={styles.filtersContainer}>
-        {renderFilterChips('分类', subTypes, selectedSubType || undefined, (v) => setSelectedSubType(v || ''))}
-        {renderFilterChips('年份', years, selectedYear, (v) => setSelectedYear(v as number | undefined))}
-        {renderFilterChips('地区', areas, selectedArea || undefined, (v) => setSelectedArea(v || ''))}
-      </View>
-
       {meta && !isLoading && mediaList.length > 0 && (
         <Text style={styles.count}>共 {meta.total} 部</Text>
       )}
@@ -174,49 +203,34 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
   const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.background,
+    },
+    dropdownOverlay: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: 5,
+      elevation: 5,
+    },
+    fixedHeader: {
+      zIndex: 10,
     },
     listContent: {
       paddingBottom: 20,
     },
-    filtersContainer: {
+    filterBar: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
       paddingHorizontal: 15,
       marginTop: 12,
-    },
-    filterRow: {
-      marginBottom: 10,
-    },
-    filterLabel: {
-      fontSize: 13,
-      color: colors.mutedForeground,
-      marginBottom: 6,
-    },
-    filterChip: {
-      paddingHorizontal: 14,
-      paddingVertical: 6,
-      marginRight: 8,
-      borderRadius: 6,
-      backgroundColor: colors.card,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    filterChipActive: {
-      backgroundColor: colors.primaryLight,
-      borderColor: colors.primary,
-    },
-    filterChipText: {
-      fontSize: 13,
-      color: colors.mutedForeground,
-    },
-    filterChipTextActive: {
-      color: colors.primary,
-      fontWeight: '500',
     },
     count: {
       fontSize: 13,
       color: colors.disabledForeground,
       paddingHorizontal: 15,
-      marginTop: 4,
+      marginTop: 8,
       marginBottom: 8,
     },
     row: {
@@ -244,8 +258,68 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
     },
   }), [colors]);
 
+  const bgImageUrl = mediaList[0]?.posterUrl ?? null;
+
   return (
+    <BlurredBackground imageUrl={bgImageUrl}>
     <View style={styles.container}>
+      {expandedFilter && (
+        <TouchableOpacity
+          style={styles.dropdownOverlay}
+          activeOpacity={1}
+          onPress={() => setExpandedFilter(null)}
+        />
+      )}
+      <View style={styles.fixedHeader}>
+        <CategoryHeader activeType={typeNames[type] || type} />
+
+        {hasAnyFilter && (
+          <View style={styles.filterBar}>
+            {subTypes.length > 0 && (
+              <FilterDropdown
+                label="分类"
+                options={subTypeOptions}
+                selected={selectedSubType || undefined}
+                onSelect={(v) => { setSelectedSubType((v as string) || ''); setExpandedFilter(null); }}
+                isExpanded={expandedFilter === 'subType'}
+                onToggle={() => toggleFilter('subType')}
+              />
+            )}
+            {years.length > 0 && (
+              <FilterDropdown
+                label="年份"
+                options={yearOptions}
+                selected={selectedYear}
+                onSelect={(v) => { setSelectedYear(v as number | undefined); setExpandedFilter(null); }}
+                isExpanded={expandedFilter === 'year'}
+                onToggle={() => toggleFilter('year')}
+                grouped
+              />
+            )}
+            {areas.length > 0 && (
+              <FilterDropdown
+                label="地区"
+                options={areaOptions}
+                selected={selectedArea || undefined}
+                onSelect={(v) => { setSelectedArea((v as string) || ''); setExpandedFilter(null); }}
+                isExpanded={expandedFilter === 'area'}
+                onToggle={() => toggleFilter('area')}
+              />
+            )}
+            {showShortDramaFilter && (
+              <FilterDropdown
+                label="剧集"
+                options={episodeOptions}
+                selected={selectedEpisodeType}
+                onSelect={(v) => { setSelectedEpisodeType(v as 'short' | 'long' | undefined); setExpandedFilter(null); }}
+                isExpanded={expandedFilter === 'episode'}
+                onToggle={() => toggleFilter('episode')}
+              />
+            )}
+          </View>
+        )}
+      </View>
+
       <FlatList
         ref={flatListRef}
         data={mediaList}
@@ -269,5 +343,6 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
         showsVerticalScrollIndicator={false}
       />
     </View>
+    </BlurredBackground>
   );
 }

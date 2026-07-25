@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { useAppStore } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
+import BlurredBackground from '../components/BlurredBackground';
 import type { CollectTask } from '@movie-app/core';
 
 interface Props {
@@ -80,7 +81,7 @@ export default function TaskListScreen({ navigation }: Props) {
   };
 
   const styles = useMemo(() => StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
+    container: { flex: 1 },
     header: { padding: 20, paddingTop: 60 },
     title: { fontSize: 24, fontWeight: 'bold', color: colors.text },
     statsRow: { flexDirection: 'row', paddingHorizontal: 15, gap: 10, marginBottom: 10 },
@@ -116,6 +117,7 @@ export default function TaskListScreen({ navigation }: Props) {
   }), [colors]);
 
   return (
+    <BlurredBackground imageUrl={null}>
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>任务列表</Text>
@@ -179,6 +181,12 @@ export default function TaskListScreen({ navigation }: Props) {
                 <View style={styles.taskMeta}>
                   <Text style={styles.taskStat}>成功: {task.collectedCount}</Text>
                   <Text style={styles.taskStat}>失败: {task.failedCount}</Text>
+                  {task.type === 'REPROBE' && (task.shortDramaCount || task.longDramaCount) ? (
+                    <>
+                      <Text style={[styles.taskStat, { color: colors.success }]}>短剧: {task.shortDramaCount || 0}</Text>
+                      <Text style={[styles.taskStat, { color: colors.primary }]}>长剧: {task.longDramaCount || 0}</Text>
+                    </>
+                  ) : null}
                   <Text style={styles.taskDate}>{new Date(task.createdAt).toLocaleString()}</Text>
                 </View>
 
@@ -205,5 +213,6 @@ export default function TaskListScreen({ navigation }: Props) {
         </View>
       )}
     </ScrollView>
+    </BlurredBackground>
   );
 }

@@ -85,6 +85,7 @@ function RootNavigator() {
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: colors.background },
+          animation: 'none',
         }}
       >
         <Stack.Screen name="Tabs" component={TabNavigator} />
@@ -93,8 +94,8 @@ function RootNavigator() {
         <Stack.Screen name="Variety" component={VarietyScreen} />
         <Stack.Screen name="Anime" component={AnimeScreen} />
         <Stack.Screen name="Documentary" component={DocumentaryScreen} />
-        <Stack.Screen name="Detail" component={DetailScreen} />
-        <Stack.Screen name="Play" component={PlayScreen} />
+        <Stack.Screen name="Detail" component={DetailScreen} options={{ animation: 'default' }} />
+        <Stack.Screen name="Play" component={PlayScreen} options={{ animation: 'default' }} />
         <Stack.Screen name="SourceManager" component={SourceManagerScreen} />
         <Stack.Screen name="CollectConfig" component={CollectConfigScreen} />
         <Stack.Screen name="TaskList" component={TaskListScreen} />
@@ -110,10 +111,14 @@ function RootNavigator() {
 export default function App() {
   const [ready, setReady] = useState(false);
   const initTheme = useThemeStore((s) => s.initTheme);
+  const initBlurIntensity = useThemeStore((s) => s.initBlurIntensity);
+  const initImageBlur = useThemeStore((s) => s.initImageBlur);
+  const initImageScale = useThemeStore((s) => s.initImageScale);
+  const initCardOpacity = useThemeStore((s) => s.initCardOpacity);
   const colors = useThemeColors();
 
   useEffect(() => {
-    Promise.all([initApp(), initTheme()])
+    Promise.all([initApp(), initTheme(), initBlurIntensity(), initImageBlur(), initImageScale(), initCardOpacity()])
       .then(() => setReady(true))
       .catch((err) => {
         console.error('初始化失败:', err);

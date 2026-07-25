@@ -3,15 +3,19 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert,
 import { useNavigation } from '@react-navigation/native';
 import { useAppStore, getProvider } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
+import { useThemeStore } from '../themes/store';
+import { hexToRgba } from '../themes/colorUtils';
 import MediaCard from '../components/MediaCard';
 import UsageGuideModal from '../components/UsageGuideModal';
 import CategoryHeader from '../components/CategoryHeader';
+import BlurredBackground from '../components/BlurredBackground';
 import type { Media, UserUsageType } from '@movie-app/core';
 
 export default function HomeScreen() {
   const navigation = useNavigation<any>();
   const provider = getProvider();
   const colors = useThemeColors();
+  const cardOpacity = useThemeStore((s) => s.cardOpacity);
   const {
     favorites, watchHistory, loadFavorites, loadWatchHistory,
     userUsageTypes, loadUserUsageTypes,
@@ -174,10 +178,12 @@ export default function HomeScreen() {
 
   const renderNewMoviesCard = () => (
     <View style={styles.usageCard}>
-      <Text style={styles.usageCardTitle}>🎬 新片增量采集</Text>
-      <TouchableOpacity style={styles.collectActionBtn} onPress={handleMobileCollectLatest} disabled={storeLoading}>
-        <Text style={styles.collectActionBtnText}>{storeLoading ? '采集中...' : '开始增量采集'}</Text>
-      </TouchableOpacity>
+      <View style={styles.cardHeader}>
+        <Text style={styles.usageCardTitle}>🎬 新片增量采集</Text>
+        <TouchableOpacity style={styles.compactCollectBtn} onPress={handleMobileCollectLatest} disabled={storeLoading}>
+          <Text style={styles.compactCollectBtnText}>{storeLoading ? '采集中' : '增量采集'}</Text>
+        </TouchableOpacity>
+      </View>
       {latestMedia.length > 0 && (
         <>
           <Text style={styles.usageCardSubtitle}>最新入库</Text>
@@ -203,7 +209,12 @@ export default function HomeScreen() {
     });
     return (
       <View style={styles.usageCard}>
-        <Text style={styles.usageCardTitle}>📺 我的追剧</Text>
+        <View style={styles.cardHeader}>
+          <Text style={styles.usageCardTitle}>📺 我的追剧</Text>
+          <TouchableOpacity style={styles.compactCollectBtn} onPress={handleMobileCollectLatest} disabled={storeLoading}>
+            <Text style={styles.compactCollectBtnText}>{storeLoading ? '采集中' : '增量采集'}</Text>
+          </TouchableOpacity>
+        </View>
         {tvWatchHistory.length === 0 ? (
           <Text style={styles.usageCardDesc}>暂无追剧记录，观看电视剧或综艺后会显示在这里</Text>
         ) : (
@@ -229,9 +240,6 @@ export default function HomeScreen() {
             );
           })
         )}
-        <TouchableOpacity style={styles.collectActionBtn} onPress={handleMobileCollectLatest} disabled={storeLoading}>
-          <Text style={styles.collectActionBtnText}>{storeLoading ? '采集中...' : '增量采集新剧集'}</Text>
-        </TouchableOpacity>
       </View>
     );
   };
@@ -283,7 +291,6 @@ export default function HomeScreen() {
   const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.background,
     },
     scrollContent: {
       paddingBottom: 20,
@@ -291,7 +298,7 @@ export default function HomeScreen() {
     usageCard: {
       marginHorizontal: 15,
       marginTop: 16,
-      backgroundColor: colors.card,
+      backgroundColor: hexToRgba(colors.card, cardOpacity / 100),
       borderRadius: 12,
       padding: 14,
     },
@@ -409,12 +416,22 @@ export default function HomeScreen() {
       fontSize: 14,
       fontWeight: '600',
     },
+    compactCollectBtn: {
+      backgroundColor: colors.primary,
+      borderRadius: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      alignItems: 'center',
+    },
+    compactCollectBtnText: {
+      color: colors.text,
+      fontSize: 12,
+      fontWeight: '600',
+    },
     tvItem: {
       flexDirection: 'row',
       alignItems: 'center',
       paddingVertical: 10,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.card,
       gap: 8,
     },
     tvItemLeft: {
@@ -448,9 +465,12 @@ export default function HomeScreen() {
       color: colors.primary,
       fontWeight: '600',
     },
-  }), [colors]);
+  }), [colors, cardOpacity]);
+
+  const bgImageUrl = latestMedia[0]?.posterUrl ?? null;
 
   return (
+    <BlurredBackground imageUrl={bgImageUrl}>
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <CategoryHeader activeType="首页" />
@@ -463,5 +483,6 @@ export default function HomeScreen() {
       </ScrollView>
       {videoSources.length > 0 && <UsageGuideModal />}
     </View>
+    </BlurredBackground>
   );
 }

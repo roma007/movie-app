@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useThemeColors } from '../themes/useThemeColors';
+import BlurredBackground from '../components/BlurredBackground';
 
 interface Props {
   navigation: any;
@@ -33,7 +34,7 @@ export default function HelpCenterScreen(_: Props) {
   const colors = useThemeColors();
 
   const styles = useMemo(() => StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
+    container: { flex: 1 },
     header: { padding: 20, paddingTop: 60 },
     title: { fontSize: 24, fontWeight: 'bold', color: colors.text },
     content: { paddingHorizontal: 15, gap: 12 },
@@ -44,6 +45,7 @@ export default function HelpCenterScreen(_: Props) {
   }), [colors]);
 
   return (
+    <BlurredBackground imageUrl={null}>
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>帮助中心</Text>
@@ -58,5 +60,6 @@ export default function HelpCenterScreen(_: Props) {
       </View>
       <Text style={styles.footer}>更多问题请联系管理员</Text>
     </ScrollView>
+    </BlurredBackground>
   );
 }

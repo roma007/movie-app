@@ -171,6 +171,9 @@ export const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_play_source_source_id_episode_id ON play_source(source_id, episode_id);
   CREATE INDEX IF NOT EXISTS idx_favorite_media_id ON favorite(media_id);
   CREATE INDEX IF NOT EXISTS idx_watch_history_media_id ON watch_history(media_id);
+  CREATE INDEX IF NOT EXISTS idx_media_type ON media(type);
+  CREATE INDEX IF NOT EXISTS idx_media_type_updated_at ON media(type, updated_at);
+  CREATE INDEX IF NOT EXISTS idx_media_hidden ON media(hidden);
 `;
 
 /**

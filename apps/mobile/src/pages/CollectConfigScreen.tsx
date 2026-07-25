@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert 
 import { useAppStore } from '../useAppStore';
 import { ArrowLeft, Save, RotateCcw } from 'lucide-react-native';
 import { useThemeColors } from '../themes/useThemeColors';
+import BlurredBackground from '../components/BlurredBackground';
 
 interface Props {
   navigation: any;
@@ -84,7 +85,7 @@ export default function CollectConfigScreen({ navigation }: Props) {
   };
 
   const styles = useMemo(() => StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
+    container: { flex: 1 },
     header: { paddingTop: 50, paddingHorizontal: 15, paddingBottom: 15, backgroundColor: colors.surfaceElevated },
     headerRow: { flexDirection: 'row', alignItems: 'center' },
     backButton: { padding: 8 },
@@ -104,6 +105,7 @@ export default function CollectConfigScreen({ navigation }: Props) {
   }), [colors]);
 
   return (
+    <BlurredBackground imageUrl={null}>
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <View style={styles.headerRow}>
@@ -230,5 +232,6 @@ export default function CollectConfigScreen({ navigation }: Props) {
         </View>
       </View>
     </ScrollView>
+    </BlurredBackground>
   );
 }

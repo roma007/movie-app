@@ -5,6 +5,7 @@ import { SourceImportService, AI_SOURCE_PROMPT, AI_SOURCE_IMPORT_SAMPLE } from '
 import type { VideoSource, CollectTask, CollectPreviewItem, ImportSourceItem, ParsedImportSource } from '@movie-app/core';
 import Toast, { showToast } from '../components/Toast';
 import { useThemeColors } from '../themes/useThemeColors';
+import BlurredBackground from '../components/BlurredBackground';
 
 interface Props {
   navigation: any;
@@ -50,7 +51,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
   const colors = useThemeColors();
 
   const styles = useMemo(() => StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
+    container: { flex: 1 },
     scrollContainer: { flex: 1 },
     header: { padding: 20, paddingTop: 60 },
     title: { fontSize: 24, fontWeight: 'bold', color: colors.foreground },
@@ -438,6 +439,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
   };
 
   return (
+    <BlurredBackground imageUrl={null}>
     <View style={styles.container}>
       <Toast />
       <ScrollView style={styles.scrollContainer}>
@@ -941,5 +943,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
         </View>
       </Modal>
     </View>
+    </BlurredBackground>
   );
 }

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useThemeColors } from '../themes/useThemeColors';
+import BlurredBackground from '../components/BlurredBackground';
 
 interface Props {
   navigation: any;
@@ -39,7 +40,7 @@ export default function CollectGuideScreen(_: Props) {
   const colors = useThemeColors();
 
   const styles = useMemo(() => StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
+    container: { flex: 1 },
     header: { padding: 20, paddingTop: 60 },
     title: { fontSize: 24, fontWeight: 'bold', color: colors.text },
     content: { paddingHorizontal: 15, gap: 12, paddingBottom: 30 },
@@ -58,6 +59,7 @@ export default function CollectGuideScreen(_: Props) {
   }), [colors]);
 
   return (
+    <BlurredBackground imageUrl={null}>
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>采集教程</Text>
@@ -95,5 +97,6 @@ export default function CollectGuideScreen(_: Props) {
         </View>
       </View>
     </ScrollView>
+    </BlurredBackground>
   );
 }

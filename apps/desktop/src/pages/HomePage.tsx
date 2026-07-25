@@ -263,7 +263,7 @@ export default function HomePage() {
         </div>
         <Button onClick={handleCollectLatest} disabled={isLoading} variant="default">
           <Download className="size-4 mr-1" />
-          {isLoading ? '采集中...' : '开始增量采集'}
+          {isLoading ? '采集中' : '增量采集'}
         </Button>
       </div>
       <p className="text-sm text-muted-foreground mb-4">一键从所有视频源采集最新内容</p>
@@ -302,7 +302,7 @@ export default function HomePage() {
           </div>
           <Button onClick={handleCollectLatest} disabled={isLoading} variant="default">
             <Download className="size-4 mr-1" />
-            {isLoading ? '采集中...' : '增量采集新剧集'}
+            {isLoading ? '采集中' : '增量采集'}
           </Button>
         </div>
         {tvWatchHistory.length === 0 ? (

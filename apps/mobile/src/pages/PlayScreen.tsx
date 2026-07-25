@@ -7,6 +7,7 @@ import { ArrowLeft } from 'lucide-react-native';
 import { SystemConfigService } from '@movie-app/core';
 import { useThemeColors } from '../themes/useThemeColors';
 import { NextEpisodeOverlay } from '../components/NextEpisodeOverlay';
+import BlurredBackground from '../components/BlurredBackground';
 import type { PlaySource, VideoSource, Episode, Media } from '@movie-app/core';
 
 interface Props {
@@ -53,7 +54,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   const colors = useThemeColors();
 
   const styles = useMemo(() => StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.playerBg },
+    container: { flex: 1 },
     header: { flexDirection: 'row', alignItems: 'center', padding: 15, paddingTop: 50, backgroundColor: colors.playerHeader },
     backButton: { padding: 8 },
     headerTitle: { flex: 1, fontSize: 16, fontWeight: '600', color: colors.text, marginLeft: 8 },
@@ -324,6 +325,7 @@ export default function PlayScreen({ route, navigation }: Props) {
     : '';
 
   return (
+    <BlurredBackground imageUrl={media?.posterUrl}>
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
@@ -485,5 +487,6 @@ export default function PlayScreen({ route, navigation }: Props) {
         </View>
       </ScrollView>
     </View>
+    </BlurredBackground>
   );
 }

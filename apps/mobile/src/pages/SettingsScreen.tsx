@@ -1,8 +1,12 @@
 import { useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Alert } from 'react-native';
+import Slider from '@react-native-community/slider';
 import { useAppStore } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
+import { useThemeStore } from '../themes/store';
+import { hexToRgba } from '../themes/colorUtils';
 import ThemeSwitcher from '../themes/ThemeSwitcher';
+import BlurredBackground from '../components/BlurredBackground';
 import type { UserUsageType } from '@movie-app/core';
 
 interface Props {
@@ -18,6 +22,14 @@ const USAGE_OPTIONS: { type: UserUsageType; label: string; desc: string; icon: s
 export default function SettingsScreen({ navigation }: Props) {
   const { videoSources, loadVideoSources, toggleSourceEnabled, clearHistory, userUsageTypes, loadUserUsageTypes, setUserUsageTypes } = useAppStore();
   const colors = useThemeColors();
+  const blurIntensity = useThemeStore((s) => s.blurIntensity);
+  const setBlurIntensity = useThemeStore((s) => s.setBlurIntensity);
+  const imageBlur = useThemeStore((s) => s.imageBlur);
+  const setImageBlur = useThemeStore((s) => s.setImageBlur);
+  const imageScale = useThemeStore((s) => s.imageScale);
+  const setImageScale = useThemeStore((s) => s.setImageScale);
+  const cardOpacity = useThemeStore((s) => s.cardOpacity);
+  const setCardOpacity = useThemeStore((s) => s.setCardOpacity);
 
   useEffect(() => {
     loadVideoSources();
@@ -39,10 +51,10 @@ export default function SettingsScreen({ navigation }: Props) {
   };
 
   const styles = useMemo(() => StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
+    container: { flex: 1 },
     header: { padding: 20, paddingTop: 60 },
     title: { fontSize: 28, fontWeight: 'bold', color: colors.text },
-    section: { marginHorizontal: 15, marginBottom: 20, backgroundColor: colors.card, borderRadius: 12, overflow: 'hidden' },
+    section: { marginHorizontal: 15, marginBottom: 20, backgroundColor: hexToRgba(colors.card, cardOpacity / 100), borderRadius: 12, overflow: 'hidden' },
     sectionTitle: { fontSize: 14, color: colors.mutedForeground, paddingHorizontal: 15, paddingTop: 15, paddingBottom: 10 },
     sourceItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 15, borderBottomWidth: 1, borderBottomColor: colors.border },
     sourceInfo: { flex: 1 },
@@ -97,21 +109,126 @@ export default function SettingsScreen({ navigation }: Props) {
       fontSize: 11,
       color: colors.mutedForeground,
     },
-  }), [colors]);
+    blurRow: {
+      paddingHorizontal: 15,
+      paddingBottom: 15,
+    },
+    blurLabels: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginTop: 4,
+    },
+    blurLabel: {
+      fontSize: 12,
+      color: colors.mutedForeground,
+    },
+    blurValue: {
+      fontSize: 14,
+      color: colors.text,
+      fontWeight: '600',
+      textAlign: 'center',
+      marginBottom: 8,
+    },
+  }), [colors, cardOpacity]);
 
   return (
+    <BlurredBackground imageUrl={null}>
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>设置</Text>
       </View>
 
-      <View style={[styles.section, { backgroundColor: colors.card }]}>
+      <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>🎨 主题切换</Text>
         <ThemeSwitcher />
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>视频源管理</Text>
+        <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>🌫️ 磨砂强度</Text>
+        <View style={styles.blurRow}>
+          <Text style={styles.blurValue}>{blurIntensity}</Text>
+          <Slider
+            minimumValue={0}
+            maximumValue={100}
+            step={5}
+            value={blurIntensity}
+            onValueChange={setBlurIntensity}
+            minimumTrackTintColor={colors.primary}
+            maximumTrackTintColor={colors.border}
+            thumbTintColor={colors.primary}
+          />
+          <View style={styles.blurLabels}>
+            <Text style={styles.blurLabel}>关闭</Text>
+            <Text style={styles.blurLabel}>最强</Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>🖼️ 背景图模糊</Text>
+        <View style={styles.blurRow}>
+          <Text style={styles.blurValue}>{imageBlur}</Text>
+          <Slider
+            minimumValue={0}
+            maximumValue={100}
+            step={5}
+            value={imageBlur}
+            onValueChange={setImageBlur}
+            minimumTrackTintColor={colors.primary}
+            maximumTrackTintColor={colors.border}
+            thumbTintColor={colors.primary}
+          />
+          <View style={styles.blurLabels}>
+            <Text style={styles.blurLabel}>清晰</Text>
+            <Text style={styles.blurLabel}>最糊</Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>🔍 背景图缩放</Text>
+        <View style={styles.blurRow}>
+          <Text style={styles.blurValue}>{imageScale}x</Text>
+          <Slider
+            minimumValue={1}
+            maximumValue={50}
+            step={1}
+            value={imageScale}
+            onValueChange={setImageScale}
+            minimumTrackTintColor={colors.primary}
+            maximumTrackTintColor={colors.border}
+            thumbTintColor={colors.primary}
+          />
+<View style={styles.blurLabels}>
+             <Text style={styles.blurLabel}>1x</Text>
+             <Text style={styles.blurLabel}>50x</Text>
+           </View>
+         </View>
+       </View>
+
+       <View style={styles.section}>
+         <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>🎨 卡片透明度</Text>
+         <View style={styles.blurRow}>
+           <Text style={styles.blurValue}>{cardOpacity}%</Text>
+           <Slider
+             minimumValue={10}
+             maximumValue={100}
+             step={1}
+             value={cardOpacity}
+             onValueChange={setCardOpacity}
+             minimumTrackTintColor={colors.primary}
+             maximumTrackTintColor={colors.border}
+             thumbTintColor={colors.primary}
+           />
+           <View style={styles.blurLabels}>
+             <Text style={styles.blurLabel}>10%</Text>
+             <Text style={styles.blurLabel}>100%</Text>
+           </View>
+         </View>
+       </View>
+
+       <View style={styles.section}>
+         <Text style={styles.sectionTitle}>视频源管理</Text>
         {videoSources.map((source: any) => (
           <View key={source.id} style={styles.sourceItem}>
             <View style={styles.sourceInfo}>
@@ -188,9 +305,10 @@ export default function SettingsScreen({ navigation }: Props) {
         <Text style={styles.sectionTitle}>关于</Text>
         <View style={styles.menuItem}>
           <Text style={styles.menuText}>版本</Text>
-          <Text style={styles.menuValue}>1.0.17</Text>
+          <Text style={styles.menuValue}>1.0.20</Text>
         </View>
       </View>
     </ScrollView>
+    </BlurredBackground>
   );
 }
