@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { initApp, testCollect } from './init';
 import { Layout } from './components/Layout';
-import { AnnouncementDialog } from './components/AnnouncementDialog';
+
 import { ContextMenu } from './components/ContextMenu';
 import { ThemeProvider } from './themes/ThemeProvider';
 import { FontSizeProvider } from './themes/FontSizeProvider';
@@ -22,6 +22,8 @@ import TaskListPage from './pages/TaskListPage';
 import SettingsPage from './pages/SettingsPage';
 import CollectConfigPage from './pages/CollectConfigPage';
 import CollectGuidePage from './pages/CollectGuidePage';
+import AppearanceSettingsPage from './pages/AppearanceSettingsPage';
+import UsagePreferencesPage from './pages/UsagePreferencesPage';
 import VideoManagementPage from './pages/VideoManagementPage';
 import TestCollectPage from './pages/TestCollectPage';
 import HelpCenterPage from './pages/HelpCenterPage';
@@ -94,7 +96,6 @@ export default function App() {
       <FontSizeProvider>
         <ConfirmProvider>
           <BrowserRouter>
-            <AnnouncementDialog />
             <ContextMenu />
             <Routes>
               <Route element={<Layout />}>
@@ -111,6 +112,8 @@ export default function App() {
                 <Route path="/sources" element={<SourceManagerPage />} />
                 <Route path="/tasks" element={<TaskListPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/settings/appearance" element={<AppearanceSettingsPage />} />
+                <Route path="/settings/preferences" element={<UsagePreferencesPage />} />
                 <Route path="/settings/collect" element={<CollectConfigPage />} />
                 <Route path="/settings/guide" element={<CollectGuidePage />} />
                 <Route path="/settings/video" element={<VideoManagementPage />} />

@@ -1,7 +1,9 @@
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ArrowLeft, Play, Database, Settings, Heart, RotateCcw } from 'lucide-react';
+import { useBackgroundStore } from '../themes/backgroundStore';
 
 const faqs = [
   {
@@ -32,13 +34,16 @@ const faqs = [
 ];
 
 export default function HelpCenterPage() {
+  const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
+  useEffect(() => { clearBgImage(); }, [clearBgImage]);
   const navigate = useNavigate();
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
-      <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pb-4 border-b border-border">
+      <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
+        <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
         <div className="flex items-center gap-4">
-          <Button variant="ghost" onClick={() => navigate('/')} className="hover:text-primary">
+          <Button variant="ghost" onClick={() => navigate('/')} className="hover:text-text">
             <ArrowLeft className="size-4 mr-2" />
             返回
           </Button>
@@ -46,11 +51,11 @@ export default function HelpCenterPage() {
         </div>
       </div>
 
-      <Card className="divide-y divide-border bg-card border-border">
+      <Card className="">
         {faqs.map((faq, i) => (
           <div key={i} className="flex gap-4 p-5">
             <div className="shrink-0 mt-0.5">
-              <faq.icon className="size-5 text-primary" />
+              <faq.icon className="size-5 text-muted-foreground" />
             </div>
             <div>
               <div className="font-medium mb-1">{faq.question}</div>

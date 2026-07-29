@@ -142,6 +142,11 @@ const MIGRATIONS: Migration[] = [
     sql: `ALTER TABLE media ADD COLUMN series_group TEXT;
           ALTER TABLE media ADD COLUMN series_season INTEGER;`,
   },
+  {
+    version: 17,
+    description: 'fix_genres_with_comma_in_first_element',
+    sql: `SELECT 1;`,
+  },
 ];
 
 /**
@@ -206,6 +211,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     }
 
     await this.runMigrations();
+    await this.fixGenreData();
     
     await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_episode_media_id ON episode(media_id);');
     await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source(episode_id);');
@@ -245,6 +251,29 @@ export class ExpoSqliteProvider implements DatabaseProvider {
           [migration.version, migration.description, now]
         );
       }
+    }
+  }
+
+  private async fixGenreData(): Promise<void> {
+    const rows = await this.db!.getAllAsync<{ id: string; genre: string }>(
+      "SELECT id, genre FROM media WHERE genre IS NOT NULL AND genre LIKE '%[\"%' AND genre LIKE '%,%'"
+    );
+    let fixed = 0;
+    for (const row of rows) {
+      try {
+        const genres = JSON.parse(row.genre);
+        if (!Array.isArray(genres) || genres.length === 0) continue;
+        const first = genres[0];
+        if (typeof first === 'string' && first.includes(',')) {
+          const split = first.split(/[,，]/).filter(Boolean);
+          const newGenres = [...new Set([...split, ...genres.slice(1)])];
+          await this.db!.runAsync('UPDATE media SET genre = ? WHERE id = ?', [JSON.stringify(newGenres), row.id]);
+          fixed++;
+        }
+      } catch { /* skip invalid JSON */ }
+    }
+    if (fixed > 0) {
+      console.log(`Fixed ${fixed} media records with comma-separated genre in first element`);
     }
   }
 

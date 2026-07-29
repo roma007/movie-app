@@ -2,15 +2,14 @@
 
 @theme {
   --color-primary: #4a9eff;
-  --color-primary-hover: #3a8ef0;
   --color-primary-light: rgba(74, 158, 255, 0.1);
-  --color-primary-foreground: #ffffff;
 
   --color-background: #0f0f0f;
   --color-sidebar: #161616;
   --color-card: #1a1a1a;
   --color-hover: #252525;
 
+  --color-text: #fafafa;
   --color-foreground: #fafafa;
   --color-muted-foreground: #a0a0a0;
   --color-disabled-foreground: #666666;
@@ -24,15 +23,36 @@
   --color-border-highlight: rgba(74, 158, 255, 0.6);
 
   --color-popover: #1a1a1a;
-  --color-popover-foreground: #fafafa;
   --color-secondary: #2a2a2a;
   --color-secondary-foreground: #fafafa;
   --color-accent: #2a2a2a;
-  --color-accent-foreground: #fafafa;
   --color-destructive: #ef4444;
-  --color-destructive-foreground: #fafafa;
   --color-input: #2a2a2a;
   --color-ring: #4a9eff;
+
+  --color-surface: #1f1f1f;
+  --color-surface-elevated: #111111;
+  --color-text-secondary: #000000;
+
+  --color-button-primary-text: #ffffff;
+  --color-button-secondary-text: #fafafa;
+  --color-button-destructive-text: #ffffff;
+
+  --color-track-bg: #2a2a2a;
+  --color-swift-track: #333333;
+  --color-swift-active-track: #22c55e;
+  --color-swift-thumb: #fafafa;
+
+  --color-card-alpha: rgba(26, 26, 26, 0.85);
+  --color-surface-alpha: rgba(31, 31, 31, 0.72);
+  --color-surface-elevated-alpha: rgba(17, 17, 17, 0.81);
+  --color-input-alpha: rgba(42, 42, 42, 0.77);
+  --color-secondary-alpha: rgba(42, 42, 42, 0.72);
+  --color-hover-alpha: rgba(37, 37, 37, 0.85);
+  --color-sidebar-alpha: rgba(22, 22, 22, 0.77);
+  --color-popover-alpha: rgba(26, 26, 26, 0.85);
+  --color-muted-alpha: rgba(160, 160, 160, 0.17);
+  --color-destructive-alpha: rgba(239, 68, 68, 0.72);
 
   --radius-sm: 4px;
   --radius-md: 8px;
@@ -62,10 +82,14 @@ body,
 body {
   margin: 0;
   background-color: var(--color-background);
-  color: var(--color-foreground);
+  color: var(--color-text);
   font-family: var(--font-family-sans);
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+body.bg-image-active {
+  background-color: transparent;
 }
 
 ::-webkit-scrollbar {

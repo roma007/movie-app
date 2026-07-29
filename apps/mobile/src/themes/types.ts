@@ -1,14 +1,13 @@
-export type ThemeId = 'dark' | 'light' | 'ocean' | 'forest' | 'sunset' | 'purple';
+export type ThemeId = 'dark' | 'light';
+
+export type ColorMode = 'system' | 'dark' | 'light';
 
 export interface ThemeColors {
-  primary: string;
-  primaryHover: string;
-  primaryLight: string;
-  primaryForeground: string;
   background: string;
   surface: string;
   card: string;
   surfaceElevated: string;
+  hover: string;
   foreground: string;
   text: string;
   textSecondary: string;
@@ -19,13 +18,21 @@ export interface ThemeColors {
   error: string;
   favorite: string;
   border: string;
-  borderLight: string;
   borderHighlight: string;
   input: string;
-  switchTrack: string;
   overlay: string;
   playerBg: string;
   playerHeader: string;
+  buttonPrimaryBg: string;
+  buttonPrimaryText: string;
+  buttonSecondaryBg: string;
+  buttonSecondaryText: string;
+  buttonDestructiveBg: string;
+  buttonDestructiveText: string;
+  trackBg: string;
+  swiftTrack: string;
+  swiftActiveTrack: string;
+  swiftThumb: string;
 }
 
 export interface ThemeConfig {

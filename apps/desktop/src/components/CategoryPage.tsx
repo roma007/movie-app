@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import type { Media } from '@movie-app/core';
 import { useAppStore } from '../useAppStore';
-import { MediaGrid, MediaCard } from '@/components/MediaCard';
+import { useBackgroundStore } from '../themes/backgroundStore';
+import { MediaGrid } from '@/components/MediaCard';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
+import { Card } from '@/components/ui/card';
 import { LayoutGrid, List, ChevronLeft, ChevronRight, Search, X, Columns3 } from 'lucide-react';
 
 const pageSize = 30;
@@ -132,6 +134,8 @@ const typeNames: Record<string, string> = {
 
 export default function CategoryPage({ type }: CategoryPageProps) {
   const { mediaList, mediaMeta, isLoading, loadMediaList, searchMedia, getSubTypesByType, getYearsByType, getAreasByType, hasShortDrama } = useAppStore();
+  const setBgImage = useBackgroundStore((s) => s.setBgImage);
+  const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -188,6 +192,12 @@ export default function CategoryPage({ type }: CategoryPageProps) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showColumnsMenu]);
+
+  useEffect(() => {
+    const bgUrl = mediaList[0]?.posterUrl ?? null;
+    setBgImage(bgUrl);
+    return () => clearBgImage();
+  }, [mediaList, setBgImage, clearBgImage]);
 
   useEffect(() => {
     const subType = searchParams.get('subType');
@@ -309,12 +319,6 @@ export default function CategoryPage({ type }: CategoryPageProps) {
 
   return (
     <div className="p-6 space-y-5 max-w-7xl mx-auto">
-      <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pb-4 border-b border-border">
-        <div className="flex items-center gap-4">
-          <h1 className="text-2xl font-bold">{typeNames[type] || type}</h1>
-        </div>
-      </div>
-
       <div className="flex gap-2">
         <div className="relative flex-1">
           <Input
@@ -325,27 +329,21 @@ export default function CategoryPage({ type }: CategoryPageProps) {
               if (e.key === 'Enter') handleSearch();
               if (e.key === 'Escape' && isSearching) handleClearSearch();
             }}
-            className="flex-1 bg-card border-border pr-8"
+            className="flex-1 bg-[var(--color-input-alpha)] pr-8"
           />
           {searchKeyword && (
             <button
               onClick={handleClearSearch}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-text transition-colors"
             >
               <X className="size-4" />
             </button>
           )}
         </div>
-        {isSearching ? (
-          <Button variant="outline" onClick={handleClearSearch} className="bg-secondary">
-            清除搜索
-          </Button>
-        ) : (
-          <Button onClick={handleSearch} className="bg-primary hover:bg-primary-hover">
-            <Search className="size-4" />
-            搜索
-          </Button>
-        )}
+        <Button onClick={handleSearch}>
+          <Search className="size-4" />
+          搜索
+        </Button>
       </div>
 
       {isSearching ? (
@@ -368,7 +366,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
       ) : (
         <>
           {(subTypes.length > 0 || years.length > 0 || areas.length > 0) && (
-            <div className="space-y-3 bg-card rounded-lg p-4 border border-border">
+            <Card className="space-y-3 p-4">
               {(activeSubType || activeYear || activeArea || activeEpisodeType) && (
                 <Button
                   variant="ghost"
@@ -501,7 +499,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                   </div>
                 </div>
               )}
-            </div>
+            </Card>
           )}
 
           <div className="flex items-center justify-end gap-2">
@@ -517,7 +515,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                   列
                 </Button>
                 {showColumnsMenu && (
-                  <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-card border border-border rounded-lg shadow-lg p-2 max-h-[400px] overflow-y-auto">
+                  <Card className="absolute right-0 top-full mt-1 z-50 w-56 shadow-lg p-2 max-h-[400px] overflow-y-auto">
                     {allColumns
                       .filter((col) => !(col.id === 'episodes' && type === 'MOVIE'))
                       .map((col) => {
@@ -526,7 +524,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                       return (
                         <label
                           key={col.id}
-                          className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm cursor-pointer transition-colors ${isSelected ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-hover'}`}
+                          className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm cursor-pointer transition-colors ${isSelected ? 'bg-muted-foreground/20 text-text' : 'text-muted-foreground hover:bg-hover'}`}
                         >
                           <input
                             type="checkbox"
@@ -540,17 +538,17 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                               setSelectedColumns(next);
                               saveColumns(next);
                             }}
-                            className="size-3.5 rounded border-border accent-primary"
+                            className="size-3.5 rounded accent-primary"
                           />
                           {col.label}
                         </label>
                       );
                     })}
-                  </div>
+                  </Card>
                 )}
               </div>
             )}
-            <div className="flex items-center gap-1 border border-border rounded-md p-0.5">
+            <div className="flex items-center gap-1 rounded-md p-0.5">
               <Button
                 variant={viewMode === 'grid' ? 'default' : 'ghost'}
                 size="sm"
@@ -578,13 +576,13 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                 ))}
               </div>
             ) : (
-              <div className="rounded-lg border border-border bg-card card-shadow overflow-hidden">
+              <Card className="card-shadow overflow-hidden">
                 <div className="space-y-0">
                   {Array.from({ length: 10 }).map((_, i) => (
-                    <Skeleton key={i} className="h-[60px] mx-5 my-0 rounded-none border-b border-border animate-pulse-skeleton" />
+                    <Skeleton key={i} className="h-[60px] mx-5 my-0 rounded-none animate-pulse-skeleton" />
                   ))}
                 </div>
-              </div>
+              </Card>
             )
           ) : viewMode === 'grid' ? (
             <MediaGrid
@@ -593,9 +591,9 @@ export default function CategoryPage({ type }: CategoryPageProps) {
               onBeforeNavigate={saveScrollPosition}
             />
           ) : (
-            <div className="rounded-lg border border-border bg-card card-shadow overflow-hidden">
+            <Card className="card-shadow overflow-hidden">
               <table className="w-full text-sm">
-                <thead className="bg-secondary/50">
+                <thead className="bg-[var(--color-secondary-alpha)]">
                   <tr>
                     {allColumns
                       .filter((c) => selectedColumns.includes(c.id))
@@ -611,7 +609,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                   {mediaList.map((m) => (
                     <tr
                       key={m.id}
-                      className="hover:bg-hover cursor-pointer border-b border-dashed border-border last:border-b-0 transition-colors"
+                      className="hover:bg-hover cursor-pointer transition-colors"
                       onClick={() => {
                         saveScrollPosition();
                         navigate(`/media/${m.id}`, {
@@ -631,7 +629,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </Card>
           )}
 
           {totalPages > 1 && (

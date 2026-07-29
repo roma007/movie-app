@@ -3,10 +3,13 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, 
 import { useNavigation } from '@react-navigation/native';
 import { getProvider } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
+import { useScaledFontSize } from '../themes/useScaledFontSize';
 import MediaCard from '../components/MediaCard';
 import CategoryHeader from '../components/CategoryHeader';
 import FilterDropdown from '../components/FilterDropdown';
 import BlurredBackground from '../components/BlurredBackground';
+import { Input } from '../components/ui/Input';
+import { Button } from '../components/ui/Button';
 import type { Media, PaginatedMeta } from '@movie-app/core';
 
 const PAGE_SIZE = 20;
@@ -39,6 +42,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
   const navigation = useNavigation<any>();
   const provider = getProvider();
   const colors = useThemeColors();
+  const s = useScaledFontSize();
 
   const [mediaList, setMediaList] = useState<Media[]>([]);
   const [meta, setMeta] = useState<PaginatedMeta | null>(null);
@@ -56,6 +60,10 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
   const [showShortDramaFilter, setShowShortDramaFilter] = useState(false);
 
   const [expandedFilter, setExpandedFilter] = useState<string | null>(null);
+
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [isSearchLoading, setIsSearchLoading] = useState(false);
 
   const isLoadingRef = useRef(false);
   const flatListRef = useRef<FlatList>(null);
@@ -137,15 +145,39 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
   }, [type, provider]);
 
   useDebounce(() => {
+    if (!isSearching) loadList(1, true);
+  }, 200, [selectedSubType, selectedYear, selectedArea, selectedEpisodeType, loadList, isSearching]);
+
+  const handleSearch = async () => {
+    const kw = searchKeyword.trim();
+    if (!kw) return;
+    setIsSearching(true);
+    setIsSearchLoading(true);
+    try {
+      const result = await provider.searchMedia(kw, { type });
+      setMediaList(result.items || []);
+      setMeta(result.meta || null);
+    } catch (err) {
+      console.error('searchMedia failed:', err);
+    } finally {
+      setIsSearchLoading(false);
+    }
+  };
+
+  const handleClearSearch = () => {
+    setSearchKeyword('');
+    setIsSearching(false);
+    setIsSearchLoading(false);
     loadList(1, true);
-  }, 200, [selectedSubType, selectedYear, selectedArea, selectedEpisodeType, loadList]);
+  };
 
   const handleEndReached = () => {
-    if (isLoadingRef.current || !meta || page >= meta.totalPages) return;
+    if (isSearching || isLoadingRef.current || !meta || page >= meta.totalPages) return;
     loadList(page + 1, false);
   };
 
   const handleRefresh = () => {
+    if (isSearching) return;
     setIsRefreshing(true);
     loadList(1, true).finally(() => setIsRefreshing(false));
   };
@@ -175,7 +207,10 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
 
   const renderHeader = () => (
     <View>
-      {meta && !isLoading && mediaList.length > 0 && (
+      {isSearching && !isSearchLoading && (
+        <Text style={styles.count}>搜索结果："{searchKeyword}"（{mediaList.length}部）</Text>
+      )}
+      {!isSearching && meta && !isLoading && mediaList.length > 0 && (
         <Text style={styles.count}>共 {meta.total} 部</Text>
       )}
     </View>
@@ -185,17 +220,17 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
     if (!isLoading) return null;
     return (
       <View style={styles.footer}>
-        <ActivityIndicator size="small" color={colors.primary} />
+        <ActivityIndicator size="small" color={colors.mutedForeground} />
         <Text style={styles.footerText}>加载中...</Text>
       </View>
     );
   };
 
   const renderEmpty = () => {
-    if (isLoading) return null;
+    if (isLoading || isSearchLoading) return null;
     return (
       <View style={styles.emptyContainer}>
-        <Text style={styles.emptyText}>暂无数据</Text>
+        <Text style={styles.emptyText}>{isSearching ? '未找到相关内容' : '暂无数据'}</Text>
       </View>
     );
   };
@@ -226,8 +261,15 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
       paddingHorizontal: 15,
       marginTop: 12,
     },
+    searchBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 15,
+      marginTop: 12,
+      gap: 8,
+    },
     count: {
-      fontSize: 13,
+      fontSize: s(13),
       color: colors.disabledForeground,
       paddingHorizontal: 15,
       marginTop: 8,
@@ -245,7 +287,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
       gap: 8,
     },
     footerText: {
-      fontSize: 13,
+      fontSize: s(13),
       color: colors.mutedForeground,
     },
     emptyContainer: {
@@ -254,9 +296,9 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
     },
     emptyText: {
       color: colors.mutedForeground,
-      fontSize: 16,
+      fontSize: s(16),
     },
-  }), [colors]);
+  }), [colors, s]);
 
   const bgImageUrl = mediaList[0]?.posterUrl ?? null;
 
@@ -273,7 +315,21 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
       <View style={styles.fixedHeader}>
         <CategoryHeader activeType={typeNames[type] || type} />
 
-        {hasAnyFilter && (
+        <View style={styles.searchBar}>
+          <Input
+            style={{ flex: 1, height: 40 }}
+            placeholder={`搜索${typeNames[type] || ''}...`}
+            value={searchKeyword}
+            onChangeText={setSearchKeyword}
+            onSubmitEditing={handleSearch}
+            returnKeyType="search"
+          />
+          <Button variant="primary" size="sm" onPress={handleSearch}>
+            搜索
+          </Button>
+        </View>
+
+        {!isSearching && hasAnyFilter && (
           <View style={styles.filterBar}>
             {subTypes.length > 0 && (
               <FilterDropdown

@@ -84,7 +84,7 @@ export function ContextMenu() {
 
   return (
     <div
-      className="fixed z-50 w-40 py-1 bg-popover border border-border rounded-lg shadow-lg"
+      className="fixed z-50 w-40 py-1 bg-popover rounded-lg shadow-lg"
       style={{
         left: Math.min(position.x, window.innerWidth - 160),
         top: Math.min(position.y, window.innerHeight - 200),
@@ -94,7 +94,7 @@ export function ContextMenu() {
         <button
           key={index}
           className={`w-full px-3 py-1.5 text-sm flex items-center gap-2 hover:bg-accent transition-colors ${
-            item.disabled ? 'text-muted-foreground cursor-not-allowed' : 'text-foreground'
+            item.disabled ? 'text-muted-foreground cursor-not-allowed' : 'text-text'
           }`}
           onClick={item.onClick}
           disabled={item.disabled}

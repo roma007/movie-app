@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Text, StyleSheet, View, ActivityIndicator } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { Text, StyleSheet, View, ActivityIndicator, useColorScheme, Appearance } from 'react-native';
+import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
@@ -15,7 +15,10 @@ import SettingsScreen from './src/pages/SettingsScreen';
 import DetailScreen from './src/pages/DetailScreen';
 import PlayScreen from './src/pages/PlayScreen';
 import SourceManagerScreen from './src/pages/SourceManagerScreen';
+import AiSourceImportScreen from './src/pages/AiSourceImportScreen';
 import CollectConfigScreen from './src/pages/CollectConfigScreen';
+import AppearanceSettingsScreen from './src/pages/AppearanceSettingsScreen';
+import UsagePreferencesScreen from './src/pages/UsagePreferencesScreen';
 import TaskListScreen from './src/pages/TaskListScreen';
 import HelpCenterScreen from './src/pages/HelpCenterScreen';
 import CollectGuideScreen from './src/pages/CollectGuideScreen';
@@ -40,7 +43,7 @@ function TabNavigator() {
           backgroundColor: colors.background,
           borderTopColor: colors.border,
         },
-        tabBarActiveTintColor: colors.primary,
+        tabBarActiveTintColor: colors.mutedForeground,
         tabBarInactiveTintColor: colors.disabledForeground,
       }}
     >
@@ -97,7 +100,10 @@ function RootNavigator() {
         <Stack.Screen name="Detail" component={DetailScreen} options={{ animation: 'default' }} />
         <Stack.Screen name="Play" component={PlayScreen} options={{ animation: 'default' }} />
         <Stack.Screen name="SourceManager" component={SourceManagerScreen} />
+        <Stack.Screen name="AiSourceImport" component={AiSourceImportScreen} />
         <Stack.Screen name="CollectConfig" component={CollectConfigScreen} />
+        <Stack.Screen name="AppearanceSettings" component={AppearanceSettingsScreen} />
+        <Stack.Screen name="UsagePreferences" component={UsagePreferencesScreen} />
         <Stack.Screen name="TaskList" component={TaskListScreen} />
         <Stack.Screen name="HelpCenter" component={HelpCenterScreen} />
         <Stack.Screen name="CollectGuide" component={CollectGuideScreen} />
@@ -111,14 +117,31 @@ function RootNavigator() {
 export default function App() {
   const [ready, setReady] = useState(false);
   const initTheme = useThemeStore((s) => s.initTheme);
+  const initColorMode = useThemeStore((s) => s.initColorMode);
+  const setSystemColorScheme = useThemeStore((s) => s.setSystemColorScheme);
   const initBlurIntensity = useThemeStore((s) => s.initBlurIntensity);
   const initImageBlur = useThemeStore((s) => s.initImageBlur);
   const initImageScale = useThemeStore((s) => s.initImageScale);
   const initCardOpacity = useThemeStore((s) => s.initCardOpacity);
+  const initFontSizeScale = useThemeStore((s) => s.initFontSizeScale);
+  const themeName = useThemeStore((s) => s.currentTheme);
   const colors = useThemeColors();
+  const colorScheme = useColorScheme();
 
   useEffect(() => {
-    Promise.all([initApp(), initTheme(), initBlurIntensity(), initImageBlur(), initImageScale(), initCardOpacity()])
+    if (colorScheme === 'dark' || colorScheme === 'light') {
+      setSystemColorScheme(colorScheme);
+    }
+    const subscription = Appearance.addChangeListener(({ colorScheme: newScheme }) => {
+      if (newScheme === 'dark' || newScheme === 'light') {
+        setSystemColorScheme(newScheme);
+      }
+    });
+    return () => subscription.remove();
+  }, [setSystemColorScheme]);
+
+  useEffect(() => {
+    Promise.all([initApp(), initTheme(), initColorMode(), initBlurIntensity(), initImageBlur(), initImageScale(), initCardOpacity(), initFontSizeScale()])
       .then(() => setReady(true))
       .catch((err) => {
         console.error('初始化失败:', err);
@@ -130,15 +153,17 @@ export default function App() {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
         <StatusBar style="light" />
-        <ActivityIndicator size="large" color={colors.primary} />
+        <ActivityIndicator size="large" color={colors.mutedForeground} />
         <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>正在加载...</Text>
       </View>
     );
   }
 
+  const navTheme = themeName === 'dark' ? DarkTheme : DefaultTheme;
+
   return (
     <SafeAreaProvider>
-      <NavigationContainer>
+      <NavigationContainer theme={navTheme}>
         <RootNavigator />
       </NavigationContainer>
     </SafeAreaProvider>

@@ -13,14 +13,29 @@ const OPTIONS: { type: UserUsageType; label: string; desc: string; icon: any }[]
   { type: 'TV_SERIES', label: '追剧/综艺', desc: '追更电视剧/综艺，追完再增量采集', icon: Tv },
 ];
 
-export function UsageGuideDialog() {
-  const [open, setOpen] = useState(false);
+interface Props {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}
+
+export function UsageGuideDialog({ open: externalOpen, onOpenChange }: Props = {}) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = externalOpen !== undefined;
+  const open = isControlled ? externalOpen! : internalOpen;
   const [selected, setSelected] = useState<Set<UserUsageType>>(new Set());
   const { setUserUsageTypes } = useAppStore();
 
+  const setOpen = (v: boolean) => {
+    if (isControlled) {
+      onOpenChange?.(v);
+    } else {
+      setInternalOpen(v);
+    }
+  };
+
   useEffect(() => {
-    if (!localStorage.getItem(STORAGE_KEY)) {
-      setOpen(true);
+    if (!isControlled && !localStorage.getItem(STORAGE_KEY)) {
+      setInternalOpen(true);
     }
   }, []);
 
@@ -65,18 +80,18 @@ export function UsageGuideDialog() {
                 onClick={() => handleToggle(opt.type)}
                 className={`w-full flex items-center gap-4 p-4 rounded-lg border transition-all ${
                   isActive
-                    ? 'border-primary bg-primary/10'
-                    : 'border-border hover:border-primary/50'
+                    ? 'border-muted-foreground bg-muted-foreground/10'
+                    : 'hover:border-muted-foreground/50'
                 }`}
               >
                 <div className={`size-5 flex items-center justify-center rounded border-2 ${
-                  isActive ? 'border-primary bg-primary' : 'border-muted-foreground'
+                  isActive ? 'border-muted-foreground bg-muted-foreground' : 'border-muted-foreground'
                 }`}>
                   {isActive && <span className="text-white text-xs font-bold">✓</span>}
                 </div>
-                <Icon className={`size-6 ${isActive ? 'text-primary' : 'text-muted-foreground'}`} />
+                <Icon className={`size-6 ${isActive ? 'text-text' : 'text-muted-foreground'}`} />
                 <div className="text-left">
-                  <div className={`font-medium ${isActive ? 'text-primary' : ''}`}>{opt.label}</div>
+                  <div className={`font-medium ${isActive ? 'text-text' : ''}`}>{opt.label}</div>
                   <div className="text-xs text-muted-foreground">{opt.desc}</div>
                 </div>
               </button>

@@ -1,16 +1,27 @@
 import { useMemo, useState, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { ArrowLeft } from 'lucide-react-native';
 import { getCollector } from '../useAppStore';
 import type { CollectionLog } from '@movie-app/core';
 import { useThemeColors } from '../themes/useThemeColors';
+import { useThemeStore } from '../themes/store';
+import { useScaledFontSize } from '../themes/useScaledFontSize';
+import { hexToRgba } from '../themes/colorUtils';
+import { radius } from '../themes/radiusTokens';
 import BlurredBackground from '../components/BlurredBackground';
+import { Button } from '../components/ui/Button';
 
 interface Props {
   navigation: any;
 }
 
-export default function TestCollectScreen(_: Props) {
+export default function TestCollectScreen({ navigation }: Props) {
   const colors = useThemeColors();
+  const cardOpacity = useThemeStore((s) => s.cardOpacity);
+  const cardBg = hexToRgba(colors.card, cardOpacity / 100);
+  const surfaceElevatedBg = hexToRgba(colors.surfaceElevated, cardOpacity / 100);
+  const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100);
+  const s = useScaledFontSize();
   const [logs, setLogs] = useState<CollectionLog[]>([]);
   const [running, setRunning] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
@@ -43,39 +54,46 @@ export default function TestCollectScreen(_: Props) {
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1 },
-    header: { padding: 20, paddingTop: 60 },
-    title: { fontSize: 24, fontWeight: 'bold', color: colors.text },
-    startBtn: { marginHorizontal: 15, paddingVertical: 16, backgroundColor: colors.primary, borderRadius: 12, alignItems: 'center', marginBottom: 20 },
-    btnDisabled: { opacity: 0.5 },
-    startBtnText: { color: colors.text, fontSize: 16, fontWeight: '600' },
-    logContainer: { flex: 1, marginHorizontal: 15, backgroundColor: colors.surfaceElevated, borderRadius: 8, padding: 12, marginBottom: 30 },
-    logTitle: { fontSize: 14, color: colors.mutedForeground, fontWeight: '500', marginBottom: 8 },
+    header: { paddingTop: 50, paddingHorizontal: 15, paddingBottom: 15, backgroundColor: colors.surfaceElevated },
+    headerRow: { flexDirection: 'row', alignItems: 'center' },
+    title: { flex: 1, fontSize: s(18), fontWeight: 'bold', color: colors.text, textAlign: 'center' },
+    placeholder: { width: 40 },
+    contentPad: { paddingHorizontal: 15, paddingTop: 15 },
+    logContainer: { flex: 1, marginHorizontal: 15, backgroundColor: surfaceElevatedBg, borderRadius: radius.md, padding: 12, marginBottom: 30, marginTop: 15 },
+    logTitle: { fontSize: s(14), color: colors.mutedForeground, fontWeight: '500', marginBottom: 8 },
     logScroll: { flex: 1 },
-    logLine: { fontFamily: 'monospace', fontSize: 12, lineHeight: 20 },
-    logInfo: { color: colors.primary },
+    logLine: { fontFamily: 'monospace', fontSize: s(12), lineHeight: 20 },
+    logInfo: { color: colors.textSecondary },
     logWarn: { color: colors.warning },
     logError: { color: colors.error },
-    logEmpty: { color: colors.disabledForeground, textAlign: 'center', paddingVertical: 40, fontSize: 14 },
-  }), [colors]);
+    logEmpty: { color: colors.disabledForeground, textAlign: 'center', paddingVertical: 40, fontSize: s(14) },
+  }), [colors, cardBg, surfaceElevatedBg, surfaceBg, s]);
 
   return (
     <BlurredBackground imageUrl={null}>
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>测试采集</Text>
+        <View style={styles.headerRow}>
+          <Button variant="icon" size="sm" onPress={() => navigation.goBack()}>
+            <ArrowLeft size={20} color={colors.text} />
+          </Button>
+          <Text style={styles.title}>测试采集</Text>
+          <View style={styles.placeholder} />
+        </View>
       </View>
 
-      <TouchableOpacity
-        style={[styles.startBtn, running && styles.btnDisabled]}
-        onPress={handleStart}
-        disabled={running}
-      >
-        {running ? (
-          <ActivityIndicator size="small" color={colors.text} />
-        ) : (
-          <Text style={styles.startBtnText}>开始测试采集</Text>
-        )}
-      </TouchableOpacity>
+      <View style={styles.contentPad}>
+        <Button
+          variant="primary"
+          size="lg"
+          fullWidth
+          loading={running}
+          disabled={running}
+          onPress={handleStart}
+        >
+          开始测试采集
+        </Button>
+      </View>
 
       <View style={styles.logContainer}>
         <Text style={styles.logTitle}>采集日志</Text>

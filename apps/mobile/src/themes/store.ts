@@ -1,16 +1,34 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { themes, DEFAULT_THEME, THEME_KEY } from './config';
-import type { ThemeId, ThemeConfig, ThemeColors } from './types';
+import type { ThemeId, ThemeConfig, ThemeColors, ColorMode } from './types';
 
+const COLOR_MODE_KEY = 'movie-app-color-mode';
 const BLUR_KEY = 'movie-app-blur-intensity';
 const IMAGE_BLUR_KEY = 'movie-app-image-blur';
 const IMAGE_SCALE_KEY = 'movie-app-image-scale';
 const CARD_OPACITY_KEY = 'movie-app-card-opacity';
+const FONT_SIZE_KEY = 'movie-app-font-size-scale';
+const DEFAULT_COLOR_MODE: ColorMode = 'system';
 const DEFAULT_BLUR = 50;
 const DEFAULT_IMAGE_BLUR = 0;
 const DEFAULT_IMAGE_SCALE = 10;
 const DEFAULT_CARD_OPACITY = 85;
+const DEFAULT_FONT_SIZE_SCALE = 1.0;
+
+async function loadColorModeFromStorage(): Promise<ColorMode> {
+  try {
+    const saved = await AsyncStorage.getItem(COLOR_MODE_KEY);
+    if (saved === 'system' || saved === 'dark' || saved === 'light') return saved;
+  } catch {}
+  return DEFAULT_COLOR_MODE;
+}
+
+async function saveColorModeToStorage(mode: ColorMode): Promise<void> {
+  try {
+    await AsyncStorage.setItem(COLOR_MODE_KEY, mode);
+  } catch {}
+}
 
 async function loadThemeFromStorage(): Promise<ThemeId> {
   try {
@@ -94,15 +112,38 @@ async function saveCardOpacityToStorage(v: number): Promise<void> {
   } catch {}
 }
 
+async function loadFontSizeScaleFromStorage(): Promise<number> {
+  try {
+    const saved = await AsyncStorage.getItem(FONT_SIZE_KEY);
+    if (saved !== null) {
+      const v = parseFloat(saved);
+      if (!isNaN(v) && v >= 0.5 && v <= 2.0) return v;
+    }
+  } catch {}
+  return DEFAULT_FONT_SIZE_SCALE;
+}
+
+async function saveFontSizeScaleToStorage(v: number): Promise<void> {
+  try {
+    await AsyncStorage.setItem(FONT_SIZE_KEY, String(v));
+  } catch {}
+}
+
 interface ThemeState {
   currentTheme: ThemeId;
+  colorMode: ColorMode;
+  systemColorScheme: 'dark' | 'light';
   initialized: boolean;
   blurIntensity: number;
   imageBlur: number;
   imageScale: number;
   cardOpacity: number;
+  fontSizeScale: number;
   setTheme: (id: ThemeId) => void;
   initTheme: () => Promise<void>;
+  setColorMode: (mode: ColorMode) => void;
+  initColorMode: () => Promise<void>;
+  setSystemColorScheme: (scheme: 'dark' | 'light') => void;
   getCurrentColors: () => ThemeColors;
   setBlurIntensity: (v: number) => void;
   initBlurIntensity: () => Promise<void>;
@@ -112,15 +153,25 @@ interface ThemeState {
   initImageScale: () => Promise<void>;
   setCardOpacity: (v: number) => void;
   initCardOpacity: () => Promise<void>;
+  setFontSizeScale: (v: number) => void;
+  initFontSizeScale: () => Promise<void>;
+}
+
+function resolveThemeId(mode: ColorMode, systemScheme: 'dark' | 'light'): ThemeId {
+  if (mode === 'system') return systemScheme;
+  return mode;
 }
 
 export const useThemeStore = create<ThemeState>((set, get) => ({
   currentTheme: DEFAULT_THEME,
+  colorMode: DEFAULT_COLOR_MODE,
+  systemColorScheme: 'dark',
   initialized: false,
   blurIntensity: DEFAULT_BLUR,
   imageBlur: DEFAULT_IMAGE_BLUR,
   imageScale: DEFAULT_IMAGE_SCALE,
   cardOpacity: DEFAULT_CARD_OPACITY,
+  fontSizeScale: DEFAULT_FONT_SIZE_SCALE,
   setTheme: (id: ThemeId) => {
     set({ currentTheme: id });
     saveThemeToStorage(id);
@@ -128,6 +179,27 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   initTheme: async () => {
     const id = await loadThemeFromStorage();
     set({ currentTheme: id, initialized: true });
+  },
+  setColorMode: (mode: ColorMode) => {
+    const { systemColorScheme } = get();
+    const nextTheme = resolveThemeId(mode, systemColorScheme);
+    set({ colorMode: mode, currentTheme: nextTheme });
+    saveColorModeToStorage(mode);
+    saveThemeToStorage(nextTheme);
+  },
+  initColorMode: async () => {
+    const mode = await loadColorModeFromStorage();
+    const { systemColorScheme } = get();
+    const nextTheme = resolveThemeId(mode, systemColorScheme);
+    set({ colorMode: mode, currentTheme: nextTheme });
+  },
+  setSystemColorScheme: (scheme: 'dark' | 'light') => {
+    const { colorMode } = get();
+    set({ systemColorScheme: scheme });
+    if (colorMode === 'system') {
+      set({ currentTheme: scheme });
+      saveThemeToStorage(scheme);
+    }
   },
   getCurrentColors: () => themes[get().currentTheme].colors,
   setBlurIntensity: (v: number) => {
@@ -161,5 +233,13 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   initCardOpacity: async () => {
     const v = await loadCardOpacityFromStorage();
     set({ cardOpacity: v });
+  },
+  setFontSizeScale: (v: number) => {
+    set({ fontSizeScale: v });
+    saveFontSizeScaleToStorage(v);
+  },
+  initFontSizeScale: async () => {
+    const v = await loadFontSizeScaleFromStorage();
+    set({ fontSizeScale: v });
   },
 }));

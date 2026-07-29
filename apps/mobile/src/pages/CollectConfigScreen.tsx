@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
 import { useAppStore } from '../useAppStore';
 import { ArrowLeft, Save, RotateCcw } from 'lucide-react-native';
 import { useThemeColors } from '../themes/useThemeColors';
+import { useThemeStore } from '../themes/store';
+import { useScaledFontSize } from '../themes/useScaledFontSize';
+import { hexToRgba } from '../themes/colorUtils';
 import BlurredBackground from '../components/BlurredBackground';
+import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
 
 interface Props {
   navigation: any;
@@ -12,6 +17,9 @@ interface Props {
 export default function CollectConfigScreen({ navigation }: Props) {
   const { collectConfig, loadCollectConfig, updateCollectConfig } = useAppStore();
   const colors = useThemeColors();
+  const cardOpacity = useThemeStore((s) => s.cardOpacity);
+  const cardBg = hexToRgba(colors.card, cardOpacity / 100);
+  const s = useScaledFontSize();
   const [localConfig, setLocalConfig] = useState({
     minYear: '2025',
     blacklistKeywords: '',
@@ -88,30 +96,24 @@ export default function CollectConfigScreen({ navigation }: Props) {
     container: { flex: 1 },
     header: { paddingTop: 50, paddingHorizontal: 15, paddingBottom: 15, backgroundColor: colors.surfaceElevated },
     headerRow: { flexDirection: 'row', alignItems: 'center' },
-    backButton: { padding: 8 },
-    title: { flex: 1, fontSize: 18, fontWeight: 'bold', color: colors.text, textAlign: 'center' },
+    title: { flex: 1, fontSize: s(18), fontWeight: 'bold', color: colors.text, textAlign: 'center' },
     placeholder: { width: 40 },
     content: { padding: 15 },
     formItem: { marginBottom: 20 },
-    label: { fontSize: 15, fontWeight: '600', color: colors.text, marginBottom: 8 },
-    input: { backgroundColor: colors.card, color: colors.text, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 8, fontSize: 15 },
-    textarea: { minHeight: 120, textAlignVertical: 'top' },
-    hint: { fontSize: 12, color: colors.disabledForeground, marginTop: 6 },
+    label: { fontSize: s(15), fontWeight: '600', color: colors.text, marginBottom: 8 },
+    hint: { fontSize: s(12), color: colors.disabledForeground, marginTop: 6 },
     buttonRow: { flexDirection: 'row', gap: 12, marginTop: 10 },
-    button: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, backgroundColor: colors.primary, borderRadius: 8 },
-    buttonOutline: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
     buttonIcon: { marginRight: 6 },
-    buttonText: { color: colors.text, fontSize: 15, fontWeight: '600' },
-  }), [colors]);
+  }), [colors, cardBg, s]);
 
   return (
     <BlurredBackground imageUrl={null}>
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <View style={styles.headerRow}>
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <Button variant="icon" size="sm" onPress={() => navigation.goBack()}>
             <ArrowLeft size={20} color={colors.text} />
-          </TouchableOpacity>
+          </Button>
           <Text style={styles.title}>采集配置</Text>
           <View style={styles.placeholder} />
         </View>
@@ -120,8 +122,8 @@ export default function CollectConfigScreen({ navigation }: Props) {
       <View style={styles.content}>
         <View style={styles.formItem}>
           <Text style={styles.label}>最小年份过滤</Text>
-          <TextInput
-            style={styles.input}
+          <Input
+            size="lg"
             keyboardType="numeric"
             value={localConfig.minYear}
             onChangeText={(text) => setLocalConfig({ ...localConfig, minYear: text })}
@@ -131,8 +133,8 @@ export default function CollectConfigScreen({ navigation }: Props) {
 
         <View style={styles.formItem}>
           <Text style={styles.label}>请求速率限制</Text>
-          <TextInput
-            style={styles.input}
+          <Input
+            size="lg"
             keyboardType="numeric"
             value={localConfig.rateLimitPerSecond}
             onChangeText={(text) => setLocalConfig({ ...localConfig, rateLimitPerSecond: text })}
@@ -142,8 +144,8 @@ export default function CollectConfigScreen({ navigation }: Props) {
 
         <View style={styles.formItem}>
           <Text style={styles.label}>失败重试次数</Text>
-          <TextInput
-            style={styles.input}
+          <Input
+            size="lg"
             keyboardType="numeric"
             value={localConfig.retryTimes}
             onChangeText={(text) => setLocalConfig({ ...localConfig, retryTimes: text })}
@@ -153,8 +155,8 @@ export default function CollectConfigScreen({ navigation }: Props) {
 
         <View style={styles.formItem}>
           <Text style={styles.label}>每页大小</Text>
-          <TextInput
-            style={styles.input}
+          <Input
+            size="lg"
             keyboardType="numeric"
             value={localConfig.pageSize}
             onChangeText={(text) => setLocalConfig({ ...localConfig, pageSize: text })}
@@ -164,8 +166,8 @@ export default function CollectConfigScreen({ navigation }: Props) {
 
         <View style={styles.formItem}>
           <Text style={styles.label}>最大采集页数</Text>
-          <TextInput
-            style={styles.input}
+          <Input
+            size="lg"
             keyboardType="numeric"
             value={localConfig.maxPages}
             onChangeText={(text) => setLocalConfig({ ...localConfig, maxPages: text })}
@@ -175,8 +177,8 @@ export default function CollectConfigScreen({ navigation }: Props) {
 
         <View style={styles.formItem}>
           <Text style={styles.label}>增量采集最大页数</Text>
-          <TextInput
-            style={styles.input}
+          <Input
+            size="lg"
             keyboardType="numeric"
             value={localConfig.incrementalMaxPages}
             onChangeText={(text) => setLocalConfig({ ...localConfig, incrementalMaxPages: text })}
@@ -186,8 +188,8 @@ export default function CollectConfigScreen({ navigation }: Props) {
 
         <View style={styles.formItem}>
           <Text style={styles.label}>增量最大追溯时间（小时）</Text>
-          <TextInput
-            style={styles.input}
+          <Input
+            size="lg"
             keyboardType="numeric"
             value={localConfig.maxIncrementalHours}
             onChangeText={(text) => setLocalConfig({ ...localConfig, maxIncrementalHours: text })}
@@ -197,8 +199,8 @@ export default function CollectConfigScreen({ navigation }: Props) {
 
         <View style={styles.formItem}>
           <Text style={styles.label}>并发处理数量</Text>
-          <TextInput
-            style={styles.input}
+          <Input
+            size="lg"
             keyboardType="numeric"
             value={localConfig.concurrency}
             onChangeText={(text) => setLocalConfig({ ...localConfig, concurrency: text })}
@@ -208,27 +210,27 @@ export default function CollectConfigScreen({ navigation }: Props) {
 
         <View style={styles.formItem}>
           <Text style={styles.label}>黑名单关键词</Text>
-          <TextInput
-            style={[styles.input, styles.textarea]}
+          <Input
+            size="lg"
+            style={{ minHeight: 120, textAlignVertical: 'top' }}
             multiline
             numberOfLines={8}
             value={localConfig.blacklistKeywords}
             onChangeText={(text) => setLocalConfig({ ...localConfig, blacklistKeywords: text })}
             placeholder="每行一个关键词"
-            placeholderTextColor={colors.disabledForeground}
           />
           <Text style={styles.hint}>采集时会过滤包含这些关键词的内容</Text>
         </View>
 
         <View style={styles.buttonRow}>
-          <TouchableOpacity style={[styles.button, styles.buttonOutline]} onPress={handleReset}>
+          <Button variant="secondary" size="md" onPress={handleReset}>
             <RotateCcw size={18} color={colors.text} style={styles.buttonIcon} />
-            <Text style={styles.buttonText}>重置默认</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.button} onPress={handleSave}>
+            重置默认
+          </Button>
+          <Button variant="primary" size="md" onPress={handleSave}>
             <Save size={18} color={colors.text} style={styles.buttonIcon} />
-            <Text style={styles.buttonText}>保存配置</Text>
-          </TouchableOpacity>
+            保存配置
+          </Button>
         </View>
       </View>
     </ScrollView>

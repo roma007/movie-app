@@ -156,7 +156,7 @@ export class CollectorService {
 
       const vodClass = item.vod_class || '';
       const vodTag = item.vod_tag || '';
-      const typeNameGenres = typeName ? [typeName] : [];
+      const typeNameGenres = typeName ? typeName.split(/[,，]/).filter(Boolean) : [];
       const vodClassGenres = vodClass.split(/[,，]/).filter(Boolean);
       const vodTagGenres = vodTag.split(/[,，]/).filter(Boolean);
       const rawGenres = [...new Set([...typeNameGenres, ...vodClassGenres, ...vodTagGenres])];
@@ -595,16 +595,8 @@ export class CollectorService {
     return failedCount;
   }
 
-  private async logToDb(message: string, level: 'info' | 'error' = 'info'): Promise<void> {
-    try {
-      const now = new Date().toISOString();
-      await this.db.execute(
-        'INSERT INTO system_config (key, value, value_type, remark, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-        [`log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, message, 'string', level, now, now]
-      );
-    } catch (err) {
-      console.error(`[logToDb] 日志写入失败: ${message}`, err);
-    }
+  private async logToDb(_message: string, _level: 'info' | 'error' = 'info'): Promise<void> {
+    // DiagnosticLogViewer removed; logs no longer written to system_config
   }
 
   async collectByKeyword(keyword: string): Promise<Media[]> {
@@ -691,7 +683,7 @@ export class CollectorService {
             const typeName = item.type_name || item.vod_type || '';
             const remarks = item.vod_remarks || '';
             const vodClass = item.vod_class || '';
-            const rawGenres = [...new Set([typeName, ...vodClass.split(/[,，]/).filter(Boolean)])];
+            const rawGenres = [...new Set([...typeName.split(/[,，]/).filter(Boolean), ...vodClass.split(/[,，]/).filter(Boolean)])];
             if (!overrides?.ignoreBlacklist) {
               const allGenreTexts = [...rawGenres, remarks, title];
               if (isBlacklisted(config.blacklistKeywords.length > 0 ? config.blacklistKeywords : undefined, ...allGenreTexts)) continue;

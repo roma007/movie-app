@@ -62,7 +62,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                 <AlertCircle className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
               )}
               <div className="flex-1">
-                <DialogTitle className="text-base font-semibold text-foreground">
+                <DialogTitle className="text-base font-semibold text-text">
                   {state.title}
                 </DialogTitle>
                 {state.description && (

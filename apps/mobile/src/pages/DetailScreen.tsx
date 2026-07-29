@@ -6,7 +6,12 @@ import { VideoDurationService } from '@movie-app/core';
 import { Heart } from 'lucide-react-native';
 import type { Episode, PlaySource, VideoSource } from '@movie-app/core';
 import { useThemeColors } from '../themes/useThemeColors';
+import { useThemeStore } from '../themes/store';
+import { useScaledFontSize } from '../themes/useScaledFontSize';
+import { Button } from '../components/ui/Button';
+import { hexToRgba } from '../themes/colorUtils';
 import BlurredBackground from '../components/BlurredBackground';
+import { radius } from '../themes/radiusTokens';
 
 interface Props {
   route: any;
@@ -17,6 +22,10 @@ export default function DetailScreen({ route, navigation }: Props) {
   const { id } = route.params;
   const { currentMedia, episodes, seasons, isLoading, episodeSources, seriesMedia, loadMediaDetail, loadEpisodes, loadSeasons, loadSeasonEpisodes, loadSeriesMedia } = useAppStore();
   const colors = useThemeColors();
+  const cardOpacity = useThemeStore((s) => s.cardOpacity);
+  const cardBg = hexToRgba(colors.card, cardOpacity / 100);
+  const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100);
+  const s = useScaledFontSize();
   const [currentSeason, setCurrentSeason] = useState(1);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [episodeDurations, setEpisodeDurations] = useState<Record<string, number | null>>({});
@@ -35,43 +44,34 @@ export default function DetailScreen({ route, navigation }: Props) {
     container: { flex: 1 },
     loadingContainer: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
     header: { flexDirection: 'row', padding: 20, paddingTop: 60 },
-    poster: { width: 120, height: 170, borderRadius: 8, backgroundColor: colors.card },
+    poster: { width: 120, height: 170, borderRadius: radius.md, backgroundColor: cardBg },
     info: { flex: 1, marginLeft: 15, justifyContent: 'center' },
     titleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 },
-    title: { fontSize: 20, fontWeight: 'bold', color: colors.text, flex: 1, marginRight: 8 },
-    favButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: colors.card, gap: 4 },
-    favButtonActive: { backgroundColor: colors.favorite },
-    favText: { fontSize: 12, color: colors.textSecondary },
-    favTextActive: { color: colors.text },
-    alias: { fontSize: 13, color: colors.mutedForeground, marginBottom: 4 },
-    subtitle: { fontSize: 14, color: colors.textSecondary, marginBottom: 4 },
-    updateTime: { fontSize: 13, color: colors.favorite, marginBottom: 8 },
+    title: { fontSize: s(20), fontWeight: 'bold', color: colors.text, flex: 1, marginRight: 8 },
+    favButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.sm, gap: 4 },
+    alias: { fontSize: s(13), color: colors.mutedForeground, marginBottom: 4 },
+    subtitle: { fontSize: s(14), color: colors.textSecondary, marginBottom: 4 },
+    updateTime: { fontSize: s(13), color: colors.error, marginBottom: 8 },
     genreRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    genre: { fontSize: 12, color: colors.primary, backgroundColor: colors.primaryLight, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, overflow: 'hidden' },
-    section: { padding: 20, borderTopWidth: 1, borderTopColor: colors.surface },
-    sectionTitle: { fontSize: 16, fontWeight: '600', color: colors.text, marginBottom: 10 },
-    description: { fontSize: 14, color: colors.textSecondary, lineHeight: 22 },
-    text: { fontSize: 14, color: colors.textSecondary },
+    genre: { fontSize: s(12), color: colors.text, backgroundColor: hexToRgba(colors.mutedForeground, cardOpacity / 100 * 0.2), paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, overflow: 'hidden' },
+    section: { padding: 20 },
+    sectionTitle: { fontSize: s(16), fontWeight: '600', color: colors.text, marginBottom: 10 },
+    description: { fontSize: s(14), color: colors.textSecondary, lineHeight: s(22) },
+    text: { fontSize: s(14), color: colors.textSecondary },
+    nameRow: { flexDirection: 'row', flexWrap: 'wrap' },
+    nameLink: { fontSize: s(14), color: colors.textSecondary, marginRight: 4 },
     seasonRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-    seasonButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderLight },
-    seasonButtonActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-    seasonText: { color: colors.textSecondary, fontSize: 14 },
-    seasonTextActive: { color: colors.text },
+    seasonButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: radius.md },
     sourceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-    sourceButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderLight },
-    sourceButtonActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-    sourceText: { color: colors.textSecondary, fontSize: 14 },
-    sourceTextActive: { color: colors.text },
+    sourceButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: radius.md },
     episodesPlaceholder: { paddingVertical: 30, alignItems: 'center' },
-    episodesPlaceholderText: { color: colors.mutedForeground, fontSize: 14 },
-    episodesPlaceholderHint: { color: colors.disabledForeground, fontSize: 12, marginTop: 4 },
+    episodesPlaceholderText: { color: colors.mutedForeground, fontSize: s(14) },
+    episodesPlaceholderHint: { color: colors.disabledForeground, fontSize: s(12), marginTop: 4 },
     episodeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-    episodeButton: { width: '22%', paddingVertical: 10, backgroundColor: colors.surface, borderRadius: 6, alignItems: 'center' },
-    episodeButtonWatched: { opacity: 0.5 },
-    episodeText: { color: colors.textSecondary, fontSize: 13 },
-    episodeDuration: { color: colors.disabledForeground, fontSize: 11, marginTop: 4 },
+    episodeButton: { width: '22%', paddingVertical: 10, borderRadius: radius.sm },
+    episodeDuration: { color: colors.disabledForeground, fontSize: s(11), marginTop: 4 },
     error: { color: colors.error, textAlign: 'center', marginTop: 50 },
-  }), [colors]);
+  }), [colors, cardBg, surfaceBg, s]);
 
   useEffect(() => {
     loadMediaDetail(id);
@@ -209,10 +209,16 @@ export default function DetailScreen({ route, navigation }: Props) {
         <View style={styles.info}>
           <View style={styles.titleRow}>
             <Text style={styles.title} numberOfLines={2}>{currentMedia.title}</Text>
-            <TouchableOpacity style={[styles.favButton, isFav && styles.favButtonActive]} onPress={handleFav}>
-              <Heart size={16} color={isFav ? colors.text : colors.textSecondary} fill={isFav ? colors.text : 'none'} />
-              <Text style={[styles.favText, isFav && styles.favTextActive]}>{isFav ? '已收藏' : '收藏'}</Text>
-            </TouchableOpacity>
+            <Button
+              variant="secondary"
+              size="sm"
+              active={isFav}
+              style={styles.favButton}
+              leftIcon={<Heart size={16} color={isFav ? colors.text : colors.textSecondary} fill={isFav ? colors.text : 'none'} />}
+              onPress={handleFav}
+            >
+              {isFav ? '已收藏' : '收藏'}
+            </Button>
           </View>
           {currentMedia.alias && (
             <Text style={styles.alias}>又名：{currentMedia.alias}</Text>
@@ -239,14 +245,30 @@ export default function DetailScreen({ route, navigation }: Props) {
       {currentMedia.directors.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>导演</Text>
-          <Text style={styles.text}>{currentMedia.directors.join(' / ')}</Text>
+          <View style={styles.nameRow}>
+            {currentMedia.directors.map((d: string, i: number) => (
+              <TouchableOpacity key={d} onPress={() => navigation.navigate('Tabs', { screen: '搜索', params: { keyword: d, fromDetail: id } })}>
+                <Text style={styles.nameLink}>
+                  {d}{i < currentMedia.directors.length - 1 ? ' / ' : ''}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
       )}
 
       {currentMedia.actors.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>演员</Text>
-          <Text style={styles.text}>{currentMedia.actors.join(' / ')}</Text>
+          <View style={styles.nameRow}>
+            {currentMedia.actors.map((a: string, i: number) => (
+              <TouchableOpacity key={a} onPress={() => navigation.navigate('Tabs', { screen: '搜索', params: { keyword: a, fromDetail: id } })}>
+                <Text style={styles.nameLink}>
+                  {a}{i < currentMedia.actors.length - 1 ? ' / ' : ''}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
       )}
 
@@ -257,15 +279,16 @@ export default function DetailScreen({ route, navigation }: Props) {
             {displaySeasons.map((s: number) => {
               const isCurrent = seasonToMediaMap.get(s) === id || (!seasonToMediaMap.has(s) && currentSeason === s);
               return (
-                <TouchableOpacity
+                <Button
                   key={s}
-                  style={[styles.seasonButton, isCurrent && styles.seasonButtonActive]}
+                  variant="secondary"
+                  size="sm"
+                  active={isCurrent}
+                  style={styles.seasonButton}
                   onPress={() => handleSeasonChange(s)}
                 >
-                  <Text style={[styles.seasonText, isCurrent && styles.seasonTextActive]}>
-                    第{s}季
-                  </Text>
-                </TouchableOpacity>
+                  第{s}季
+                </Button>
               );
             })}
           </View>
@@ -277,13 +300,16 @@ export default function DetailScreen({ route, navigation }: Props) {
           <Text style={styles.sectionTitle}>视频源</Text>
           <View style={styles.sourceRow}>
             {episodeSources.map((s: VideoSource) => (
-              <TouchableOpacity
+              <Button
                 key={s.id}
-                style={[styles.sourceButton, selectedSourceId === s.id && styles.sourceButtonActive]}
+                variant="secondary"
+                size="sm"
+                active={selectedSourceId === s.id}
+                style={styles.sourceButton}
                 onPress={() => handleSourceChange(s.id)}
               >
-                <Text style={[styles.sourceText, selectedSourceId === s.id && styles.sourceTextActive]}>{s.name}</Text>
-              </TouchableOpacity>
+                {s.name}
+              </Button>
             ))}
           </View>
         </View>
@@ -293,7 +319,7 @@ export default function DetailScreen({ route, navigation }: Props) {
         <Text style={styles.sectionTitle}>{isMovie ? '播放源' : `剧集 (${episodes.length}集)`}</Text>
         {isEpisodesLoading ? (
           <View style={styles.episodesPlaceholder}>
-            <ActivityIndicator size="small" color={colors.primary} />
+            <ActivityIndicator size="small" color={colors.mutedForeground} />
             <Text style={styles.episodesPlaceholderText}>加载中...</Text>
           </View>
         ) : episodes.length === 0 ? (
@@ -321,13 +347,15 @@ export default function DetailScreen({ route, navigation }: Props) {
                 const suffix = count > 1 ? ` (${idxInGroup})` : '';
                 const title = `${baseTitle}${suffix}`;
                 return (
-                  <TouchableOpacity
+                  <Button
                     key={`${ep.id}-${source.id || idx}`}
+                    variant="primary"
+                    size="sm"
                     style={styles.episodeButton}
                     onPress={() => navigation.navigate('Play', { episodeId: ep.id, mediaId: id, sourceId: source.sourceId, title: currentMedia.title + ' · ' + title })}
                   >
-                    <Text style={styles.episodeText}>{title}</Text>
-                  </TouchableOpacity>
+                    {title}
+                  </Button>
                 );
               });
             })}
@@ -339,20 +367,21 @@ export default function DetailScreen({ route, navigation }: Props) {
               const duration = episodeDurations[ep.id];
               const isWatched = watchedEpisodes.has(ep.id);
               return (
-                <TouchableOpacity
+                <Button
                   key={ep.id}
-                  style={[styles.episodeButton, isWatched && styles.episodeButtonWatched]}
+                  variant="primary"
+                  size="sm"
+                  disabled={isWatched}
+                  style={styles.episodeButton}
                   onPress={() => navigation.navigate('Play', { episodeId: ep.id, mediaId: id, sourceId: selectedSourceId, title: currentMedia.title + (ep.title ? ` · ${ep.title}` : ` · 第${ep.episodeNumber}集`) })}
                 >
-                  <Text style={styles.episodeText}>
-                    {ep.title || `第${ep.episodeNumber}集`}
-                  </Text>
+                  {ep.title || `第${ep.episodeNumber}集`}
                   {duration !== null && (
                     <Text style={styles.episodeDuration}>
                       {Math.floor(duration / 60)}:{String(duration % 60).padStart(2, '0')}
                     </Text>
                   )}
-                </TouchableOpacity>
+                </Button>
               );
             })}
           </View>

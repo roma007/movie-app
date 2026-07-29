@@ -33,8 +33,8 @@ export function CollectProgressDialog() {
   const failedCount = collectSourceProgress.filter((s) => s.status === 'failed').length;
 
   return (
-    <div className="fixed top-4 left-4 z-50 w-80 max-h-[70vh] rounded-lg border border-border bg-card shadow-lg overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+    <div className="fixed top-4 left-4 z-50 w-80 max-h-[70vh] rounded-lg bg-card shadow-lg overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3">
         <h3 className="text-sm font-semibold">
           {allDone ? '采集完成' : '增量采集中...'}
         </h3>
@@ -65,7 +65,7 @@ export function CollectProgressDialog() {
             }`}
           >
             {s.status === 'running' ? (
-              <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
+              <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
             ) : s.status === 'done' ? (
               <CheckCircle2 className="size-3.5 shrink-0 text-success" />
             ) : (
@@ -89,7 +89,7 @@ export function CollectProgressDialog() {
         ))}
       </div>
 
-      <div className="border-t border-border px-4 py-2 text-xs text-muted-foreground">
+      <div className="px-4 py-2 text-xs text-muted-foreground">
         共采集 {totalCollected} 部
         {doneCount > 0 && ` · ${doneCount} 源完成`}
         {failedCount > 0 && ` · ${failedCount} 源失败`}

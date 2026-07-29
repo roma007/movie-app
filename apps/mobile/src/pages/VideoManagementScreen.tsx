@@ -1,15 +1,22 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { ArrowLeft } from 'lucide-react-native';
 import { useAppStore } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
+import { useThemeStore } from '../themes/store';
+import { useScaledFontSize } from '../themes/useScaledFontSize';
+import { hexToRgba } from '../themes/colorUtils';
+import { radius } from '../themes/radiusTokens';
 import BlurredBackground from '../components/BlurredBackground';
+import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
 import type { ShortDramaConfig } from '@movie-app/core';
 
 interface Props {
   navigation: any;
 }
 
-export default function VideoManagementScreen(_: Props) {
+export default function VideoManagementScreen({ navigation }: Props) {
   const {
     deleteAllMedia, deleteMediaWithoutPlaySource, deleteMediaByGenres,
     getSubTypesByType, getHiddenMediaCount, hideMediaByGenres, unhideMediaByGenres,
@@ -19,6 +26,10 @@ export default function VideoManagementScreen(_: Props) {
     reprobeProgress,
   } = useAppStore();
   const colors = useThemeColors();
+  const cardOpacity = useThemeStore((s) => s.cardOpacity);
+  const cardBg = hexToRgba(colors.card, cardOpacity / 100);
+  const s = useScaledFontSize();
+  const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100);
 
   const [deletingAll, setDeletingAll] = useState(false);
   const [deletingOrphans, setDeletingOrphans] = useState(false);
@@ -181,56 +192,50 @@ export default function VideoManagementScreen(_: Props) {
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1 },
-    header: { padding: 20, paddingTop: 60 },
-    title: { fontSize: 24, fontWeight: 'bold', color: colors.text },
-    content: { paddingHorizontal: 15, gap: 12, paddingBottom: 30 },
-    card: { backgroundColor: colors.card, borderRadius: 12, padding: 16, gap: 12 },
-    cardTitle: { fontSize: 16, fontWeight: '600', color: colors.text },
-    cardDesc: { fontSize: 13, color: colors.mutedForeground, lineHeight: 18 },
-    text: { fontSize: 14, color: colors.textSecondary, lineHeight: 22 },
-    warningText: { fontSize: 13, color: colors.error },
-    dangerBtn: { paddingVertical: 14, backgroundColor: 'rgba(239,68,68,0.15)', borderRadius: 8, alignItems: 'center' },
-    btnDisabled: { opacity: 0.5 },
-    dangerBtnText: { color: colors.error, fontSize: 15, fontWeight: '500' },
-    primaryBtn: { paddingVertical: 14, backgroundColor: colors.primary, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 },
-    primaryBtnText: { color: colors.primaryForeground, fontSize: 15, fontWeight: '500' },
-    outlineBtn: { paddingVertical: 10, backgroundColor: colors.card, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: colors.border },
-    outlineBtnText: { color: colors.textSecondary, fontSize: 14 },
+    header: { paddingTop: 50, paddingHorizontal: 15, paddingBottom: 15, backgroundColor: colors.surfaceElevated },
+    headerRow: { flexDirection: 'row', alignItems: 'center' },
+    title: { flex: 1, fontSize: s(18), fontWeight: 'bold', color: colors.text, textAlign: 'center' },
+    placeholder: { width: 40 },
+    content: { paddingHorizontal: 15, gap: 12, paddingBottom: 30, paddingTop: 15 },
+    card: { backgroundColor: cardBg, borderRadius: radius.lg, padding: 16, gap: 12 },
+    cardTitle: { fontSize: s(16), fontWeight: '600', color: colors.text },
+    cardDesc: { fontSize: s(13), color: colors.mutedForeground, lineHeight: 18 },
+    text: { fontSize: s(14), color: colors.textSecondary, lineHeight: 22 },
+    warningText: { fontSize: s(13), color: colors.error },
     configSection: { gap: 8 },
-    configLabel: { fontSize: 14, fontWeight: '500', color: colors.text },
-    configDesc: { fontSize: 12, color: colors.mutedForeground, lineHeight: 16 },
-    configInput: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: colors.text },
+    configLabel: { fontSize: s(14), fontWeight: '500', color: colors.text },
+    configDesc: { fontSize: s(12), color: colors.mutedForeground, lineHeight: 16 },
     configInputRow: { flexDirection: 'row', gap: 8 },
-    configInputFlex: { flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: colors.text },
-    addBtn: { backgroundColor: colors.primary, borderRadius: 8, paddingHorizontal: 16, justifyContent: 'center' },
-    addBtnText: { color: colors.primaryForeground, fontSize: 14, fontWeight: '500' },
     tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-    tag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-    tagText: { fontSize: 12, color: colors.textSecondary },
-    tagRemove: { fontSize: 12, color: colors.error, marginLeft: 4 },
     configActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
     progressSection: { gap: 8 },
-    progressBar: { height: 6, backgroundColor: colors.border, borderRadius: 3, overflow: 'hidden' },
-    progressFill: { height: '100%', backgroundColor: colors.primary, borderRadius: 3 },
-    progressText: { fontSize: 12, color: colors.mutedForeground, textAlign: 'center' },
+    progressBar: { height: 6, backgroundColor: colors.trackBg, borderRadius: radius.progress, overflow: 'hidden' },
+    progressFill: { height: '100%', backgroundColor: colors.mutedForeground, borderRadius: radius.progress },
+    progressText: { fontSize: s(12), color: colors.mutedForeground, textAlign: 'center' },
     statsGrid: { flexDirection: 'row', gap: 8 },
-    statBox: { flex: 1, alignItems: 'center', paddingVertical: 10, backgroundColor: colors.surface, borderRadius: 8 },
-    statNumber: { fontSize: 20, fontWeight: 'bold' },
-    statLabel: { fontSize: 11, color: colors.mutedForeground, marginTop: 2 },
-    infoRow: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, backgroundColor: colors.surface, borderRadius: 8 },
-    infoText: { fontSize: 13, color: colors.textSecondary, flex: 1 },
+    statBox: { flex: 1, alignItems: 'center', paddingVertical: 10, backgroundColor: surfaceBg, borderRadius: radius.md },
+    statNumber: { fontSize: s(20), fontWeight: 'bold' },
+    statLabel: { fontSize: s(11), color: colors.mutedForeground, marginTop: 2 },
+    infoRow: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, backgroundColor: surfaceBg, borderRadius: radius.md },
+    infoText: { fontSize: s(13), color: colors.textSecondary, flex: 1 },
     infoBold: { fontWeight: '600', color: colors.text },
-    resultBox: { padding: 12, backgroundColor: colors.surface, borderRadius: 8, gap: 6 },
-    resultText: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
-    runningBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 10, backgroundColor: colors.primaryLight, borderRadius: 8 },
-    runningText: { fontSize: 13, color: colors.primary, fontWeight: '500' },
-  }), [colors]);
+    resultBox: { padding: 12, backgroundColor: surfaceBg, borderRadius: radius.md, gap: 6 },
+    resultText: { fontSize: s(13), color: colors.textSecondary, lineHeight: 18 },
+    runningBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 10, backgroundColor: hexToRgba(colors.mutedForeground, 0.15), borderRadius: radius.md },
+    runningText: { fontSize: s(13), color: colors.text, fontWeight: '500' },
+  }), [colors, cardBg, surfaceBg, s]);
 
   return (
     <BlurredBackground imageUrl={null}>
     <ScrollView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>视频管理</Text>
+        <View style={styles.headerRow}>
+          <Button variant="icon" size="sm" onPress={() => navigation.goBack()}>
+            <ArrowLeft size={20} color={colors.text} />
+          </Button>
+          <Text style={styles.title}>视频管理</Text>
+          <View style={styles.placeholder} />
+        </View>
       </View>
 
       <View style={styles.content}>
@@ -245,24 +250,24 @@ export default function VideoManagementScreen(_: Props) {
                 <Text style={styles.configDesc}>用 {'{N}'} 代表数字，例如「{'{N}'}分钟」可匹配"30分钟"</Text>
                 <View style={styles.tagRow}>
                   {localConfig.summaryPatterns.map((p, i) => (
-                    <TouchableOpacity key={i} style={styles.tag} onPress={() => removePattern(p)}>
-                      <Text style={styles.tagText}>{p}<Text style={styles.tagRemove}> x</Text></Text>
-                    </TouchableOpacity>
+                    <Button key={i} variant="secondary" size="sm" onPress={() => removePattern(p)}>
+                      {p} x
+                    </Button>
                   ))}
                 </View>
                 <View style={styles.configInputRow}>
-                  <TextInput
-                    style={styles.configInputFlex}
+                  <Input
+                    size="sm"
+                    style={{ flex: 1 }}
                     value={patternInput}
                     onChangeText={setPatternInput}
                     placeholder="输入模板，如 {N}分钟"
-                    placeholderTextColor={colors.disabledForeground}
                     onSubmitEditing={addPattern}
                     returnKeyType="done"
                   />
-                  <TouchableOpacity style={styles.addBtn} onPress={addPattern}>
-                    <Text style={styles.addBtnText}>添加</Text>
-                  </TouchableOpacity>
+                  <Button variant="primary" size="sm" onPress={addPattern}>
+                    添加
+                  </Button>
                 </View>
               </View>
 
@@ -271,8 +276,9 @@ export default function VideoManagementScreen(_: Props) {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.configLabel}>短剧阈值（分钟）</Text>
                     <Text style={styles.configDesc}>低于此值判定为短剧</Text>
-                    <TextInput
-                      style={[styles.configInput, { marginTop: 6 }]}
+                    <Input
+                      size="sm"
+                      style={{ marginTop: 6 }}
                       keyboardType="number-pad"
                       value={String(localConfig.durationThresholdMinutes)}
                       onChangeText={(v) => setLocalConfig({ ...localConfig, durationThresholdMinutes: Math.max(1, parseInt(v) || 30) })}
@@ -281,8 +287,9 @@ export default function VideoManagementScreen(_: Props) {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.configLabel}>探测集数上限</Text>
                     <Text style={styles.configDesc}>最多探测N集视频流</Text>
-                    <TextInput
-                      style={[styles.configInput, { marginTop: 6 }]}
+                    <Input
+                      size="sm"
+                      style={{ marginTop: 6 }}
                       keyboardType="number-pad"
                       value={String(localConfig.probeEpisodeCount)}
                       onChangeText={(v) => setLocalConfig({ ...localConfig, probeEpisodeCount: Math.max(1, parseInt(v) || 8) })}
@@ -296,37 +303,37 @@ export default function VideoManagementScreen(_: Props) {
                 <Text style={styles.configDesc}>当第1、2层均未命中时，根据简介、标题、类型中的关键词判断</Text>
                 <View style={styles.tagRow}>
                   {localConfig.metaKeywords.slice(0, 30).map((kw, i) => (
-                    <TouchableOpacity key={i} style={styles.tag} onPress={() => removeKeyword(kw)}>
-                      <Text style={styles.tagText}>{kw}<Text style={styles.tagRemove}> x</Text></Text>
-                    </TouchableOpacity>
+                    <Button key={i} variant="secondary" size="sm" onPress={() => removeKeyword(kw)}>
+                      {kw} x
+                    </Button>
                   ))}
                   {localConfig.metaKeywords.length > 30 && (
                     <Text style={[styles.configDesc, { alignSelf: 'center' }]}>...还有 {localConfig.metaKeywords.length - 30} 个</Text>
                   )}
                 </View>
                 <View style={styles.configInputRow}>
-                  <TextInput
-                    style={styles.configInputFlex}
+                  <Input
+                    size="sm"
+                    style={{ flex: 1 }}
                     value={keywordInput}
                     onChangeText={setKeywordInput}
                     placeholder="输入关键词后添加"
-                    placeholderTextColor={colors.disabledForeground}
                     onSubmitEditing={addKeyword}
                     returnKeyType="done"
                   />
-                  <TouchableOpacity style={styles.addBtn} onPress={addKeyword}>
-                    <Text style={styles.addBtnText}>添加</Text>
-                  </TouchableOpacity>
+                  <Button variant="primary" size="sm" onPress={addKeyword}>
+                    添加
+                  </Button>
                 </View>
               </View>
 
               <View style={styles.configActions}>
-                <TouchableOpacity style={styles.outlineBtn} onPress={handleResetConfig}>
-                  <Text style={styles.outlineBtnText}>恢复默认</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.primaryBtn, { flex: 1 }]} onPress={handleSaveConfig}>
-                  <Text style={styles.primaryBtnText}>{configSaved ? '已保存' : '保存配置'}</Text>
-                </TouchableOpacity>
+                <Button variant="secondary" size="sm" onPress={handleResetConfig}>
+                  恢复默认
+                </Button>
+                <Button variant="primary" size="sm" style={{ flex: 1 }} onPress={handleSaveConfig}>
+                  {configSaved ? '已保存' : '保存配置'}
+                </Button>
               </View>
             </>
           )}
@@ -359,7 +366,7 @@ export default function VideoManagementScreen(_: Props) {
                   <Text style={styles.statLabel}>短剧</Text>
                 </View>
                 <View style={styles.statBox}>
-                  <Text style={[styles.statNumber, { color: colors.primary }]}>{reprobeProgress.longDrama}</Text>
+                  <Text style={[styles.statNumber, { color: colors.textSecondary }]}>{reprobeProgress.longDrama}</Text>
                   <Text style={styles.statLabel}>长剧</Text>
                 </View>
                 <View style={styles.statBox}>
@@ -381,49 +388,48 @@ export default function VideoManagementScreen(_: Props) {
 
           {runningReprobeTask && !fullReprobing && (
             <View style={styles.runningBadge}>
-              <ActivityIndicator size="small" color={colors.primary} />
+              <ActivityIndicator size="small" color={colors.mutedForeground} />
               <Text style={styles.runningText}>探测任务运行中...</Text>
             </View>
           )}
 
-          <TouchableOpacity
-            style={[styles.primaryBtn, (fullReprobing || fullReprobeMediaCount === 0 || !!runningReprobeTask) && styles.btnDisabled]}
-            onPress={handleFullReprobe}
+          <Button
+            variant="primary"
+            size="md"
+            fullWidth
+            loading={fullReprobing}
             disabled={fullReprobing || fullReprobeMediaCount === 0 || !!runningReprobeTask}
+            onPress={handleFullReprobe}
           >
-            <Text style={styles.primaryBtnText}>
-              {runningReprobeTask ? '任务运行中...' : fullReprobing ? '启动中...' : `开始全量重新探测 (${fullReprobeMediaCount})`}
-            </Text>
-          </TouchableOpacity>
+            {runningReprobeTask ? '任务运行中...' : fullReprobing ? '启动中...' : `开始全量重新探测 (${fullReprobeMediaCount})`}
+          </Button>
         </View>
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>危险操作</Text>
           <Text style={styles.warningText}>以下操作不可恢复，请谨慎使用</Text>
 
-          <TouchableOpacity
-            style={[styles.dangerBtn, deletingAll && styles.btnDisabled]}
-            onPress={handleDeleteAll}
+          <Button
+            variant="destructive"
+            size="md"
+            fullWidth
+            loading={deletingAll}
             disabled={deletingAll}
+            onPress={handleDeleteAll}
           >
-            {deletingAll ? (
-              <ActivityIndicator size="small" color={colors.text} />
-            ) : (
-              <Text style={styles.dangerBtnText}>删除所有视频</Text>
-            )}
-          </TouchableOpacity>
+            删除所有视频
+          </Button>
 
-          <TouchableOpacity
-            style={[styles.dangerBtn, deletingOrphans && styles.btnDisabled]}
-            onPress={handleDeleteOrphans}
+          <Button
+            variant="destructive"
+            size="md"
+            fullWidth
+            loading={deletingOrphans}
             disabled={deletingOrphans}
+            onPress={handleDeleteOrphans}
           >
-            {deletingOrphans ? (
-              <ActivityIndicator size="small" color={colors.text} />
-            ) : (
-              <Text style={styles.dangerBtnText}>删除无播放源视频</Text>
-            )}
-          </TouchableOpacity>
+            删除无播放源视频
+          </Button>
         </View>
 
         <View style={styles.card}>

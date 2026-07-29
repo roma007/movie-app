@@ -1,25 +1,34 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Image, Switch, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAppStore, getProvider } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
+import { useScaledFontSize } from '../themes/useScaledFontSize';
 import { hexToRgba } from '../themes/colorUtils';
 import MediaCard from '../components/MediaCard';
+import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
 import UsageGuideModal from '../components/UsageGuideModal';
 import CategoryHeader from '../components/CategoryHeader';
 import BlurredBackground from '../components/BlurredBackground';
-import type { Media, UserUsageType } from '@movie-app/core';
+import CollectProgressDialog from '../components/CollectProgressDialog';
+import type { Media, Episode, UserUsageType } from '@movie-app/core';
+import { radius } from '../themes/radiusTokens';
+import { Sparkles, Film, Tv, Clock, Heart, CheckSquare, Square } from 'lucide-react-native';
 
 export default function HomeScreen() {
   const navigation = useNavigation<any>();
   const provider = getProvider();
   const colors = useThemeColors();
   const cardOpacity = useThemeStore((s) => s.cardOpacity);
+  const cardBg = hexToRgba(colors.card, cardOpacity / 100);
+  const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100);
+  const s = useScaledFontSize();
   const {
     favorites, watchHistory, loadFavorites, loadWatchHistory,
     userUsageTypes, loadUserUsageTypes,
-    collectLatest, isLoading: storeLoading,
+    collectLatest, isCollecting: storeLoading,
     searchKeywordPreview, previewResults, previewLoading,
     saveSelectedPreviewItems, clearPreviewResults,
     videoSources, loadVideoSources,
@@ -27,9 +36,12 @@ export default function HomeScreen() {
 
   const [favMediaList, setFavMediaList] = useState<Media[]>([]);
   const [historyMediaList, setHistoryMediaList] = useState<Media[]>([]);
+  const [episodeMap, setEpisodeMap] = useState<Record<string, Episode>>({});
   const [latestMedia, setLatestMedia] = useState<Media[]>([]);
   const [quickKeyword, setQuickKeyword] = useState('');
   const [selectedPreviewIds, setSelectedPreviewIds] = useState<Set<string>>(new Set([]));
+  const [relaxBlacklist, setRelaxBlacklist] = useState(false);
+  const [relaxYear, setRelaxYear] = useState(false);
 
   const [sourcesChecked, setSourcesChecked] = useState(false);
 
@@ -41,9 +53,10 @@ export default function HomeScreen() {
     if (sourcesChecked && videoSources.length === 0) {
       Alert.alert(
         '添加视频源',
-        '还没有视频源，请先通过 AI 导入或手动添加视频源后再使用',
+        '还没有视频源，使用 AI 智能导入可以快速添加',
         [
-          { text: '去添加', onPress: () => navigation.navigate('SourceManager') },
+          { text: 'AI 导入', onPress: () => navigation.navigate('AiSourceImport') },
+          { text: '手动添加', onPress: () => navigation.navigate('SourceManager') },
         ],
         { cancelable: false }
       );
@@ -86,12 +99,29 @@ export default function HomeScreen() {
     return () => { cancelled = true; };
   }, [watchHistory, provider]);
 
+  useEffect(() => {
+    if (watchHistory.length === 0) { setEpisodeMap({}); return; }
+    let cancelled = false;
+    const episodeIds = watchHistory.map(h => h.episodeId).filter(Boolean) as string[];
+    if (episodeIds.length === 0) { setEpisodeMap({}); return; }
+    Promise.all(
+      episodeIds.map(id => provider.getEpisodeById(id).catch(() => null))
+    ).then(list => {
+      if (!cancelled) {
+        const map: Record<string, Episode> = {};
+        list.filter(Boolean).forEach(ep => { if (ep) map[ep.id] = ep; });
+        setEpisodeMap(map);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [watchHistory, provider]);
+
   const handleQuickPreview = useCallback(async () => {
     const kw = quickKeyword.trim();
     if (!kw) return;
     setSelectedPreviewIds(new Set([]));
-    await searchKeywordPreview(kw);
-  }, [quickKeyword, searchKeywordPreview]);
+    await searchKeywordPreview(kw, { ignoreBlacklist: relaxBlacklist, unlimitedYear: relaxYear });
+  }, [quickKeyword, searchKeywordPreview, relaxBlacklist, relaxYear]);
 
   const handleQuickCollect = useCallback(async () => {
     const items = previewResults.filter((p) => selectedPreviewIds.size === 0 || selectedPreviewIds.has(p.fingerprint));
@@ -99,20 +129,20 @@ export default function HomeScreen() {
       Alert.alert('提示', '请至少选择一个视频');
       return;
     }
-    const count = await saveSelectedPreviewItems(items);
+    const count = await saveSelectedPreviewItems(items, { ignoreBlacklist: relaxBlacklist, unlimitedYear: relaxYear });
     if (count > 0) {
       Alert.alert('采集完成', `成功采集 ${count} 部视频`);
       clearPreviewResults();
       setQuickKeyword('');
+      setRelaxBlacklist(false);
+      setRelaxYear(false);
     } else {
       Alert.alert('采集失败', '请重试');
     }
-  }, [previewResults, selectedPreviewIds, saveSelectedPreviewItems, clearPreviewResults]);
+  }, [previewResults, selectedPreviewIds, saveSelectedPreviewItems, clearPreviewResults, relaxBlacklist, relaxYear]);
 
   const handleMobileCollectLatest = useCallback(async () => {
-    Alert.alert('增量采集', '开始从所有视频源采集最新内容...');
     await collectLatest();
-    Alert.alert('完成', '增量采集完成');
     if (userUsageTypes.includes('NEW_MOVIES')) {
       provider.listMedia({ type: 'MOVIE', page: 1, pageSize: 5, sort: 'latest' })
         .then((r) => setLatestMedia(r.items))
@@ -131,20 +161,48 @@ export default function HomeScreen() {
 
   const renderSearchFirstCard = () => (
     <View style={styles.usageCard}>
-      <Text style={styles.usageCardTitle}>🔍 快速搜索采集</Text>
+      <View style={styles.titleRow}>
+        <Sparkles size={18} color={colors.text} />
+        <Text style={styles.usageCardTitle}>快速搜索采集</Text>
+      </View>
       <Text style={styles.usageCardDesc}>输入关键词搜索并一键采集你想看的视频</Text>
       <View style={styles.quickSearchRow}>
-        <TextInput
-          style={styles.quickSearchInput}
+        <Input
+          style={{ flex: 1 }}
           placeholder="输入电影/电视剧名称..."
-          placeholderTextColor={colors.disabledForeground}
           value={quickKeyword}
           onChangeText={setQuickKeyword}
           onSubmitEditing={handleQuickPreview}
         />
-        <TouchableOpacity style={styles.quickSearchBtn} onPress={handleQuickPreview} disabled={previewLoading}>
-          <Text style={styles.quickSearchBtnText}>{previewLoading ? '搜索中' : '预览'}</Text>
-        </TouchableOpacity>
+        <Button variant="primary" size="sm" onPress={handleQuickPreview} loading={previewLoading}>
+          搜索采集
+        </Button>
+      </View>
+      {previewLoading && (
+        <View style={styles.quickSearchLoading}>
+          <ActivityIndicator size="small" color={colors.mutedForeground} />
+          <Text style={styles.quickSearchLoadingText}>正在搜索...</Text>
+        </View>
+      )}
+      <View style={styles.optionRow}>
+        <View style={styles.switchRow}>
+          <Switch
+            value={relaxBlacklist}
+            onValueChange={setRelaxBlacklist}
+            trackColor={{ false: colors.swiftTrack, true: colors.swiftActiveTrack }}
+            thumbColor={colors.swiftThumb}
+          />
+          <Text style={styles.switchLabel}>忽略黑名单</Text>
+        </View>
+        <View style={styles.switchRow}>
+          <Switch
+            value={relaxYear}
+            onValueChange={setRelaxYear}
+            trackColor={{ false: colors.swiftTrack, true: colors.swiftActiveTrack }}
+            thumbColor={colors.swiftThumb}
+          />
+          <Text style={styles.switchLabel}>不限年份</Text>
+        </View>
       </View>
       {previewResults.length > 0 && (
         <View style={styles.previewList}>
@@ -155,7 +213,7 @@ export default function HomeScreen() {
               onPress={() => toggleMobilePreviewItem(item.fingerprint)}
             >
               <Text style={styles.previewCheck}>
-                {selectedPreviewIds.size === 0 || selectedPreviewIds.has(item.fingerprint) ? '☑' : '☐'}
+                {selectedPreviewIds.size === 0 || selectedPreviewIds.has(item.fingerprint) ? <CheckSquare size={16} color={colors.text} /> : <Square size={16} color={colors.mutedForeground} />}
               </Text>
               {item.posterUrl && (
                 <Image source={{ uri: item.posterUrl }} style={styles.previewPoster} />
@@ -166,11 +224,9 @@ export default function HomeScreen() {
               </View>
             </TouchableOpacity>
           ))}
-          <TouchableOpacity style={styles.collectAllBtn} onPress={handleQuickCollect}>
-            <Text style={styles.collectAllBtnText}>
-              一键采集（{selectedPreviewIds.size === 0 ? previewResults.length : selectedPreviewIds.size} 部）
-            </Text>
-          </TouchableOpacity>
+          <Button variant="primary" size="md" fullWidth onPress={handleQuickCollect}>
+            一键采集（{selectedPreviewIds.size === 0 ? previewResults.length : selectedPreviewIds.size} 部）
+          </Button>
         </View>
       )}
     </View>
@@ -179,10 +235,13 @@ export default function HomeScreen() {
   const renderNewMoviesCard = () => (
     <View style={styles.usageCard}>
       <View style={styles.cardHeader}>
-        <Text style={styles.usageCardTitle}>🎬 新片增量采集</Text>
-        <TouchableOpacity style={styles.compactCollectBtn} onPress={handleMobileCollectLatest} disabled={storeLoading}>
-          <Text style={styles.compactCollectBtnText}>{storeLoading ? '采集中' : '增量采集'}</Text>
-        </TouchableOpacity>
+        <View style={styles.titleRow}>
+          <Film size={18} color={colors.text} />
+          <Text style={styles.usageCardTitle}>新片增量采集</Text>
+        </View>
+        <Button variant="secondary" size="sm" onPress={handleMobileCollectLatest} loading={storeLoading} disabled={storeLoading}>
+          {storeLoading ? '采集中' : '增量采集'}
+        </Button>
       </View>
       {latestMedia.length > 0 && (
         <>
@@ -210,10 +269,13 @@ export default function HomeScreen() {
     return (
       <View style={styles.usageCard}>
         <View style={styles.cardHeader}>
-          <Text style={styles.usageCardTitle}>📺 我的追剧</Text>
-          <TouchableOpacity style={styles.compactCollectBtn} onPress={handleMobileCollectLatest} disabled={storeLoading}>
-            <Text style={styles.compactCollectBtnText}>{storeLoading ? '采集中' : '增量采集'}</Text>
-          </TouchableOpacity>
+          <View style={styles.titleRow}>
+            <Tv size={18} color={colors.text} />
+            <Text style={styles.usageCardTitle}>我的追剧</Text>
+          </View>
+          <Button variant="secondary" size="sm" onPress={handleMobileCollectLatest} loading={storeLoading} disabled={storeLoading}>
+            {storeLoading ? '采集中' : '增量采集'}
+          </Button>
         </View>
         {tvWatchHistory.length === 0 ? (
           <Text style={styles.usageCardDesc}>暂无追剧记录，观看电视剧或综艺后会显示在这里</Text>
@@ -222,19 +284,30 @@ export default function HomeScreen() {
             const media = historyMediaList.find((m) => m.id === h.mediaId);
             if (!media) return null;
             const progressPct = h.duration > 0 ? Math.min(Math.round((h.progress / h.duration) * 100), 100) : 0;
+            const ep = h.episodeId ? episodeMap[h.episodeId] : null;
+            const epLabel = ep ? (ep.title || `第${ep.episodeNumber}集`) : null;
             return (
               <TouchableOpacity
                 key={h.id}
                 style={styles.tvItem}
                 onPress={() => navigation.navigate('Detail', { id: media.id })}
               >
+                <View style={styles.tvItemThumb}>
+                  {media.posterUrl ? (
+                    <Image source={{ uri: media.posterUrl }} style={styles.tvItemThumbImg} />
+                  ) : (
+                    <View style={styles.tvItemThumbPlaceholder}>
+                      <Text style={{ fontSize: 10, color: colors.mutedForeground }}>无</Text>
+                    </View>
+                  )}
+                </View>
                 <View style={styles.tvItemLeft}>
                   <Text style={styles.tvItemTitle} numberOfLines={1}>{media.title}</Text>
+                  {epLabel && <Text style={styles.tvItemEpisode} numberOfLines={1}>{epLabel}</Text>}
                   <View style={styles.progressBar}>
                     <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
                   </View>
                 </View>
-                <Text style={styles.tvItemPct}>{progressPct}%</Text>
                 <Text style={styles.tvItemAction}>续看</Text>
               </TouchableOpacity>
             );
@@ -247,7 +320,10 @@ export default function HomeScreen() {
   const renderHistoryCard = () => (
     <View style={styles.usageCard}>
       <View style={styles.cardHeader}>
-        <Text style={styles.usageCardTitle}>🕐 观看历史 ({watchHistory.length})</Text>
+        <View style={styles.titleRow}>
+          <Clock size={18} color={colors.text} />
+          <Text style={styles.usageCardTitle}>观看历史 ({watchHistory.length})</Text>
+        </View>
       </View>
       {watchHistory.length === 0 ? (
         <Text style={styles.emptyCardText}>暂无观看历史</Text>
@@ -269,7 +345,10 @@ export default function HomeScreen() {
   const renderFavoritesCard = () => (
     <View style={styles.usageCard}>
       <View style={styles.cardHeader}>
-        <Text style={styles.usageCardTitle}>❤️ 我的收藏 ({favorites.length})</Text>
+        <View style={styles.titleRow}>
+          <Heart size={18} color={colors.text} />
+          <Text style={styles.usageCardTitle}>我的收藏 ({favorites.length})</Text>
+        </View>
       </View>
       {favMediaList.length === 0 ? (
         <Text style={styles.emptyCardText}>暂无收藏</Text>
@@ -298,18 +377,22 @@ export default function HomeScreen() {
     usageCard: {
       marginHorizontal: 15,
       marginTop: 16,
-      backgroundColor: hexToRgba(colors.card, cardOpacity / 100),
-      borderRadius: 12,
+      backgroundColor: cardBg,
+      borderRadius: radius.lg,
       padding: 14,
     },
+    titleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
     usageCardTitle: {
-      fontSize: 16,
+      fontSize: s(16),
       fontWeight: '700',
       color: colors.text,
-      marginBottom: 4,
     },
     usageCardDesc: {
-      fontSize: 12,
+      fontSize: s(12),
       color: colors.mutedForeground,
       marginBottom: 10,
     },
@@ -320,13 +403,13 @@ export default function HomeScreen() {
       marginBottom: 4,
     },
     emptyCardText: {
-      fontSize: 13,
+      fontSize: s(13),
       color: colors.mutedForeground,
       textAlign: 'center',
       paddingVertical: 16,
     },
     usageCardSubtitle: {
-      fontSize: 13,
+      fontSize: s(13),
       color: colors.textSecondary,
       marginTop: 10,
       marginBottom: 8,
@@ -335,32 +418,32 @@ export default function HomeScreen() {
       flexDirection: 'row',
       gap: 8,
     },
-    quickSearchInput: {
-      flex: 1,
-      backgroundColor: colors.background,
-      borderRadius: 8,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      fontSize: 14,
-      color: colors.text,
-      borderWidth: 1,
-      borderColor: colors.border,
+    quickSearchLoading: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginTop: 8,
     },
-    quickSearchBtn: {
-      backgroundColor: colors.primary,
-      borderRadius: 8,
-      paddingHorizontal: 16,
-      justifyContent: 'center',
+    quickSearchLoadingText: {
+      color: colors.mutedForeground,
+      fontSize: s(13),
     },
-    quickSearchBtnText: {
-      color: colors.text,
-      fontSize: 14,
-      fontWeight: '600',
+    optionRow: {
+      flexDirection: 'row',
+      gap: 16,
+      marginTop: 10,
+    },
+    switchRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    switchLabel: {
+      fontSize: s(13),
+      color: colors.mutedForeground,
     },
     previewList: {
       marginTop: 10,
-      borderTopWidth: 1,
-      borderTopColor: colors.border,
       paddingTop: 10,
     },
     previewItem: {
@@ -370,62 +453,38 @@ export default function HomeScreen() {
       gap: 10,
     },
     previewCheck: {
-      fontSize: 18,
-      color: colors.primary,
+      fontSize: s(18),
+      color: colors.text,
     },
     previewPoster: {
       width: 36,
       height: 54,
-      borderRadius: 4,
-      backgroundColor: colors.card,
+      borderRadius: radius.sm,
+      backgroundColor: cardBg,
     },
     previewInfo: {
       flex: 1,
     },
     previewTitle: {
-      fontSize: 14,
+      fontSize: s(14),
       color: colors.text,
       fontWeight: '500',
     },
     previewMeta: {
-      fontSize: 11,
+      fontSize: s(11),
       color: colors.mutedForeground,
       marginTop: 2,
     },
-    collectAllBtn: {
-      backgroundColor: colors.primary,
-      borderRadius: 8,
-      paddingVertical: 12,
-      alignItems: 'center',
-      marginTop: 8,
-    },
-    collectAllBtnText: {
-      color: colors.text,
-      fontSize: 14,
-      fontWeight: '600',
-    },
     collectActionBtn: {
-      backgroundColor: colors.primary,
-      borderRadius: 8,
+      backgroundColor: hexToRgba(colors.mutedForeground, cardOpacity / 100),
+      borderRadius: radius.md,
       paddingVertical: 12,
       alignItems: 'center',
       marginTop: 8,
     },
     collectActionBtnText: {
       color: colors.text,
-      fontSize: 14,
-      fontWeight: '600',
-    },
-    compactCollectBtn: {
-      backgroundColor: colors.primary,
-      borderRadius: 6,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      alignItems: 'center',
-    },
-    compactCollectBtnText: {
-      color: colors.text,
-      fontSize: 12,
+      fontSize: s(14),
       fontWeight: '600',
     },
     tvItem: {
@@ -434,38 +493,53 @@ export default function HomeScreen() {
       paddingVertical: 10,
       gap: 8,
     },
+    tvItemThumb: {
+      width: 40,
+      height: 40,
+      borderRadius: radius.sm,
+      overflow: 'hidden',
+      backgroundColor: surfaceBg,
+    },
+    tvItemThumbImg: {
+      width: 40,
+      height: 40,
+    },
+    tvItemThumbPlaceholder: {
+      width: 40,
+      height: 40,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     tvItemLeft: {
       flex: 1,
     },
     tvItemTitle: {
-      fontSize: 14,
+      fontSize: s(14),
       color: colors.text,
-      marginBottom: 6,
+      marginBottom: 2,
+    },
+    tvItemEpisode: {
+      fontSize: s(12),
+      color: colors.textSecondary,
+      marginBottom: 4,
     },
     progressBar: {
       height: 4,
-      backgroundColor: colors.borderLight,
-      borderRadius: 2,
+      backgroundColor: colors.trackBg,
+      borderRadius: radius.progress,
       overflow: 'hidden',
     },
     progressFill: {
       height: '100%',
-      backgroundColor: colors.primary,
-      borderRadius: 2,
-    },
-    tvItemPct: {
-      fontSize: 12,
-      color: colors.primary,
-      fontWeight: '600',
-      width: 36,
-      textAlign: 'right',
+      backgroundColor: colors.mutedForeground,
+      borderRadius: radius.progress,
     },
     tvItemAction: {
-      fontSize: 12,
-      color: colors.primary,
+      fontSize: s(12),
+      color: colors.textSecondary,
       fontWeight: '600',
     },
-  }), [colors, cardOpacity]);
+  }), [colors, cardOpacity, cardBg, surfaceBg, s]);
 
   const bgImageUrl = latestMedia[0]?.posterUrl ?? null;
 
@@ -482,6 +556,7 @@ export default function HomeScreen() {
         {renderFavoritesCard()}
       </ScrollView>
       {videoSources.length > 0 && <UsageGuideModal />}
+      <CollectProgressDialog />
     </View>
     </BlurredBackground>
   );

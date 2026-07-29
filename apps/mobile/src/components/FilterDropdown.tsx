@@ -1,8 +1,11 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
+import { useScaledFontSize } from '../themes/useScaledFontSize';
 import { hexToRgba } from '../themes/colorUtils';
+import { Button } from './ui/Button';
+import { radius } from '../themes/radiusTokens';
 
 interface FilterOption {
   label: string;
@@ -31,6 +34,7 @@ export default function FilterDropdown({
   const colors = useThemeColors();
   const cardOpacity = useThemeStore((s) => s.cardOpacity);
   const cardBg = hexToRgba(colors.card, cardOpacity / 100);
+  const s = useScaledFontSize();
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
 
   const selectedLabel = useMemo(() => {
@@ -79,17 +83,17 @@ export default function FilterDropdown({
       alignItems: 'center',
       paddingHorizontal: 10,
       paddingVertical: 6,
-      borderRadius: 6,
-      backgroundColor: hasActive ? colors.primaryLight : cardBg,
+      borderRadius: radius.sm,
+      backgroundColor: hasActive ? hexToRgba(colors.mutedForeground, cardOpacity / 100 * 0.3) : cardBg,
     },
     triggerText: {
-      fontSize: 13,
-      color: hasActive ? colors.primary : colors.textSecondary,
+      fontSize: s(13),
+      color: hasActive ? colors.text : colors.textSecondary,
       fontWeight: hasActive ? '500' : '400',
     },
     triggerArrow: {
-      fontSize: 10,
-      color: hasActive ? colors.primary : colors.mutedForeground,
+      fontSize: s(10),
+      color: hasActive ? colors.text : colors.mutedForeground,
       marginLeft: 4,
     },
     panel: {
@@ -98,9 +102,7 @@ export default function FilterDropdown({
       left: 0,
       right: 0,
       backgroundColor: colors.card,
-      borderRadius: 10,
-      borderWidth: 1,
-      borderColor: colors.border,
+      borderRadius: radius.md,
       zIndex: 101,
       elevation: 101,
       overflow: 'hidden',
@@ -116,19 +118,7 @@ export default function FilterDropdown({
     optionChip: {
       paddingHorizontal: 14,
       paddingVertical: 7,
-      borderRadius: 6,
-      backgroundColor: colors.surface,
-    },
-    optionChipActive: {
-      backgroundColor: colors.primaryLight,
-    },
-    optionText: {
-      fontSize: 13,
-      color: colors.mutedForeground,
-    },
-    optionTextActive: {
-      color: colors.primary,
-      fontWeight: '500',
+      borderRadius: radius.sm,
     },
     groupHeader: {
       flexDirection: 'row',
@@ -138,12 +128,12 @@ export default function FilterDropdown({
       paddingHorizontal: 4,
     },
     groupHeaderText: {
-      fontSize: 13,
+      fontSize: s(13),
       fontWeight: '500',
       color: colors.text,
     },
     groupArrow: {
-      fontSize: 10,
+      fontSize: s(10),
       color: colors.mutedForeground,
     },
     groupItems: {
@@ -152,54 +142,46 @@ export default function FilterDropdown({
       gap: 8,
       paddingBottom: 8,
     },
-    divider: {
-      height: 1,
-      backgroundColor: colors.border,
-      marginVertical: 4,
-    },
-  }), [colors, hasActive, cardBg]);
+  }), [colors, hasActive, cardBg, s]);
 
   if (options.length === 0) return null;
 
   return (
     <>
-      <TouchableOpacity style={styles.trigger} onPress={onToggle}>
+      <Button variant="secondary" size="sm" style={styles.trigger} onPress={onToggle}>
         <Text style={styles.triggerText} numberOfLines={1}>{label}: {selectedLabel}</Text>
         <Text style={styles.triggerArrow}>{isExpanded ? '▲' : '▼'}</Text>
-      </TouchableOpacity>
+      </Button>
 
       {isExpanded && (
         <View style={styles.panel}>
           <ScrollView contentContainerStyle={styles.panelContent} showsVerticalScrollIndicator={false}>
-            <TouchableOpacity
-              style={[styles.optionChip, !hasActive && styles.optionChipActive]}
-              onPress={() => handleSelect(undefined)}
-            >
-              <Text style={[styles.optionText, !hasActive && styles.optionTextActive]}>全部</Text>
-            </TouchableOpacity>
+            <Button variant="secondary" size="sm" active={!hasActive} style={styles.optionChip} onPress={() => handleSelect(undefined)}>
+              全部
+            </Button>
 
             {grouped ? (
               decades.map(group => (
                 <View key={group.decade}>
-                  <TouchableOpacity
-                    style={styles.groupHeader}
-                    onPress={() => handleToggleGroup(group.decade)}
-                  >
+                  <Button variant="ghost" size="sm" style={styles.groupHeader} onPress={() => handleToggleGroup(group.decade)}>
                     <Text style={styles.groupHeaderText}>{group.decade}</Text>
                     <Text style={styles.groupArrow}>{expandedGroup === group.decade ? '▲' : '▼'}</Text>
-                  </TouchableOpacity>
+                  </Button>
                   {expandedGroup === group.decade && (
                     <View style={styles.groupItems}>
-                      {group.items.map(opt => {
-                        const isActive = selected === opt.value;
-                        return (
-                          <TouchableOpacity
-                            key={String(opt.value)}
-                            style={[styles.optionChip, isActive && styles.optionChipActive]}
-                            onPress={() => handleSelect(isActive ? undefined : opt.value)}
-                          >
-                            <Text style={[styles.optionText, isActive && styles.optionTextActive]}>{opt.label}</Text>
-                          </TouchableOpacity>
+                        {group.items.map(opt => {
+                          const isActive = selected === opt.value;
+                          return (
+                            <Button
+                              key={String(opt.value)}
+                              variant="secondary"
+                              size="sm"
+                              active={isActive}
+                              style={styles.optionChip}
+                              onPress={() => handleSelect(isActive ? undefined : opt.value)}
+                            >
+                              {opt.label}
+                            </Button>
                         );
                       })}
                     </View>
@@ -211,13 +193,16 @@ export default function FilterDropdown({
                 {options.map(opt => {
                   const isActive = selected === opt.value;
                   return (
-                    <TouchableOpacity
+                    <Button
                       key={String(opt.value)}
-                      style={[styles.optionChip, isActive && styles.optionChipActive]}
+                      variant="secondary"
+                      size="sm"
+                      active={isActive}
+                      style={styles.optionChip}
                       onPress={() => handleSelect(isActive ? undefined : opt.value)}
                     >
-                      <Text style={[styles.optionText, isActive && styles.optionTextActive]}>{opt.label}</Text>
-                    </TouchableOpacity>
+                      {opt.label}
+                    </Button>
                   );
                 })}
               </View>

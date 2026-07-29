@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, RotateCcw, X } from 'lucide-react';
+import { useBackgroundStore } from '../themes/backgroundStore';
 
 const DEFAULT_BLACKLIST: string[] = [
   '足球', '篮球', '排球', '网球', '羽毛球', '乒乓球', '橄榄球', '棒球',
@@ -17,6 +18,8 @@ const DEFAULT_BLACKLIST: string[] = [
 ];
 
 export default function CollectConfigPage() {
+  const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
+  useEffect(() => { clearBgImage(); }, [clearBgImage]);
   const navigate = useNavigate();
   const { collectConfig, loadCollectConfig, updateCollectConfig } = useAppStore();
   const [localConfig, setLocalConfig] = useState({
@@ -109,9 +112,10 @@ export default function CollectConfigPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pb-4 border-b border-border">
+      <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
+        <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
         <div className="flex items-center gap-4">
-          <Button variant="ghost" onClick={() => navigate('/settings')} className="hover:text-primary">
+          <Button variant="ghost" onClick={() => navigate('/settings')} className="hover:text-text">
             <ArrowLeft className="size-4 mr-2" />
             返回
           </Button>
@@ -119,7 +123,7 @@ export default function CollectConfigPage() {
         </div>
       </div>
 
-      <Card className="p-6 space-y-6 bg-card border-border">
+      <Card className="p-6 space-y-6 bg-card">
         <div className="grid grid-cols-3 gap-6">
           <div className="space-y-2">
             <Label htmlFor="maxPages">全量采集最大页数</Label>
@@ -130,7 +134,7 @@ export default function CollectConfigPage() {
               max="200"
               value={localConfig.maxPages}
               onChange={(e) => setLocalConfig({ ...localConfig, maxPages: Math.min(200, Math.max(1, parseInt(e.target.value) || 10)) })}
-              className="bg-secondary border-border"
+              className="bg-secondary"
             />
             <p className="text-xs text-muted-foreground">全量采集时最多采集多少页数据</p>
           </div>
@@ -145,7 +149,7 @@ export default function CollectConfigPage() {
               value={localConfig.incrementalMaxPages}
               onChange={(e) => setLocalConfig({ ...localConfig, incrementalMaxPages: Math.min(200, Math.max(1, parseInt(e.target.value) || 10)) })}
               onBlur={() => handleFieldBlur('incrementalMaxPages', localConfig.incrementalMaxPages)}
-              className="bg-secondary border-border"
+              className="bg-secondary"
             />
             <p className="text-xs text-muted-foreground">增量采集的安全上限，断点和定额模式均受此限制</p>
           </div>
@@ -159,7 +163,7 @@ export default function CollectConfigPage() {
               max="8760"
               value={localConfig.maxIncrementalHours}
               onChange={(e) => setLocalConfig({ ...localConfig, maxIncrementalHours: Math.max(0, parseInt(e.target.value) || 0) })}
-              className="bg-secondary border-border"
+              className="bg-secondary"
             />
             <p className="text-xs text-muted-foreground">0=不限，断点续采时 h 的最大值（全量采集不受影响）</p>
           </div>
@@ -173,7 +177,7 @@ export default function CollectConfigPage() {
               max="50"
               value={localConfig.rateLimitPerSecond}
               onChange={(e) => setLocalConfig({ ...localConfig, rateLimitPerSecond: Math.min(50, Math.max(1, parseInt(e.target.value) || 2)) })}
-              className="bg-secondary border-border"
+              className="bg-secondary"
             />
             <p className="text-xs text-muted-foreground">每秒最多发送多少个请求</p>
           </div>
@@ -187,7 +191,7 @@ export default function CollectConfigPage() {
               max="20"
               value={localConfig.concurrency}
               onChange={(e) => setLocalConfig({ ...localConfig, concurrency: Math.min(20, Math.max(1, parseInt(e.target.value) || 1)) })}
-              className="bg-secondary border-border"
+              className="bg-secondary"
             />
             <p className="text-xs text-muted-foreground">同时处理多少个项目（过高可能触发反爬）</p>
           </div>
@@ -201,7 +205,7 @@ export default function CollectConfigPage() {
               max="100"
               value={localConfig.pageSize}
               onChange={(e) => setLocalConfig({ ...localConfig, pageSize: Math.min(100, Math.max(5, parseInt(e.target.value) || 20)) })}
-              className="bg-secondary border-border"
+              className="bg-secondary"
             />
             <p className="text-xs text-muted-foreground">每页返回的数据条数</p>
           </div>
@@ -213,7 +217,7 @@ export default function CollectConfigPage() {
               type="number"
               value={localConfig.minYear}
               onChange={(e) => setLocalConfig({ ...localConfig, minYear: parseInt(e.target.value) || 2025 })}
-              className="bg-secondary border-border"
+              className="bg-secondary"
             />
             <p className="text-xs text-muted-foreground">低于此年份的内容将被跳过</p>
           </div>
@@ -227,14 +231,14 @@ export default function CollectConfigPage() {
               max="10"
               value={localConfig.retryTimes}
               onChange={(e) => setLocalConfig({ ...localConfig, retryTimes: Math.min(10, Math.max(0, parseInt(e.target.value) || 3)) })}
-              className="bg-secondary border-border"
+              className="bg-secondary"
             />
             <p className="text-xs text-muted-foreground">采集失败时的重试次数</p>
           </div>
         </div>
       </Card>
 
-      <Card className="p-6 mt-4 space-y-4 bg-card border-border">
+      <Card className="p-6 mt-4 space-y-4 bg-card">
         <div>
           <h2 className="text-lg font-semibold">黑名单关键词</h2>
           <p className="text-sm text-muted-foreground mt-1">
@@ -248,7 +252,7 @@ export default function CollectConfigPage() {
             onChange={(e) => setKeywordInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="输入关键词后按回车或点击添加"
-            className="flex-1 bg-secondary border-border"
+            className="flex-1 bg-secondary"
           />
           <Button
             onClick={addKeyword}
@@ -263,7 +267,7 @@ export default function CollectConfigPage() {
             <button
               key={kw}
               onClick={() => removeKeyword(kw)}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs border transition-colors bg-card text-foreground border-border hover:border-destructive/50 hover:text-destructive"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs transition-colors bg-card text-text hover:border-destructive/50 hover:text-destructive"
             >
               {kw}
               <X className="size-3" />
@@ -278,7 +282,6 @@ export default function CollectConfigPage() {
           </Button>
           <Button
             onClick={handleSave}
-            className="bg-primary hover:bg-primary-hover"
           >
             <Save className="size-4 mr-2" />
             {saved ? '已保存' : '保存配置'}

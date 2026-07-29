@@ -2,11 +2,12 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { getProvider } from '../init';
 import { useAppStore } from '../useAppStore';
+import { useBackgroundStore } from '../themes/backgroundStore';
 import { VideoPlayer } from '@/components/player/VideoPlayer';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, Palette, Check, ChevronRight } from 'lucide-react';
-import { useThemeStore } from '../themes/store';
+import { Card } from '@/components/ui/card';
+import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { SystemConfigService } from '@movie-app/core';
 import type { Episode, Media, PlaySource, VideoSource } from '@movie-app/core';
 
@@ -33,19 +34,14 @@ export default function PlayPage() {
   const [currentSeason, setCurrentSeason] = useState(1);
   const [outroThresholdMinutes, setOutroThresholdMinutes] = useState(10);
   const [showNextEpisodeOverlay, setShowNextEpisodeOverlay] = useState(true);
-  const [themeOpen, setThemeOpen] = useState(false);
-  const themeRef = useRef<HTMLDivElement>(null);
-  const { currentTheme, themes, setTheme } = useThemeStore();
+  const setBgImage = useBackgroundStore((s) => s.setBgImage);
+  const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
 
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (themeRef.current && !themeRef.current.contains(e.target as Node)) {
-        setThemeOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    const bgUrl = media?.posterUrl ?? null;
+    setBgImage(bgUrl);
+    return () => clearBgImage();
+  }, [media, setBgImage, clearBgImage]);
 
   const sourceParams = new URLSearchParams(location.search);
   const urlSourceId = sourceParams.get('sourceId');
@@ -239,65 +235,38 @@ export default function PlayPage() {
 
   if (!episode || filteredSources.length === 0) {
     return (
-      <div className="p-6 space-y-4 max-w-7xl mx-auto">
-        <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
-          <ArrowLeft className="size-4" /> 返回
-        </Button>
-        <div className="text-muted-foreground">无可播放的剧集或线路</div>
+      <div className="p-6 max-w-7xl mx-auto">
+        <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
+          <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" onClick={() => navigate(-1)} className="hover:text-text shrink-0">
+              <ArrowLeft className="size-4 mr-2" /> 返回
+            </Button>
+          </div>
+        </div>
+        <div className="text-muted-foreground mt-5">无可播放的剧集或线路</div>
       </div>
     );
   }
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="bg-background -mx-6 px-6 pb-4 border-b border-border">
-        <div className="flex items-center">
-          <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="hover:text-primary shrink-0">
-            <ArrowLeft className="size-4" /> 返回
+      <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
+        <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" onClick={() => navigate(-1)} className="hover:text-text shrink-0">
+            <ArrowLeft className="size-4 mr-2" /> 返回
           </Button>
 
           {media && (
-            <div className="flex items-center gap-1 text-xs text-muted-foreground ml-2 min-w-0 overflow-hidden">
-              <button type="button" onClick={() => navigate(media.type === 'MOVIE' ? '/movie' : media.type === 'TV' ? '/tv' : media.type === 'VARIETY' ? '/variety' : media.type === 'ANIME' ? '/anime' : '/documentary')} className="hover:text-primary transition-colors shrink-0">{typeLabel[media.type] || media.type}</button>
+            <div className="flex items-center gap-1 text-xs text-muted-foreground min-w-0 overflow-hidden flex-1">
+              <button type="button" onClick={() => navigate(media.type === 'MOVIE' ? '/movie' : media.type === 'TV' ? '/tv' : media.type === 'VARIETY' ? '/variety' : media.type === 'ANIME' ? '/anime' : '/documentary')} className="hover:text-text transition-colors shrink-0">{typeLabel[media.type] || media.type}</button>
               <ChevronRight className="size-3 shrink-0" />
-              <button type="button" onClick={() => navigate(`/media/${media.id}`)} className="truncate min-w-0 hover:text-primary transition-colors">{media.title}</button>
+              <button type="button" onClick={() => navigate(`/media/${media.id}`)} className="truncate min-w-0 hover:text-text transition-colors">{media.title}</button>
               <ChevronRight className="size-3 shrink-0" />
-              <span className="text-foreground shrink-0 truncate">{episode.title || `第${episode.episodeNumber}集`}</span>
+              <span className="text-text shrink-0 truncate">{episode.title || `第${episode.episodeNumber}集`}</span>
             </div>
           )}
-
-          <div ref={themeRef} className="relative shrink-0 ml-auto">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setThemeOpen(!themeOpen)}
-              className="gap-1.5"
-            >
-              <Palette className="size-4" />
-              <span className="text-xs">主题：{themes.find(t => t.id === currentTheme)?.name || '暗夜黑'}</span>
-            </Button>
-
-            {themeOpen && (
-              <div className="absolute right-0 top-full mt-1 w-36 rounded-lg border border-border bg-card shadow-lg py-1 z-50">
-                {themes.map((theme) => (
-                  <button
-                    key={theme.id}
-                    onClick={() => { setTheme(theme.id); setThemeOpen(false); }}
-                    className="flex items-center gap-2 w-full px-3 py-2 text-xs hover:bg-hover transition-colors"
-                  >
-                    <div
-                      className="w-3.5 h-3.5 rounded-full shrink-0"
-                      style={{ backgroundColor: theme.colors.primary }}
-                    />
-                    <span className="flex-1 text-left">{theme.name}</span>
-                    {currentTheme === theme.id && (
-                      <Check className="size-3 text-primary" />
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
@@ -354,10 +323,10 @@ export default function PlayPage() {
                     return (
                       <Button
                         key={s.id}
-                        variant={s.isActive === false ? 'outline' : s.id === activeSource?.id ? 'default' : 'outline'}
+                        variant="outline"
                         size="sm"
                         disabled={s.isActive === false}
-                        className={`${s.isActive === false ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        className={`${s.isActive === false ? 'opacity-50 cursor-not-allowed' : ''} ${s.id === activeSource?.id ? 'bg-muted-foreground/20 text-text' : ''}`}
                         onClick={() => handleSourceChange(s)}
                       >
                         {baseName}{qualityStr}{suffix}
@@ -374,16 +343,16 @@ export default function PlayPage() {
         <div className="space-y-4">
           {displaySeasons.length > 1 && (
             <div className="space-y-1">
-              <div className="text-sm text-muted-foreground">季数</div>
               <div className="flex gap-2 flex-wrap">
                 {displaySeasons.map((s) => {
                   const isCurrent = seasonToMediaMap.get(s) === media?.id || (!seasonToMediaMap.has(s) && currentSeason === s);
                   return (
                     <Button
                       key={s}
-                      variant={isCurrent ? 'default' : 'outline'}
+                      variant="outline"
                       size="sm"
                       onClick={() => handleSeasonClick(s)}
+                      className={isCurrent ? 'bg-muted-foreground/20 text-text' : ''}
                     >
                       第 {s} 季
                     </Button>
@@ -394,18 +363,18 @@ export default function PlayPage() {
           )}
 
           {media?.type !== 'MOVIE' && filteredEpisodes.length > 0 && (
-            <div className="rounded-lg overflow-hidden">
+            <div className="rounded-lg overflow-hidden bg-[var(--color-card-alpha)] backdrop-blur-sm">
               <div className="flex">
                 {availableCmsSources.length > 1 && (
-                  <div className="w-28 shrink-0 bg-muted/30">
+                  <div className="w-28 shrink-0">
                     {availableCmsSources.map((cms) => (
                       <button
                         key={cms.id}
                         onClick={() => handleSwitchCmsSource(cms.id)}
-                        className={`w-full text-left px-3 py-2.5 transition-colors ${
+                        className={`w-full text-left px-3 py-2.5 transition-colors rounded-lg ${
                           selectedSourceId === cms.id
-                            ? 'text-lg bg-sidebar text-foreground font-medium'
-                            : 'text-sm text-muted-foreground hover:text-foreground'
+                            ? 'bg-muted-foreground/20 text-text'
+                            : 'bg-[var(--color-card-alpha)] hover:bg-[var(--color-hover-alpha)] text-text-secondary hover:text-text'
                         }`}
                       >
                         {cms.name}
@@ -414,16 +383,16 @@ export default function PlayPage() {
                   </div>
                 )}
 
-                <div className="flex-1 min-w-0 p-4 bg-sidebar">
+                <div className="flex-1 min-w-0 p-4">
                   <div className="grid grid-cols-[repeat(auto-fill,minmax(80px,1fr))] gap-2">
                     {filteredEpisodes.map((ep: any) => (
                       <Button
-                        key={ep.id}
-                        variant={ep.id === currentEpisodeId ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => setCurrentEpisodeId(ep.id)}
-                        className={ep.id !== currentEpisodeId && watchedEpisodes.has(ep.id) ? 'opacity-50' : ''}
-                      >
+                      key={ep.id}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentEpisodeId(ep.id)}
+                      className={`${ep.id === currentEpisodeId ? 'bg-muted-foreground/20 text-text' : ''} ${ep.id !== currentEpisodeId && watchedEpisodes.has(ep.id) ? 'opacity-50' : ''}`}
+                    >
                         {ep.title || `第${ep.episodeNumber}集`}
                       </Button>
                     ))}

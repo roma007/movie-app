@@ -22,6 +22,13 @@ export {
   type DefaultSourceConfig,
 } from './utils/constants';
 export { getHttpClient, setHttpClient, type HttpClient } from './utils/httpClient';
+export {
+  probeHlsStream,
+  probeMultipleHlsStreams,
+  summarizeProbeResults,
+  type HlsProbeResult,
+  type HlsStreamType,
+} from './utils/hlsProbe';
 
 // 服务
 export { CMSAdapter } from './services/cmsAdapter';

@@ -1,6 +1,8 @@
 import { NavLink, Link, Outlet } from 'react-router-dom';
 import { UsageGuideDialog } from './UsageGuideDialog';
 import { AiSourceImportDialog } from './AiSourceImportDialog';
+import { BackgroundLayer } from './BackgroundLayer';
+import { useImportDialogStore } from '../themes/importDialogStore';
 import {
   Home,
   Settings,
@@ -89,10 +91,14 @@ function ToastProvider({ children }: { children: ReactNode }) {
 }
 
 export function Layout() {
-  const [appVersion, setAppVersion] = useState('1.0.20');
+  const [appVersion, setAppVersion] = useState('1.0.21');
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
-  const [showAiImport, setShowAiImport] = useState(false);
+  const [showUsageGuide, setShowUsageGuide] = useState(false);
+  const aiImportOpen = useImportDialogStore((s) => s.aiImportOpen);
+  const closeAiImport = useImportDialogStore((s) => s.closeAiImport);
   const { loadVideoSources, videoSources } = useAppStore();
+
+  const USAGE_GUIDE_KEY = 'movie_app_usage_guide_seen';
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(() => {});
@@ -103,31 +109,48 @@ export function Layout() {
   }, []);
 
   useEffect(() => {
-    if (sourcesLoaded && videoSources.length === 0) {
-      setShowAiImport(true);
-    }
-  }, [sourcesLoaded, videoSources]);
+    if (!sourcesLoaded) return;
+    const guideSeen = localStorage.getItem(USAGE_GUIDE_KEY);
+    if (guideSeen) return;
 
-  const handleImportDone = () => {
-    setShowAiImport(false);
-    loadVideoSources();
+    if (videoSources.length === 0) {
+      useImportDialogStore.getState().openAiImport();
+    } else {
+      setShowUsageGuide(true);
+    }
+  }, [sourcesLoaded, videoSources.length]);
+
+  const handleImportClosed = (open: boolean) => {
+    if (!open) {
+      closeAiImport();
+      loadVideoSources();
+      const guideSeen = localStorage.getItem(USAGE_GUIDE_KEY);
+      if (!guideSeen) {
+        setTimeout(() => setShowUsageGuide(true), 300);
+      }
+    }
   };
 
   return (
     <ToastProvider>
-      <UsageGuideDialog />
-      <AiSourceImportDialog
-        open={showAiImport}
-        onOpenChange={(open) => {
-          if (!open) handleImportDone();
-          setShowAiImport(open);
+      <BackgroundLayer />
+      <UsageGuideDialog
+        open={showUsageGuide}
+        onOpenChange={(v) => {
+          if (!v) {
+            localStorage.setItem(USAGE_GUIDE_KEY, '1');
+          }
+          setShowUsageGuide(v);
         }}
-        onImported={handleImportDone}
+      />
+      <AiSourceImportDialog
+        open={aiImportOpen}
+        onOpenChange={handleImportClosed}
       />
       <div className="flex h-full">
-        <aside className="w-56 shrink-0 flex flex-col border-r border-border bg-sidebar">
-          <div className="flex items-center gap-2 px-5 h-14 border-b border-border">
-            <Film className="size-5 text-primary" />
+        <aside className="w-56 shrink-0 flex flex-col bg-[var(--color-sidebar-alpha)] backdrop-blur-md">
+          <div className="flex items-center gap-2 px-5 h-14">
+            <Film className="size-5 text-muted-foreground" />
             <span className="font-semibold tracking-tight text-lg">Movie App</span>
           </div>
           <nav className="flex-1 py-3">
@@ -136,10 +159,10 @@ export function Layout() {
                 key={to}
                 to={to}
                 className={({ isActive }) => cn(
-                  'flex items-center gap-3 px-5 py-2.5 text-sm transition-all duration-200 border-l-2',
+                  'flex items-center gap-3 px-5 py-2.5 text-sm transition-all duration-200',
                   isActive
-                    ? 'bg-primary-light text-primary border-primary'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-hover border-transparent'
+                    ? 'bg-muted-foreground/20 text-text'
+                    : 'text-text-secondary hover:text-text hover:bg-hover'
                 )}
               >
                 <Icon className="size-4" />
@@ -147,7 +170,7 @@ export function Layout() {
               </NavLink>
             ))}
           </nav>
-          <div className="px-5 py-3 text-xs text-muted-foreground border-t border-border">
+          <div className="px-5 py-3 text-xs text-muted-foreground">
             版本 {appVersion}
           </div>
         </aside>
@@ -156,13 +179,13 @@ export function Layout() {
           <main id="main-content" className="flex-1 overflow-y-auto">
             <Outlet />
           </main>
-          <footer className="shrink-0 border-t border-border px-6 py-3 text-xs text-muted-foreground">
+          <footer className="shrink-0 px-6 py-3 text-xs text-muted-foreground">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Link to="/help" className="hover:text-foreground transition-colors">帮助中心</Link>
-                <span className="text-border">|</span>
+                <Link to="/help" className="hover:text-text transition-colors">帮助中心</Link>
+                <span className="text-muted-foreground">|</span>
                 <span>关于我们</span>
-                <span className="text-border">|</span>
+                <span className="text-muted-foreground">|</span>
                 <span>版权声明</span>
               </div>
               <div>Copyright ©2020-2026 All Rights Reserved moduzy.vip</div>

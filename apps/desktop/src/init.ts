@@ -6,17 +6,8 @@ let _store: AppStore | null = null;
 let _initPromise: Promise<void> | null = null;
 let _hasColdStarted = false;
 
-async function logToDb(message: string, level: 'info' | 'error' = 'info'): Promise<void> {
-  if (!_provider) return;
-  try {
-    const now = new Date().toISOString();
-    await _provider.execute(
-      'INSERT INTO system_config (key, value, value_type, remark, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [`log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, message, 'string', level, now, now]
-    );
-  } catch {
-    // 忽略日志写入失败
-  }
+async function logToDb(_message: string, _level: 'info' | 'error' = 'info'): Promise<void> {
+  // DiagnosticLogViewer removed; logs no longer written to system_config
 }
 
 function logToConsole(message: string): void {

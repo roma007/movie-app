@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { Animated, Text, StyleSheet } from 'react-native';
 import { useThemeColors } from '../themes/useThemeColors';
+import { useScaledFontSize } from '../themes/useScaledFontSize';
+import { radius } from '../themes/radiusTokens';
 
 type ToastType = 'success' | 'error' | 'info';
 
@@ -17,6 +19,7 @@ export function showToast(message: string, type: ToastType = 'success') {
 
 export default function Toast() {
   const colors = useThemeColors();
+  const s = useScaledFontSize();
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(-60)).current;
@@ -29,7 +32,7 @@ export default function Toast() {
       right: 16,
       paddingHorizontal: 16,
       paddingVertical: 12,
-      borderRadius: 10,
+      borderRadius: radius.md,
       zIndex: 9999,
       elevation: 9999,
       shadowColor: colors.playerBg,
@@ -39,10 +42,10 @@ export default function Toast() {
     },
     text: {
       color: colors.text,
-      fontSize: 14,
+      fontSize: s(14),
       fontWeight: '500',
     },
-  }), [colors]);
+  }), [colors, s]);
 
   useEffect(() => {
     globalToastFn = (message: string, type: ToastType = 'success') => {
@@ -71,7 +74,7 @@ export default function Toast() {
 
   if (!toast) return null;
 
-  const bgColor = toast.type === 'success' ? colors.success : toast.type === 'error' ? colors.error : colors.primary;
+  const bgColor = toast.type === 'success' ? colors.success : toast.type === 'error' ? colors.error : colors.mutedForeground;
 
   return (
     <Animated.View

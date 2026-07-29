@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '../useAppStore';
 import { getProvider } from '../init';
+import { useBackgroundStore } from '../themes/backgroundStore';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Heart, ChevronRight, Check, ArrowLeft } from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { Heart, ChevronRight, ArrowLeft } from 'lucide-react';
 import type { Media, Episode, PlaySource, VideoSource } from '@movie-app/core';
 import { VideoDurationService } from '@movie-app/core';
 
@@ -22,6 +24,8 @@ export default function DetailPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { currentMedia, episodes, seasons, isLoading, error, episodeSources, seriesMedia, loadMediaDetail, loadSeasons, loadEpisodes, loadSeasonEpisodes, loadSeriesMedia, toggleFav } = useAppStore();
+  const setBgImage = useBackgroundStore((s) => s.setBgImage);
+  const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
   const prevState = location.state as { page?: number; type?: string; subType?: string; year?: number; area?: string; episodeType?: string } | undefined;
   const [currentSeason, setCurrentSeason] = useState(1);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
@@ -47,6 +51,12 @@ export default function DetailPage() {
       setWatchedEpisodes(watched);
     }).catch(() => {});
   }, [id]);
+
+  useEffect(() => {
+    const bgUrl = currentMedia?.posterUrl ?? null;
+    setBgImage(bgUrl);
+    return () => clearBgImage();
+  }, [currentMedia, setBgImage, clearBgImage]);
 
   useEffect(() => {
     if (seasons.length > 0 && !seasons.includes(currentSeason)) {
@@ -136,21 +146,32 @@ export default function DetailPage() {
 
   if (isLoading && !currentMedia) {
     return (
-      <div className="p-6 space-y-5 max-w-7xl mx-auto">
-        <div className="rounded-lg border border-border bg-card card-shadow">
-          <div className="p-5">
-            <Skeleton className="h-5 w-48 animate-pulse-skeleton" />
-          </div>
-        </div>
-        <div className="rounded-lg border border-border bg-card card-shadow">
-          <div className="p-5 flex gap-6">
-            <Skeleton className="w-48 h-72 rounded-lg animate-pulse-skeleton" />
-            <div className="flex-1 space-y-3">
-              <Skeleton className="h-8 w-2/3 animate-pulse-skeleton" />
-              <Skeleton className="h-4 w-1/3 animate-pulse-skeleton" />
-              <Skeleton className="h-24 w-full animate-pulse-skeleton" />
+      <div className="p-6 max-w-7xl mx-auto">
+        <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
+          <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
+          <div className="flex items-center gap-4 min-w-0">
+            <Button variant="ghost" onClick={() => navigate(-1)} className="hover:text-text shrink-0">
+              <ArrowLeft className="size-4 mr-2" />
+              返回
+            </Button>
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Skeleton className="h-4 w-12 animate-pulse-skeleton rounded" />
+              <ChevronRight className="size-3 shrink-0" />
+              <Skeleton className="h-4 w-32 animate-pulse-skeleton rounded" />
             </div>
           </div>
+        </div>
+        <div className="space-y-5 mt-5">
+          <Card className="card-shadow">
+            <div className="p-5 flex gap-6">
+              <Skeleton className="w-48 h-72 rounded-lg animate-pulse-skeleton" />
+              <div className="flex-1 space-y-3">
+                <Skeleton className="h-8 w-2/3 animate-pulse-skeleton" />
+                <Skeleton className="h-4 w-1/3 animate-pulse-skeleton" />
+                <Skeleton className="h-24 w-full animate-pulse-skeleton" />
+              </div>
+            </div>
+          </Card>
         </div>
       </div>
     );
@@ -188,30 +209,30 @@ export default function DetailPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pb-4 border-b border-border">
+      <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
+        <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
         <div className="flex items-center gap-4">
-          <Button variant="ghost" onClick={() => navigate(getBackUrl())} className="hover:text-primary">
+          <Button variant="ghost" onClick={() => navigate(getBackUrl())} className="hover:text-text shrink-0">
             <ArrowLeft className="size-4 mr-2" />
             返回
           </Button>
+          <div className="flex items-center gap-1 text-xs text-muted-foreground min-w-0 overflow-hidden flex-1">
+            <button
+              type="button"
+              onClick={() => navigate(getTypeListUrl())}
+              className="hover:text-text transition-colors shrink-0"
+            >
+              {typeLabel[media.type] || media.type}
+            </button>
+            <ChevronRight className="size-3 shrink-0" />
+            <span className="text-text shrink-0 truncate">{media.title}</span>
+          </div>
         </div>
       </div>
 
       <div className="flex gap-6 mt-5">
         <div className="w-80 shrink-0 space-y-5">
-          <div className="rounded-lg border border-border bg-card card-shadow">
-            <div className="px-5 py-3 border-b border-border text-sm text-muted-foreground">
-              <span>当前位置：</span>
-              <Link 
-                to={getTypeListUrl()} 
-                className="hover:text-primary transition-colors"
-              >
-                {typeLabel[media.type] || media.type}
-              </Link>
-              <ChevronRight className="inline size-3 text-muted-foreground" />
-              <span className="text-foreground">{media.title}</span>
-            </div>
-
+          <Card className="card-shadow">
             <div className="p-5">
               <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-secondary mb-4">
                 {media.posterUrl && (
@@ -224,10 +245,10 @@ export default function DetailPage() {
                     {media.title}
                   </h1>
                   <Button 
-                    variant={isFav ? 'default' : 'outline'} 
+                    variant="outline" 
                     size="sm" 
                     onClick={handleFav}
-                    className={isFav ? 'bg-favorite hover:bg-favorite/90' : ''}
+                    className={isFav ? 'bg-muted-foreground/20 text-text' : ''}
                   >
                     <Heart className={`size-4 ${isFav ? 'fill-current' : ''}`} />
                     {isFav ? '已收藏' : '收藏'}
@@ -242,11 +263,11 @@ export default function DetailPage() {
                 <p className="text-sm text-error"><span className="text-muted-foreground">更新时间：</span>{new Date(media.updatedAt).toISOString().split('T')[0]}</p>
               </div>
             </div>
-          </div>
+          </Card>
         </div>
 
         <div className="flex-1 min-w-0 space-y-5">
-          <div className="rounded-lg border border-border bg-card card-shadow p-5 space-y-2">
+          <Card className="card-shadow p-5 space-y-2">
             <p className="text-sm">
               <span className="text-muted-foreground">导演：</span>
               {media.directors.length > 0 ? media.directors.map((d, i) => (
@@ -254,7 +275,7 @@ export default function DetailPage() {
                   <button
                     type="button"
                     onClick={() => navigate('/', { state: { searchKeyword: d } })}
-                    className="hover:text-primary transition-colors cursor-pointer"
+                    className="hover:text-text transition-colors cursor-pointer"
                   >
                     {d}
                   </button>
@@ -269,7 +290,7 @@ export default function DetailPage() {
                   <button
                     type="button"
                     onClick={() => navigate('/', { state: { searchKeyword: a } })}
-                    className="hover:text-primary transition-colors cursor-pointer"
+                    className="hover:text-text transition-colors cursor-pointer"
                   >
                     {a}
                   </button>
@@ -277,66 +298,64 @@ export default function DetailPage() {
                 </span>
               )) : '未知'}
             </p>
-          </div>
+          </Card>
           {media.description && (
-            <div className="rounded-lg border border-border bg-card card-shadow">
-              <div className="px-5 py-3 border-b border-border">
+            <Card className="card-shadow">
+              <div className="px-5 py-3">
                 <h3 className="text-base font-medium">剧情介绍</h3>
               </div>
-              <div className="p-5 text-sm leading-6 text-foreground">
+              <div className="p-5 pt-0 text-sm leading-6 text-text">
                 {media.description}
               </div>
-            </div>
+            </Card>
           )}
 
           {displaySeasons.length > 1 && (
-            <div className="rounded-lg border border-border bg-card card-shadow p-4 flex gap-2 flex-wrap">
+            <Card className="card-shadow p-4 flex gap-2 flex-wrap">
               {displaySeasons.map((s) => {
                 const isCurrent = seasonToMediaMap.get(s) === id || (!seasonToMediaMap.has(s) && currentSeason === s);
                 return (
                   <Button
                     key={s}
-                    variant={isCurrent ? 'default' : 'outline'}
+                    variant="outline"
                     size="sm"
                     onClick={() => handleSeasonChange(s)}
+                    className={isCurrent ? 'bg-muted-foreground/20 text-text' : ''}
                   >
                     第 {s} 季
                   </Button>
                 );
               })}
-            </div>
+            </Card>
           )}
 
           {episodeSources.length > 1 && (
-            <div className="rounded-lg border border-border bg-card card-shadow p-4 flex gap-2 flex-wrap">
+            <Card className="card-shadow p-4 flex gap-2 flex-wrap">
               <span className="text-sm text-muted-foreground self-center mr-2">视频源：</span>
               {episodeSources.map((s: VideoSource) => (
                 <Button
                   key={s.id}
-                  variant={selectedSourceId === s.id ? 'default' : 'outline'}
+                  variant="outline"
                   size="sm"
                   onClick={() => handleSourceChange(s.id)}
+                  className={selectedSourceId === s.id ? 'bg-muted-foreground/20 text-text' : ''}
                 >
                   {s.name}
                 </Button>
               ))}
-            </div>
+            </Card>
           )}
 
-          <div className="rounded-lg border border-border bg-card card-shadow">
-            <div className="px-5 py-3 border-b border-border">
-              <h3 className="text-base font-medium">{currentMedia?.type === 'MOVIE' ? '播放源' : '集数'}</h3>
-            </div>
-
+          <Card className="card-shadow">
             {error && (
-              <div className="p-4 bg-error/10 border-b border-error/30">
+              <div className="mx-5 mb-3 p-4 bg-error/10 rounded-lg">
                 <p className="text-sm text-error">{error}</p>
               </div>
             )}
 
             {episodesLoading ? (
               <div className="p-8 text-center text-muted-foreground">
-                <div className="animate-spin size-5 border-2 border-primary border-t-transparent rounded-full mx-auto mb-2" />
+                <div className="animate-spin size-5 border-2 border-muted-foreground border-t-transparent rounded-full mx-auto mb-2" />
                 <p className="text-sm">加载中...</p>
               </div>
             ) : episodes.length === 0 ? (
@@ -345,7 +364,7 @@ export default function DetailPage() {
                 <p className="text-xs mt-1">请尝试重新采集数据或切换视频源</p>
               </div>
             ) : (
-              <div className="px-5 py-3">
+              <div className="px-5 py-3 pt-0">
                 <div className="flex flex-wrap gap-1.5">
                   {currentMedia?.type === 'MOVIE' ? (
                     episodes.map((ep: any) => {
@@ -374,7 +393,7 @@ export default function DetailPage() {
                             <button
                               type="button"
                               onClick={() => navigate(`/play/${ep.id}?source=${source.id}`)}
-                              className="relative px-3 py-1.5 rounded text-xs font-medium transition-all duration-200 bg-secondary text-foreground cursor-pointer hover:text-primary hover:bg-hover border border-transparent"
+                              className="relative px-3 py-1.5 rounded text-xs font-medium transition-all duration-200 bg-[var(--color-card-alpha)] text-text-secondary cursor-pointer hover:text-text hover:bg-[var(--color-hover-alpha)]"
                               title="点击播放"
                             >
                               {title}
@@ -398,7 +417,7 @@ export default function DetailPage() {
                           <button
                             type="button"
                             onClick={() => navigate(`/play/${ep.id}${selectedSourceId ? `?sourceId=${selectedSourceId}` : ''}`)}
-                            className={`relative px-3 py-1.5 rounded text-xs font-medium transition-all duration-200 bg-secondary text-foreground cursor-pointer hover:text-primary hover:bg-hover border border-transparent${isWatched ? ' opacity-50' : ''}`}
+                            className={`relative px-3 py-1.5 rounded text-xs font-medium transition-all duration-200 bg-[var(--color-card-alpha)] text-text-secondary cursor-pointer hover:text-text hover:bg-[var(--color-hover-alpha)]${isWatched ? ' opacity-50' : ''}`}
                             title="点击播放"
                           >
                             {title}
@@ -410,7 +429,7 @@ export default function DetailPage() {
                 </div>
               </div>
             )}
-          </div>
+          </Card>
         </div>
       </div>
     </div>

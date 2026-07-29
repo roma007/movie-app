@@ -11,16 +11,16 @@ export function ThemeSwitcher() {
         <Palette className="size-4" />
         <span>选择主题</span>
       </div>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="flex gap-2">
         {themes.map((theme) => (
           <button
             key={theme.id}
             onClick={() => setTheme(theme.id)}
             className={cn(
-              'relative flex flex-col items-center p-3 rounded-lg border transition-all duration-200',
+              'relative flex-1 flex flex-col items-center p-3 rounded-lg transition-all duration-200 backdrop-blur-sm',
               currentTheme === theme.id
-                ? 'border-primary bg-primary-light'
-                : 'border-border bg-card hover:border-highlight'
+                ? 'bg-primary-light text-text'
+                : 'bg-[var(--color-card-alpha)] hover:bg-[var(--color-hover-alpha)] text-text-secondary hover:text-text'
             )}
           >
             <div className="flex gap-1 mb-2">

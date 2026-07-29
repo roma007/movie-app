@@ -1,26 +1,56 @@
 import { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, TextInput, FlatList, TouchableOpacity, Image } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
 import { useAppStore, getCollector, getProvider } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
+import { useThemeStore } from '../themes/store';
+import { useScaledFontSize } from '../themes/useScaledFontSize';
+import { hexToRgba } from '../themes/colorUtils';
+import { radius } from '../themes/radiusTokens';
 import BlurredBackground from '../components/BlurredBackground';
+import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
 
 interface Props {
   navigation: any;
+  route?: { params?: { keyword?: string; fromDetail?: string } };
 }
 
-export default function SearchScreen({ navigation }: Props) {
+export default function SearchScreen({ navigation, route }: Props) {
   const colors = useThemeColors();
+  const cardOpacity = useThemeStore((s) => s.cardOpacity);
+  const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100);
+  const cardBg = hexToRgba(colors.card, cardOpacity / 100);
+  const s = useScaledFontSize();
   const [keyword, setKeyword] = useState('');
   const [searching, setSearching] = useState(false);
   const [searchHistory, setSearchHistory] = useState<{ keyword: string; count: number }[]>([]);
   const [hotSearches, setHotSearches] = useState<{ keyword: string; count: number }[]>([]);
   const { mediaList, searchMedia } = useAppStore();
+  const hasKeywordParam = !!route?.params?.keyword;
 
   useEffect(() => {
     const provider = getProvider();
     provider.getSearchHistory(10).then(setSearchHistory).catch(() => {});
     provider.getHotSearches(10).then(setHotSearches).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const kw = route?.params?.keyword;
+    if (kw) {
+      setKeyword(kw);
+      getProvider().addSearchHistory(kw).catch(() => {});
+      const collector = getCollector();
+      setSearching(true);
+      collector.collectByKeyword(kw)
+        .then(() => searchMedia(kw))
+        .then(() => {
+          getProvider().getSearchHistory(10).then(setSearchHistory).catch(() => {});
+          getProvider().getHotSearches(10).then(setHotSearches).catch(() => {});
+        })
+        .catch(() => {})
+        .finally(() => setSearching(false));
+    }
+  }, [route?.params?.keyword]);
 
   const handleSearch = async () => {
     if (!keyword.trim()) return;
@@ -77,28 +107,26 @@ export default function SearchScreen({ navigation }: Props) {
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1 },
     searchBar: { flexDirection: 'row', padding: 15, paddingTop: 60, gap: 10 },
-    input: { flex: 1, backgroundColor: colors.surface, color: colors.text, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 8, fontSize: 16 },
-    searchButton: { backgroundColor: colors.primary, paddingHorizontal: 20, justifyContent: 'center', borderRadius: 8 },
-    searchButtonText: { color: colors.text, fontSize: 16, fontWeight: '600' },
-    item: { flexDirection: 'row', padding: 15, borderBottomWidth: 1, borderBottomColor: colors.surface },
-    poster: { width: 80, height: 110, borderRadius: 6, backgroundColor: colors.card },
+    item: { flexDirection: 'row', padding: 15 },
+    poster: { width: 80, height: 110, borderRadius: radius.sm, backgroundColor: cardBg },
     itemInfo: { flex: 1, marginLeft: 12, justifyContent: 'center' },
-    itemTitle: { fontSize: 16, color: colors.text, fontWeight: '500', marginBottom: 6 },
-    itemSubtitle: { fontSize: 13, color: colors.mutedForeground },
-    empty: { color: colors.disabledForeground, textAlign: 'center', marginTop: 50, fontSize: 15 },
+    itemTitle: { fontSize: s(16), color: colors.text, fontWeight: '500', marginBottom: 6 },
+    itemSubtitle: { fontSize: s(13), color: colors.mutedForeground },
+    empty: { color: colors.disabledForeground, textAlign: 'center', marginTop: 50, fontSize: s(15) },
     historyContainer: { padding: 15 },
     section: { marginBottom: 20 },
     sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-    sectionTitle: { fontSize: 14, color: colors.mutedForeground, fontWeight: '500' },
-    clearButton: { fontSize: 13, color: colors.primary },
+    sectionTitle: { fontSize: s(14), color: colors.mutedForeground, fontWeight: '500' },
     tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    tagContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: 6, overflow: 'hidden' },
+    tagContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: surfaceBg, borderRadius: radius.sm, overflow: 'hidden' },
     tag: { paddingHorizontal: 12, paddingVertical: 8 },
-    tagText: { fontSize: 14, color: colors.textSecondary },
-    deleteIcon: { fontSize: 14, color: colors.disabledForeground, paddingRight: 8 },
-    hotTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#2a1f1f', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 8 },
-    hotIndex: { fontSize: 12, color: colors.error, marginRight: 6 },
-  }), [colors]);
+    tagText: { fontSize: s(14), color: colors.textSecondary },
+    deleteIcon: { fontSize: s(14), color: colors.disabledForeground, paddingRight: 8 },
+    hotTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: surfaceBg, borderRadius: radius.sm, paddingHorizontal: 10, paddingVertical: 8 },
+    hotIndex: { fontSize: s(12), color: colors.error, marginRight: 6 },
+    loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 50 },
+    loadingText: { fontSize: s(14), color: colors.mutedForeground, marginTop: 10 },
+  }), [colors, surfaceBg, cardBg, s]);
 
   const bgImageUrl = mediaList.length > 0 ? mediaList[0].posterUrl : null;
 
@@ -106,21 +134,39 @@ export default function SearchScreen({ navigation }: Props) {
     <BlurredBackground imageUrl={bgImageUrl}>
     <View style={styles.container}>
       <View style={styles.searchBar}>
-        <TextInput
-          style={styles.input}
+        {hasKeywordParam && (
+          <Button variant="icon" size="sm" onPress={() => {
+            if (route?.params?.fromDetail) {
+              navigation.navigate('Detail', { id: route.params.fromDetail });
+            } else {
+              navigation.goBack();
+            }
+          }}>
+            <Text style={{ fontSize: s(20), color: colors.text }}>←</Text>
+          </Button>
+        )}
+        <Input
+          size="lg"
+          style={{ flex: 1 }}
           placeholder="搜索电影、电视剧、综艺..."
-          placeholderTextColor={colors.mutedForeground}
           value={keyword}
           onChangeText={setKeyword}
           onSubmitEditing={handleSearch}
           returnKeyType="search"
         />
-        <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
-          <Text style={styles.searchButtonText}>{searching ? '...' : '搜索'}</Text>
-        </TouchableOpacity>
+        <Button variant="primary" size="md" onPress={handleSearch} loading={searching}>
+          {searching ? '' : '搜索'}
+        </Button>
       </View>
 
-      {mediaList.length > 0 ? (
+      {searching && (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.mutedForeground} />
+          <Text style={styles.loadingText}>搜索中...</Text>
+        </View>
+      )}
+
+      {!searching && mediaList.length > 0 ? (
         <FlatList
           data={mediaList}
           keyExtractor={(item: any) => item.id}
@@ -132,9 +178,9 @@ export default function SearchScreen({ navigation }: Props) {
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>搜索历史</Text>
-                <TouchableOpacity onPress={handleClearHistory}>
-                  <Text style={styles.clearButton}>清空</Text>
-                </TouchableOpacity>
+                <Button variant="link" size="sm" onPress={handleClearHistory}>
+                  清空
+                </Button>
               </View>
               <View style={styles.tagRow}>
                 {searchHistory.map((item) => (
@@ -145,28 +191,10 @@ export default function SearchScreen({ navigation }: Props) {
                     >
                       <Text style={styles.tagText}>{item.keyword}</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => handleDeleteHistory(item.keyword)}>
+                    <Button variant="ghost" size="sm" onPress={() => handleDeleteHistory(item.keyword)}>
                       <Text style={styles.deleteIcon}>×</Text>
-                    </TouchableOpacity>
+                    </Button>
                   </View>
-                ))}
-              </View>
-            </View>
-          )}
-
-          {hotSearches.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>热门搜索</Text>
-              <View style={styles.tagRow}>
-                {hotSearches.map((item, index) => (
-                  <TouchableOpacity
-                    key={item.keyword}
-                    style={styles.hotTag}
-                    onPress={() => handleHistoryClick(item.keyword)}
-                  >
-                    <Text style={styles.hotIndex}>{index + 1}</Text>
-                    <Text style={styles.tagText}>{item.keyword}</Text>
-                  </TouchableOpacity>
                 ))}
               </View>
             </View>

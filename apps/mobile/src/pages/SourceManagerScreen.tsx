@@ -5,7 +5,14 @@ import { SourceImportService, AI_SOURCE_PROMPT, AI_SOURCE_IMPORT_SAMPLE } from '
 import type { VideoSource, CollectTask, CollectPreviewItem, ImportSourceItem, ParsedImportSource } from '@movie-app/core';
 import Toast, { showToast } from '../components/Toast';
 import { useThemeColors } from '../themes/useThemeColors';
+import { useThemeStore } from '../themes/store';
+import { useScaledFontSize } from '../themes/useScaledFontSize';
+import { hexToRgba } from '../themes/colorUtils';
+import { radius } from '../themes/radiusTokens';
 import BlurredBackground from '../components/BlurredBackground';
+import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
+import { Check, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react-native';
 
 interface Props {
   navigation: any;
@@ -49,123 +56,107 @@ export default function SourceManagerScreen({ navigation }: Props) {
   } = useAppStore();
 
   const colors = useThemeColors();
+  const cardOpacity = useThemeStore((s) => s.cardOpacity);
+  const cardBg = hexToRgba(colors.card, cardOpacity / 100);
+  const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100);
+  const surfaceElevatedBg = hexToRgba(colors.surfaceElevated, cardOpacity / 100);
+  const sf = useScaledFontSize();
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1 },
     scrollContainer: { flex: 1 },
     header: { padding: 20, paddingTop: 60 },
-    title: { fontSize: 24, fontWeight: 'bold', color: colors.foreground },
+    title: { fontSize: sf(24), fontWeight: 'bold', color: colors.text },
     list: { paddingHorizontal: 15, gap: 12 },
-    sourceCard: { backgroundColor: colors.card, borderRadius: 12, padding: 15 },
+    sourceCard: { backgroundColor: cardBg, borderRadius: radius.lg, padding: 15 },
     sourceHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
     sourceMain: { flex: 1 },
-    sourceName: { fontSize: 17, fontWeight: '600', color: colors.foreground, marginBottom: 4 },
-    sourceCode: { fontSize: 12, color: colors.disabledForeground },
-    sourceUrl: { fontSize: 13, color: colors.mutedForeground, marginBottom: 10 },
+    sourceName: { fontSize: sf(17), fontWeight: '600', color: colors.text, marginBottom: 4 },
+    sourceCode: { fontSize: sf(12), color: colors.disabledForeground },
+    sourceUrl: { fontSize: sf(13), color: colors.mutedForeground, marginBottom: 10 },
     rateRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
     rateButton: { padding: 4 },
-    rateButtonText: { color: colors.textSecondary, fontSize: 14 },
+    rateButtonText: { color: colors.textSecondary, fontSize: sf(14) },
     rateBars: { flexDirection: 'row', gap: 3 },
-    rateBar: { width: 8, height: 16, borderRadius: 2 },
-    rateLabel: { fontSize: 14, color: colors.textSecondary, width: 24, textAlign: 'center' },
-    healthLabel: { fontSize: 12, marginBottom: 4 },
-    lastCollectText: { fontSize: 11, color: colors.disabledForeground, marginBottom: 10 },
+    rateBar: { width: 8, height: 16, borderRadius: radius.progress },
+    rateLabel: { fontSize: sf(14), color: colors.textSecondary, width: 24, textAlign: 'center' },
+    healthLabel: { fontSize: sf(12), marginBottom: 4 },
+    lastCollectText: { fontSize: sf(11), color: colors.disabledForeground, marginBottom: 10 },
     sourceFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     actions: { flexDirection: 'row', gap: 8 },
-    actionButton: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: colors.border, borderRadius: 6 },
+    actionButton: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.sm },
     actionButtonDisabled: { opacity: 0.4 },
-    actionText: { color: colors.textSecondary, fontSize: 13 },
-    deleteButton: { backgroundColor: 'rgba(255, 107, 107, 0.15)' },
-    deleteText: { color: colors.error },
-    sourceActions: { flexDirection: 'row', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border },
-    sourceActionBtn: { flex: 1, paddingVertical: 10, backgroundColor: colors.border, borderRadius: 8, alignItems: 'center', justifyContent: 'center', minHeight: 40 },
-    sourceActionBtnDisabled: { opacity: 0.5 },
-    sourceActionBtnText: { color: colors.primary, fontSize: 13, fontWeight: '500' },
+    sourceActions: { flexDirection: 'row', gap: 8, marginTop: 12, paddingTop: 12 },
+    sourceActionBtn: { flex: 1, paddingVertical: 10, borderRadius: radius.md, minHeight: 40 },
     progressContainer: { marginTop: 10 },
-    progressBar: { height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden' },
-    progressFill: { height: '100%', backgroundColor: colors.primary, borderRadius: 2 },
-    progressText: { fontSize: 11, color: colors.mutedForeground, marginTop: 4, textAlign: 'center' },
-    addButton: { margin: 15, paddingVertical: 16, backgroundColor: colors.primary, borderRadius: 12, alignItems: 'center' },
-    addButtonText: { color: colors.foreground, fontSize: 16, fontWeight: '600' },
+    progressBar: { height: 4, backgroundColor: colors.trackBg, borderRadius: radius.progress, overflow: 'hidden' },
+    progressFill: { height: '100%', backgroundColor: colors.mutedForeground, borderRadius: radius.progress },
+    progressText: { fontSize: sf(11), color: colors.mutedForeground, marginTop: 4, textAlign: 'center' },
+    addButton: { margin: 15, paddingVertical: 16, borderRadius: radius.lg },
     bottomActions: { flexDirection: 'row', gap: 10, marginHorizontal: 15, marginBottom: 30 },
-    logToggle: { flex: 1, paddingVertical: 12, backgroundColor: colors.card, borderRadius: 8, alignItems: 'center' },
-    logToggleText: { color: colors.mutedForeground, fontSize: 13 },
-    keywordBtn: { flex: 1, paddingVertical: 12, backgroundColor: colors.card, borderRadius: 8, alignItems: 'center' },
-    keywordBtnText: { color: colors.primary, fontSize: 13, fontWeight: '500' },
-    logPanel: { marginHorizontal: 15, marginBottom: 20, backgroundColor: colors.surfaceElevated, borderRadius: 8, padding: 12, maxHeight: 300 },
+    logToggle: { flex: 1, paddingVertical: 12, borderRadius: radius.md },
+    keywordBtn: { flex: 1, paddingVertical: 12, borderRadius: radius.md },
+    logPanel: { marginHorizontal: 15, marginBottom: 20, backgroundColor: surfaceElevatedBg, borderRadius: radius.md, padding: 12, maxHeight: 300 },
     logPanelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-    logPanelTitle: { fontSize: 14, color: colors.mutedForeground, fontWeight: '500' },
-    clearLogBtn: { fontSize: 13, color: colors.primary },
-    logEmpty: { color: colors.disabledForeground, fontSize: 13, textAlign: 'center', paddingVertical: 20 },
+    logPanelTitle: { fontSize: sf(14), color: colors.mutedForeground, fontWeight: '500' },
+    clearLogBtn: { fontSize: sf(13), color: colors.textSecondary },
+    logEmpty: { color: colors.disabledForeground, fontSize: sf(13), textAlign: 'center', paddingVertical: 20 },
     logItem: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 4 },
-    logTime: { fontSize: 11, color: colors.disabledForeground, marginRight: 4, fontFamily: 'monospace' },
-    logLevel: { fontSize: 11, fontWeight: 'bold', marginRight: 4, fontFamily: 'monospace' },
+    logTime: { fontSize: sf(11), color: colors.disabledForeground, marginRight: 4, fontFamily: 'monospace' },
+    logLevel: { fontSize: sf(11), fontWeight: 'bold', marginRight: 4, fontFamily: 'monospace' },
     logLevelError: { color: colors.error },
     logLevelWarn: { color: colors.warning },
-    logLevelInfo: { color: colors.primary },
-    logSource: { fontSize: 11, color: colors.mutedForeground, marginRight: 4 },
-    logMessage: { fontSize: 11, color: colors.textSecondary, flex: 1 },
+    logLevelInfo: { color: colors.textSecondary },
+    logSource: { fontSize: sf(11), color: colors.mutedForeground, marginRight: 4 },
+    logMessage: { fontSize: sf(11), color: colors.textSecondary, flex: 1 },
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-    modalContent: { width: '100%', backgroundColor: colors.card, borderRadius: 16, padding: 24, gap: 16 },
-    modalTitle: { fontSize: 20, fontWeight: 'bold', color: colors.foreground, textAlign: 'center' },
-    input: { backgroundColor: colors.border, color: colors.foreground, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 8, fontSize: 15 },
+    modalContent: { width: '100%', backgroundColor: cardBg, borderRadius: radius.xl, padding: 24, gap: 16 },
+    modalTitle: { fontSize: sf(20), fontWeight: 'bold', color: colors.text, textAlign: 'center' },
     inputRow: { flexDirection: 'row', gap: 12 },
-    inputHalf: { flex: 1 },
     modalButtons: { flexDirection: 'row', gap: 12, marginTop: 8 },
-    modalButton: { flex: 1, paddingVertical: 14, backgroundColor: colors.primary, borderRadius: 8, alignItems: 'center' },
-    modalButtonOutline: { backgroundColor: colors.border, borderWidth: 1, borderColor: colors.borderLight },
-    modalButtonText: { color: colors.foreground, fontSize: 16, fontWeight: '600' },
+    modalButton: { flex: 1 },
     keywordModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', paddingTop: 60 },
     keywordModalContent: { flex: 1, backgroundColor: colors.background, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, gap: 12 },
     keywordSearchRow: { flexDirection: 'row', gap: 8 },
-    keywordInput: { flex: 1 },
-    keywordSearchBtn: { paddingHorizontal: 20, backgroundColor: colors.primary, borderRadius: 8, justifyContent: 'center' },
-    keywordSearchBtnText: { color: colors.foreground, fontSize: 15, fontWeight: '600' },
-    optionRow: { flexDirection: 'row', gap: 8 },
-    optionChip: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: colors.card, borderRadius: 6, borderWidth: 1, borderColor: colors.border },
-    optionChipActive: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
-    optionChipText: { fontSize: 13, color: colors.mutedForeground },
-    optionChipTextActive: { color: colors.primary },
+    optionRow: { flexDirection: 'row', gap: 16 },
+    switchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    switchLabel: { fontSize: sf(13), color: colors.mutedForeground },
     previewLoading: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 30, gap: 8 },
-    previewLoadingText: { color: colors.mutedForeground, fontSize: 14 },
-    previewEmpty: { color: colors.disabledForeground, textAlign: 'center', paddingVertical: 30, fontSize: 15 },
+    previewLoadingText: { color: colors.mutedForeground, fontSize: sf(14) },
+    previewEmpty: { color: colors.disabledForeground, textAlign: 'center', paddingVertical: 30, fontSize: sf(15) },
     previewHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    selectAllText: { color: colors.primary, fontSize: 14 },
-    selectedCount: { color: colors.mutedForeground, fontSize: 13 },
+    selectedCount: { color: colors.mutedForeground, fontSize: sf(13) },
     previewList: { maxHeight: 400 },
-    previewItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: colors.card, borderRadius: 6 },
+    previewItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 8, borderRadius: radius.sm },
     previewItemSelected: { backgroundColor: 'rgba(74,158,255,0.05)' },
-    previewCheckbox: { width: 22, height: 22, borderRadius: 4, borderWidth: 1.5, borderColor: colors.disabledForeground, marginRight: 12, justifyContent: 'center', alignItems: 'center' },
-    previewCheckmark: { color: colors.primary, fontSize: 14, fontWeight: 'bold' },
+    previewCheckbox: { width: 22, height: 22, borderRadius: radius.sm, backgroundColor: colors.surface, marginRight: 12, justifyContent: 'center', alignItems: 'center' },
     previewItemInfo: { flex: 1 },
-    previewItemTitle: { fontSize: 15, color: colors.foreground, marginBottom: 2 },
-    previewItemMeta: { fontSize: 12, color: colors.mutedForeground, marginBottom: 1 },
-    previewItemDetail: { fontSize: 11, color: colors.disabledForeground },
+    previewItemTitle: { fontSize: sf(15), color: colors.text, marginBottom: 2 },
+    previewItemMeta: { fontSize: sf(12), color: colors.mutedForeground, marginBottom: 1 },
+    previewItemDetail: { fontSize: sf(11), color: colors.disabledForeground },
     aiModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', paddingTop: 60 },
     aiModalContent: { flex: 1, backgroundColor: colors.background, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, gap: 12 },
-    aiSubtitle: { fontSize: 13, color: colors.mutedForeground, textAlign: 'center', lineHeight: 18 },
-    aiPromptScroll: { flex: 1, backgroundColor: colors.surfaceElevated, borderRadius: 8, padding: 12 },
-    aiPromptText: { fontSize: 12, color: colors.textSecondary, lineHeight: 18 },
-    aiTextarea: { flex: 1, backgroundColor: colors.surfaceElevated, color: colors.textSecondary, borderRadius: 8, padding: 12, fontSize: 13, fontFamily: 'monospace', textAlignVertical: 'top', minHeight: 200 },
+    aiSubtitle: { fontSize: sf(13), color: colors.mutedForeground, textAlign: 'center', lineHeight: 18 },
+    aiPromptScroll: { flex: 1, backgroundColor: surfaceElevatedBg, borderRadius: radius.md, padding: 12 },
+    aiPromptText: { fontSize: sf(12), color: colors.textSecondary, lineHeight: 18 },
+    aiTextarea: { flex: 1, backgroundColor: surfaceElevatedBg, color: colors.textSecondary, borderRadius: radius.md, padding: 12, fontSize: sf(13), fontFamily: 'monospace', textAlignVertical: 'top', minHeight: 200 },
     aiSampleRow: { flexDirection: 'row', justifyContent: 'flex-end' },
-    aiSampleText: { color: colors.primary, fontSize: 13 },
     aiPreviewList: { flex: 1 },
-    aiPreviewItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 12, borderRadius: 8, marginBottom: 8, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
-    aiPreviewItemValid: { borderColor: 'rgba(34, 197, 94, 0.3)', backgroundColor: 'rgba(34, 197, 94, 0.05)' },
-    aiPreviewItemWarn: { borderColor: 'rgba(234, 179, 8, 0.3)', backgroundColor: 'rgba(234, 179, 8, 0.05)' },
-    aiPreviewItemError: { borderColor: 'rgba(239, 68, 68, 0.3)', backgroundColor: 'rgba(239, 68, 68, 0.05)' },
-    aiPreviewIcon: { fontSize: 18 },
+    aiPreviewItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 12, borderRadius: radius.md, marginBottom: 8, backgroundColor: cardBg },
+    aiPreviewItemValid: { backgroundColor: 'rgba(34, 197, 94, 0.05)' },
+    aiPreviewItemWarn: { backgroundColor: 'rgba(234, 179, 8, 0.15)' },
+    aiPreviewItemError: { backgroundColor: 'rgba(239, 68, 68, 0.15)' },
+    aiPreviewIcon: { alignItems: 'center', justifyContent: 'center' },
     aiPreviewInfo: { flex: 1 },
-    aiPreviewName: { fontSize: 14, color: colors.foreground },
-    aiPreviewCode: { fontSize: 12, color: colors.mutedForeground },
-    aiPreviewUrl: { fontSize: 11, color: colors.disabledForeground, marginTop: 2 },
-    aiPreviewError: { fontSize: 11, color: colors.error, marginTop: 2 },
-    aiPreviewWarn: { fontSize: 11, color: colors.warning, marginTop: 2 },
+    aiPreviewName: { fontSize: sf(14), color: colors.text },
+    aiPreviewCode: { fontSize: sf(12), color: colors.mutedForeground },
+    aiPreviewUrl: { fontSize: sf(11), color: colors.disabledForeground, marginTop: 2 },
+    aiPreviewError: { fontSize: sf(11), color: colors.error, marginTop: 2 },
+    aiPreviewWarn: { fontSize: sf(11), color: colors.warning, marginTop: 2 },
     aiResultContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40, gap: 8 },
-    aiResultIcon: { fontSize: 40 },
-    aiResultText: { fontSize: 18, color: colors.success, fontWeight: '600' },
-    aiResultSubtext: { fontSize: 14, color: colors.mutedForeground },
-  }), [colors]);
+    aiResultText: { fontSize: sf(18), color: colors.success, fontWeight: '600' },
+    aiResultSubtext: { fontSize: sf(14), color: colors.mutedForeground },
+  }), [colors, cardBg, surfaceBg, surfaceElevatedBg, sf]);
 
   const getBarColor = (level: number, threshold: number): string => {
     if (level >= threshold) return colors.success;
@@ -464,19 +455,21 @@ export default function SourceManagerScreen({ navigation }: Props) {
                   <Switch
                     value={source.isEnabled}
                     onValueChange={(value) => toggleSourceEnabled(source.id, value)}
-                    trackColor={{ false: colors.switchTrack, true: colors.primary }}
-                    thumbColor={source.isEnabled ? colors.foreground : colors.disabledForeground}
+                    trackColor={{ false: colors.swiftTrack, true: colors.swiftActiveTrack }}
+                    thumbColor={source.isEnabled ? colors.swiftThumb : colors.disabledForeground}
                   />
                 </View>
                 <Text style={styles.sourceUrl}>{source.baseUrl}</Text>
 
                 <View style={styles.rateRow}>
-                  <TouchableOpacity
+                  <Button
+                    variant="icon"
+                    size="sm"
                     style={styles.rateButton}
                     onPress={() => handleAdjustRate(source, -1)}
                   >
                     <Text style={styles.rateButtonText}>▼</Text>
-                  </TouchableOpacity>
+                  </Button>
                   <View style={styles.rateBars}>
                     {RATE_BARS.map((threshold, idx) => (
                       <View
@@ -486,12 +479,14 @@ export default function SourceManagerScreen({ navigation }: Props) {
                     ))}
                   </View>
                   <Text style={styles.rateLabel}>{source.rateLimit}</Text>
-                  <TouchableOpacity
+                  <Button
+                    variant="icon"
+                    size="sm"
                     style={styles.rateButton}
                     onPress={() => handleAdjustRate(source, 1)}
                   >
                     <Text style={styles.rateButtonText}>▲</Text>
-                  </TouchableOpacity>
+                  </Button>
                 </View>
 
                 <Text style={[styles.healthLabel, { color: health.color }]}>{health.label}</Text>
@@ -502,41 +497,46 @@ export default function SourceManagerScreen({ navigation }: Props) {
 
                 <View style={styles.sourceFooter}>
                   <View style={styles.actions}>
-                    <TouchableOpacity
-                      style={[styles.actionButton, styles.deleteButton]}
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      style={styles.actionButton}
                       onPress={() => handleDelete(source.id, source.name)}
                     >
-                      <Text style={[styles.actionText, styles.deleteText]}>删除</Text>
-                    </TouchableOpacity>
+                      删除
+                    </Button>
                   </View>
                 </View>
 
                 <View style={styles.sourceActions}>
-                  <TouchableOpacity
-                    style={[styles.sourceActionBtn, checking && styles.sourceActionBtnDisabled]}
-                    onPress={() => handleCheck(source)}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    style={styles.sourceActionBtn}
+                    loading={checking}
                     disabled={checking}
+                    onPress={() => handleCheck(source)}
                   >
-                    {checking ? (
-                      <ActivityIndicator size="small" color={colors.primary} />
-                    ) : (
-                      <Text style={styles.sourceActionBtnText}>检测</Text>
-                    )}
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.sourceActionBtn, collecting && styles.sourceActionBtnDisabled]}
+                    检测
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    style={styles.sourceActionBtn}
+                    disabled={collecting}
                     onPress={() => handleCollect(source.code, 'increment', source.name)}
-                    disabled={collecting}
                   >
-                    <Text style={styles.sourceActionBtnText}>增量采集</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.sourceActionBtn, collecting && styles.sourceActionBtnDisabled]}
+                    增量采集
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    style={styles.sourceActionBtn}
+                    disabled={collecting}
                     onPress={() => handleCollect(source.code, 'full', source.name)}
-                    disabled={collecting}
                   >
-                    <Text style={styles.sourceActionBtnText}>全量采集</Text>
-                  </TouchableOpacity>
+                    全量采集
+                  </Button>
                 </View>
 
                 {collecting && (
@@ -552,38 +552,39 @@ export default function SourceManagerScreen({ navigation }: Props) {
           })}
         </View>
 
-        <TouchableOpacity style={styles.addButton} onPress={() => setModalVisible(true)}>
-          <Text style={styles.addButtonText}>手动添加</Text>
-        </TouchableOpacity>
+        <Button variant="primary" size="lg" fullWidth style={styles.addButton} onPress={() => setModalVisible(true)}>
+          手动添加
+        </Button>
 
-        <TouchableOpacity
-          style={[styles.addButton, { backgroundColor: '#8b5cf6', marginTop: 0 }]}
+        <Button
+          variant="primary"
+          size="lg"
+          fullWidth
+          style={StyleSheet.flatten([styles.addButton, { marginTop: 0 }])}
           onPress={() => {
             setAiModalVisible(true);
             handleAiReset();
           }}
         >
-          <Text style={styles.addButtonText}>AI 导入</Text>
-        </TouchableOpacity>
+          AI 导入
+        </Button>
 
         <View style={styles.bottomActions}>
-          <TouchableOpacity style={styles.logToggle} onPress={() => setShowLogPanel(p => !p)}>
-            <Text style={styles.logToggleText}>
-              {showLogPanel ? '收起采集日志' : `查看采集日志 (${collectionLogs.length})`}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.keywordBtn} onPress={() => setKeywordModalVisible(true)}>
-            <Text style={styles.keywordBtnText}>关键词搜索采集</Text>
-          </TouchableOpacity>
+          <Button variant="secondary" size="sm" style={styles.logToggle} onPress={() => setShowLogPanel(p => !p)}>
+            {showLogPanel ? '收起采集日志' : `查看采集日志 (${collectionLogs.length})`}
+          </Button>
+          <Button variant="secondary" size="sm" style={styles.keywordBtn} onPress={() => setKeywordModalVisible(true)}>
+            关键词搜索采集
+          </Button>
         </View>
 
         {showLogPanel && (
           <View style={styles.logPanel}>
             <View style={styles.logPanelHeader}>
               <Text style={styles.logPanelTitle}>采集日志</Text>
-              <TouchableOpacity onPress={clearCollectionLogs}>
-                <Text style={styles.clearLogBtn}>清空</Text>
-              </TouchableOpacity>
+              <Button variant="link" size="sm" onPress={clearCollectionLogs}>
+                清空
+              </Button>
             </View>
             {collectionLogs.length === 0 ? (
               <Text style={styles.logEmpty}>暂无日志</Text>
@@ -617,44 +618,41 @@ export default function SourceManagerScreen({ navigation }: Props) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>添加视频源</Text>
-            <TextInput
-              style={styles.input}
+            <Input
+              size="lg"
               placeholder="编码（唯一标识）"
-              placeholderTextColor={colors.disabledForeground}
               value={form.code}
               onChangeText={(text) => setForm({ ...form, code: text })}
             />
-            <TextInput
-              style={styles.input}
+            <Input
+              size="lg"
               placeholder="名称"
-              placeholderTextColor={colors.disabledForeground}
               value={form.name}
               onChangeText={(text) => setForm({ ...form, name: text })}
             />
-            <TextInput
-              style={styles.input}
+            <Input
+              size="lg"
               placeholder="API 地址"
-              placeholderTextColor={colors.disabledForeground}
               value={form.baseUrl}
               onChangeText={(text) => setForm({ ...form, baseUrl: text })}
             />
             <View style={styles.inputRow}>
-              <TextInput
-                style={[styles.input, styles.inputHalf]}
+              <Input
+                size="lg"
+                style={{ flex: 1 }}
                 placeholder="速率限制"
-                placeholderTextColor={colors.disabledForeground}
                 keyboardType="numeric"
                 value={form.rateLimit}
                 onChangeText={(text) => setForm({ ...form, rateLimit: text })}
               />
             </View>
             <View style={styles.modalButtons}>
-              <TouchableOpacity style={[styles.modalButton, styles.modalButtonOutline]} onPress={() => setModalVisible(false)}>
-                <Text style={styles.modalButtonText}>取消</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.modalButton} onPress={handleAdd}>
-                <Text style={styles.modalButtonText}>添加</Text>
-              </TouchableOpacity>
+              <Button variant="secondary" size="md" style={styles.modalButton} onPress={() => setModalVisible(false)}>
+                取消
+              </Button>
+              <Button variant="primary" size="md" style={styles.modalButton} onPress={handleAdd}>
+                添加
+              </Button>
             </View>
           </View>
         </View>
@@ -671,42 +669,44 @@ export default function SourceManagerScreen({ navigation }: Props) {
             <Text style={styles.modalTitle}>关键词搜索采集</Text>
 
             <View style={styles.keywordSearchRow}>
-              <TextInput
-                style={[styles.input, styles.keywordInput]}
+              <Input
+                size="lg"
+                style={{ flex: 1 }}
                 placeholder="输入关键词..."
-                placeholderTextColor={colors.disabledForeground}
                 value={keywordInput}
                 onChangeText={setKeywordInput}
                 onSubmitEditing={handleKeywordSearch}
                 returnKeyType="search"
               />
-              <TouchableOpacity style={styles.keywordSearchBtn} onPress={handleKeywordSearch}>
-                <Text style={styles.keywordSearchBtnText}>搜索</Text>
-              </TouchableOpacity>
+              <Button variant="primary" size="sm" onPress={handleKeywordSearch}>
+                搜索
+              </Button>
             </View>
 
             <View style={styles.optionRow}>
-              <TouchableOpacity
-                style={[styles.optionChip, relaxBlacklist && styles.optionChipActive]}
-                onPress={() => setRelaxBlacklist(v => !v)}
-              >
-                <Text style={[styles.optionChipText, relaxBlacklist && styles.optionChipTextActive]}>
-                  忽略黑名单
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.optionChip, relaxYear && styles.optionChipActive]}
-                onPress={() => setRelaxYear(v => !v)}
-              >
-                <Text style={[styles.optionChipText, relaxYear && styles.optionChipTextActive]}>
-                  不限年份
-                </Text>
-              </TouchableOpacity>
+              <View style={styles.switchRow}>
+                <Switch
+                  value={relaxBlacklist}
+                  onValueChange={setRelaxBlacklist}
+                  trackColor={{ false: colors.swiftTrack, true: colors.swiftActiveTrack }}
+                  thumbColor={relaxBlacklist ? colors.swiftThumb : colors.disabledForeground}
+                />
+                <Text style={styles.switchLabel}>忽略黑名单</Text>
+              </View>
+              <View style={styles.switchRow}>
+                <Switch
+                  value={relaxYear}
+                  onValueChange={setRelaxYear}
+                  trackColor={{ false: colors.swiftTrack, true: colors.swiftActiveTrack }}
+                  thumbColor={relaxYear ? colors.swiftThumb : colors.disabledForeground}
+                />
+                <Text style={styles.switchLabel}>不限年份</Text>
+              </View>
             </View>
 
             {previewLoading && (
               <View style={styles.previewLoading}>
-                <ActivityIndicator size="small" color={colors.primary} />
+                <ActivityIndicator size="small" color={colors.mutedForeground} />
                 <Text style={styles.previewLoadingText}>搜索中...</Text>
               </View>
             )}
@@ -718,11 +718,9 @@ export default function SourceManagerScreen({ navigation }: Props) {
             {previewResults.length > 0 && (
               <>
                 <View style={styles.previewHeader}>
-                  <TouchableOpacity onPress={handleSelectAllPreview}>
-                    <Text style={styles.selectAllText}>
-                      {selectedPreviewIds.size === previewResults.length ? '取消全选' : `全选 (${previewResults.length})`}
-                    </Text>
-                  </TouchableOpacity>
+                  <Button variant="link" size="sm" onPress={handleSelectAllPreview}>
+                    {selectedPreviewIds.size === previewResults.length ? '取消全选' : `全选 (${previewResults.length})`}
+                  </Button>
                   <Text style={styles.selectedCount}>已选 {selectedPreviewIds.size} 项</Text>
                 </View>
                 <ScrollView style={styles.previewList}>
@@ -735,7 +733,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
                         onPress={() => handleTogglePreviewItem(item.fingerprint)}
                       >
                         <View style={styles.previewCheckbox}>
-                          {selected && <Text style={styles.previewCheckmark}>✓</Text>}
+                          {selected && <Check size={14} color={colors.text} />}
                         </View>
                         <View style={styles.previewItemInfo}>
                           <Text style={styles.previewItemTitle} numberOfLines={1}>
@@ -758,20 +756,19 @@ export default function SourceManagerScreen({ navigation }: Props) {
             )}
 
             <View style={styles.modalButtons}>
-              <TouchableOpacity style={[styles.modalButton, styles.modalButtonOutline]} onPress={handleCloseKeywordModal}>
-                <Text style={styles.modalButtonText}>取消</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, isSaving && styles.sourceActionBtnDisabled]}
-                onPress={handleSavePreview}
+              <Button variant="secondary" size="md" style={styles.modalButton} onPress={handleCloseKeywordModal}>
+                取消
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
+                style={styles.modalButton}
+                loading={isSaving}
                 disabled={isSaving}
+                onPress={handleSavePreview}
               >
-                {isSaving ? (
-                  <ActivityIndicator size="small" color={colors.foreground} />
-                ) : (
-                  <Text style={styles.modalButtonText}>保存选中 ({selectedPreviewIds.size})</Text>
-                )}
-              </TouchableOpacity>
+                保存选中 ({selectedPreviewIds.size})
+              </Button>
             </View>
           </View>
         </View>
@@ -801,15 +798,17 @@ export default function SourceManagerScreen({ navigation }: Props) {
                   </Text>
                 </ScrollView>
                 <View style={styles.modalButtons}>
-                  <TouchableOpacity
-                    style={[styles.modalButton, styles.modalButtonOutline]}
+                  <Button
+                    variant="secondary"
+                    size="md"
+                    style={styles.modalButton}
                     onPress={() => { setAiModalVisible(false); handleAiReset(); }}
                   >
-                    <Text style={styles.modalButtonText}>取消</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.modalButton} onPress={() => setAiStep('paste')}>
-                    <Text style={styles.modalButtonText}>下一步</Text>
-                  </TouchableOpacity>
+                    取消
+                  </Button>
+                  <Button variant="primary" size="md" style={styles.modalButton} onPress={() => setAiStep('paste')}>
+                    下一步
+                  </Button>
                 </View>
               </>
             )}
@@ -830,20 +829,22 @@ export default function SourceManagerScreen({ navigation }: Props) {
                   textAlignVertical="top"
                 />
                 <View style={styles.aiSampleRow}>
-                  <TouchableOpacity onPress={() => setAiPastedText(AI_SOURCE_IMPORT_SAMPLE)}>
-                    <Text style={styles.aiSampleText}>填入示例</Text>
-                  </TouchableOpacity>
+                  <Button variant="link" size="sm" onPress={() => setAiPastedText(AI_SOURCE_IMPORT_SAMPLE)}>
+                    填入示例
+                  </Button>
                 </View>
                 <View style={styles.modalButtons}>
-                  <TouchableOpacity
-                    style={[styles.modalButton, styles.modalButtonOutline]}
+                  <Button
+                    variant="secondary"
+                    size="md"
+                    style={styles.modalButton}
                     onPress={() => setAiStep('prompt')}
                   >
-                    <Text style={styles.modalButtonText}>返回</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.modalButton} onPress={handleAiParse}>
-                    <Text style={styles.modalButtonText}>解析并预览</Text>
-                  </TouchableOpacity>
+                    返回
+                  </Button>
+                  <Button variant="primary" size="md" style={styles.modalButton} onPress={handleAiParse}>
+                    解析并预览
+                  </Button>
                 </View>
               </>
             )}
@@ -860,7 +861,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
                 <ScrollView style={styles.aiPreviewList}>
                   {aiResult ? (
                     <View style={styles.aiResultContainer}>
-                      <Text style={styles.aiResultIcon}>✅</Text>
+                      <CheckCircle2 size={36} color="#22c55e" />
                       <Text style={styles.aiResultText}>成功导入 {aiResult.imported} 个视频源</Text>
                       {aiResult.skipped > 0 && (
                         <Text style={styles.aiResultSubtext}>{aiResult.skipped} 个被跳过</Text>
@@ -869,7 +870,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
                   ) : (
                     aiPreview.map((p, idx) => {
                       const isOverwrite = p.status === 'code_exists' || p.status === 'url_exists';
-                      const statusIcon = p.status === 'valid' ? '✅' : p.status === 'invalid_field' ? '❌' : '⚠️';
+                      const statusIcon = p.status === 'valid' ? <CheckCircle2 size={14} color="#22c55e" /> : p.status === 'invalid_field' ? <XCircle size={14} color="#ef4444" /> : <AlertTriangle size={14} color="#eab308" />;
                       return (
                         <View
                           key={idx}
@@ -881,7 +882,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
                             p.status === 'duplicate_in_list' && styles.aiPreviewItemWarn,
                           ]}
                         >
-                          <Text style={styles.aiPreviewIcon}>{statusIcon}</Text>
+                          <View style={styles.aiPreviewIcon}>{statusIcon}</View>
                           <View style={styles.aiPreviewInfo}>
                             <Text style={styles.aiPreviewName} numberOfLines={1}>
                               {p.item.name || '未命名'}
@@ -904,36 +905,34 @@ export default function SourceManagerScreen({ navigation }: Props) {
                 </ScrollView>
                 <View style={styles.modalButtons}>
                   {aiResult ? (
-                    <TouchableOpacity
+                    <Button
+                      variant="primary"
+                      size="md"
                       style={styles.modalButton}
                       onPress={() => { setAiModalVisible(false); handleAiReset(); }}
                     >
-                      <Text style={styles.modalButtonText}>完成</Text>
-                    </TouchableOpacity>
+                      完成
+                    </Button>
                   ) : (
                     <>
-                      <TouchableOpacity
-                        style={[styles.modalButton, styles.modalButtonOutline]}
+                      <Button
+                        variant="secondary"
+                        size="md"
+                        style={styles.modalButton}
                         onPress={() => setAiStep('paste')}
                       >
-                        <Text style={styles.modalButtonText}>返回修改</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[
-                          styles.modalButton,
-                          (aiImporting || aiPreview.filter(p => p.status === 'valid').length === 0) && styles.sourceActionBtnDisabled,
-                        ]}
-                        onPress={handleAiImport}
+                        返回修改
+                      </Button>
+                      <Button
+                        variant="primary"
+                        size="md"
+                        style={styles.modalButton}
+                        loading={aiImporting}
                         disabled={aiImporting || aiPreview.filter(p => p.status === 'valid').length === 0}
+                        onPress={handleAiImport}
                       >
-                        {aiImporting ? (
-                          <ActivityIndicator size="small" color={colors.foreground} />
-                        ) : (
-                          <Text style={styles.modalButtonText}>
-                            导入 {aiPreview.filter(p => p.status === 'valid').length} 个
-                          </Text>
-                        )}
-                      </TouchableOpacity>
+                        导入 {aiPreview.filter(p => p.status === 'valid').length} 个
+                      </Button>
                     </>
                   )}
                 </View>

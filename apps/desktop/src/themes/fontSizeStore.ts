@@ -10,10 +10,10 @@ export interface FontSizeConfig {
 }
 
 export const fontSizes: Record<FontSize, FontSizeConfig> = {
-  small: { id: 'small', label: '小', size: '14px', scale: 0.95 },
-  normal: { id: 'normal', label: '默认', size: '16px', scale: 1.1 },
-  large: { id: 'large', label: '大', size: '18px', scale: 1.25 },
-  xlarge: { id: 'xlarge', label: '特大', size: '20px', scale: 1.4 },
+  small: { id: 'small', label: '小', size: '18px', scale: 1.25 },
+  normal: { id: 'normal', label: '默认', size: '20px', scale: 1.4 },
+  large: { id: 'large', label: '大', size: '22px', scale: 1.55 },
+  xlarge: { id: 'xlarge', label: '特大', size: '24px', scale: 1.7 },
 };
 
 export const FONT_SIZE_KEY = 'movie-app-font-size';

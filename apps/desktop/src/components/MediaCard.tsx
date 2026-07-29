@@ -19,13 +19,13 @@ export function MediaCard({
   if (size === 'small') {
     return (
       <div
-        className="group cursor-pointer overflow-hidden rounded-lg border border-border hover:border-highlight transition-all duration-300"
+        className="group cursor-pointer overflow-hidden rounded-lg bg-[var(--color-card-alpha)] backdrop-blur-sm transition-all duration-300"
         onClick={() => {
           onBeforeNavigate?.();
           navigate(`/media/${media.id}`, { state: navigateState });
         }}
       >
-        <div className="aspect-[2/3] bg-secondary overflow-hidden">
+        <div className="aspect-[2/3] bg-[var(--color-secondary-alpha)] overflow-hidden">
           {media.posterUrl ? (
             <img
               src={media.posterUrl}
@@ -48,13 +48,13 @@ export function MediaCard({
   
   return (
     <Card
-      className="group cursor-pointer overflow-hidden p-0 gap-0 bg-card border-border hover:border-highlight hover:shadow-card transition-all duration-300"
+      className="group cursor-pointer overflow-hidden p-0 gap-0 transition-all duration-300 hover:shadow-card"
       onClick={() => {
         onBeforeNavigate?.();
         navigate(`/media/${media.id}`, { state: navigateState });
       }}
     >
-      <div className="aspect-[2/3] bg-secondary overflow-hidden relative">
+      <div className="aspect-[2/3] bg-[var(--color-secondary-alpha)] overflow-hidden relative">
         {media.posterUrl ? (
           <img
             src={media.posterUrl}
@@ -70,7 +70,7 @@ export function MediaCard({
         {(media.status === 'ONGOING' || media.status === 'PUBLISHED') && media.type !== 'VARIETY' && media.currentEpisodes && (
           <Badge 
             variant="secondary" 
-            className="absolute top-2 left-2 shrink-0 text-xs px-2 py-1 bg-primary/80 backdrop-blur-sm border-none text-white"
+            className="absolute top-2 left-2 shrink-0 text-xs px-2 py-1 bg-muted-foreground/50 backdrop-blur-sm border-none text-white"
           >
             更新至第{media.currentEpisodes}集
           </Badge>
@@ -78,7 +78,7 @@ export function MediaCard({
         {(media.status === 'ONGOING' || media.status === 'PUBLISHED') && media.type === 'VARIETY' && media.remarks && (
           <Badge 
             variant="secondary" 
-            className="absolute top-2 left-2 shrink-0 text-xs px-2 py-1 bg-primary/80 backdrop-blur-sm border-none text-white"
+            className="absolute top-2 left-2 shrink-0 text-xs px-2 py-1 bg-muted-foreground/50 backdrop-blur-sm border-none text-white"
           >
             {media.remarks}
           </Badge>
@@ -111,11 +111,11 @@ export function MediaCard({
       <div className="p-2.5 space-y-1.5">
         <div className="text-sm font-medium truncate">{media.title}</div>
         {media.actors.length > 0 && (
-          <div className="text-xs text-muted-foreground truncate">
+          <div className="text-xs text-secondary-foreground truncate">
             {media.actors.slice(0, 2).join(' / ')}
           </div>
         )}
-        <div className="text-xs text-muted-foreground">
+        <div className="text-xs text-secondary-foreground">
           {media.year} · {media.area || '未知'}
         </div>
       </div>

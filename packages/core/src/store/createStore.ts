@@ -17,6 +17,7 @@ export interface AppState {
   favorites: Favorite[];
   watchHistory: WatchHistory[];
   isLoading: boolean;
+  isCollecting: boolean;
   error: string | null;
   collectConfig: CollectConfig | null;
   shortDramaConfig: ShortDramaConfig | null;
@@ -175,6 +176,7 @@ export function createAppStore(db: DatabaseProvider) {
     favorites: [],
     watchHistory: [],
     isLoading: false,
+    isCollecting: false,
     error: null,
     collectConfig: null,
     shortDramaConfig: null,
@@ -511,7 +513,7 @@ export function createAppStore(db: DatabaseProvider) {
     },
 
     collectLatest: async () => {
-      set({ isLoading: true, error: null, collectSourceProgress: null });
+      set({ isCollecting: true, error: null, collectSourceProgress: null });
       try {
         const sources = await db.getEnabledVideoSources();
         set({
@@ -545,12 +547,12 @@ export function createAppStore(db: DatabaseProvider) {
       } catch (err: any) {
         set({ error: err.message });
       } finally {
-        set({ isLoading: false, collectSourceProgress: null });
+        set({ isCollecting: false, collectSourceProgress: null });
       }
     },
 
     collectByKeyword: async (keyword: string) => {
-      set({ isLoading: true, error: null });
+      set({ isCollecting: true, error: null });
       try {
         const result = await collectorService.collectByKeyword(keyword);
         await get().loadMediaList();
@@ -559,12 +561,12 @@ export function createAppStore(db: DatabaseProvider) {
         set({ error: err.message });
         return 0;
       } finally {
-        set({ isLoading: false });
+        set({ isCollecting: false });
       }
     },
 
     collectAll: async () => {
-      set({ isLoading: true, error: null });
+      set({ isCollecting: true, error: null });
       try {
         const result = await collectorService.collectAll();
         await get().loadMediaList();
@@ -573,7 +575,7 @@ export function createAppStore(db: DatabaseProvider) {
         set({ error: err.message });
         return { totalCollected: 0, totalPages: 0 };
       } finally {
-        set({ isLoading: false });
+        set({ isCollecting: false });
       }
     },
 

@@ -1,17 +1,26 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity } from 'react-native';
 import { useThemeColors } from '../themes/useThemeColors';
+import { useThemeStore } from '../themes/store';
+import { useScaledFontSize } from '../themes/useScaledFontSize';
+import { radius } from '../themes/radiusTokens';
+import { hexToRgba } from '../themes/colorUtils';
+import { Button } from './ui/Button';
 import { useAppStore } from '../useAppStore';
 import type { UserUsageType } from '@movie-app/core';
+import { Search, Film, Tv, Check } from 'lucide-react-native';
 
-const OPTIONS: { type: UserUsageType; label: string; desc: string; icon: string }[] = [
-  { type: 'SEARCH_FIRST', label: '搜索优先', desc: '临时搜索采集，找想看的视频', icon: '🔍' },
-  { type: 'NEW_MOVIES', label: '新片追逐', desc: '增量采集最新电影，挑选感兴趣的', icon: '🎬' },
-  { type: 'TV_SERIES', label: '追剧/综艺', desc: '追更电视剧/综艺，追完再增量采集', icon: '📺' },
+const OPTIONS: { type: UserUsageType; label: string; desc: string; icon: any }[] = [
+  { type: 'SEARCH_FIRST', label: '搜索优先', desc: '临时搜索采集，找想看的视频', icon: Search },
+  { type: 'NEW_MOVIES', label: '新片追逐', desc: '增量采集最新电影，挑选感兴趣的', icon: Film },
+  { type: 'TV_SERIES', label: '追剧/综艺', desc: '追更电视剧/综艺，追完再增量采集', icon: Tv },
 ];
 
 export default function UsageGuideModal() {
   const colors = useThemeColors();
+  const cardOpacity = useThemeStore((s) => s.cardOpacity);
+  const cardBg = hexToRgba(colors.card, cardOpacity / 100);
+  const s = useScaledFontSize();
   const [visible, setVisible] = useState(false);
   const [selected, setSelected] = useState<Set<UserUsageType>>(new Set());
   const { setUserUsageTypes, checkGuideShown, markGuideShown } = useAppStore();
@@ -26,19 +35,19 @@ export default function UsageGuideModal() {
     },
     container: {
       width: '100%',
-      backgroundColor: colors.card,
-      borderRadius: 16,
+      backgroundColor: cardBg,
+      borderRadius: radius.xl,
       padding: 24,
     },
     title: {
-      fontSize: 20,
+      fontSize: s(20),
       fontWeight: 'bold',
       color: colors.text,
       textAlign: 'center',
       marginBottom: 8,
     },
     subtitle: {
-      fontSize: 13,
+      fontSize: s(13),
       color: colors.mutedForeground,
       textAlign: 'center',
       marginBottom: 20,
@@ -49,51 +58,41 @@ export default function UsageGuideModal() {
       alignItems: 'center',
       gap: 14,
       padding: 14,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
+      borderRadius: radius.lg,
       marginBottom: 10,
-      backgroundColor: colors.background,
+      backgroundColor: cardBg,
     },
     optionActive: {
-      borderColor: colors.primary,
-      backgroundColor: 'rgba(74, 158, 255, 0.08)',
+      backgroundColor: hexToRgba(colors.mutedForeground, cardOpacity / 100 * 0.2),
+      borderColor: colors.mutedForeground,
+      borderWidth: 1,
     },
     checkbox: {
       width: 22,
       height: 22,
-      borderRadius: 4,
-      borderWidth: 2,
-      borderColor: colors.disabledForeground,
+      borderRadius: radius.sm,
+      backgroundColor: colors.surface,
       alignItems: 'center',
       justifyContent: 'center',
     },
     checkboxActive: {
-      borderColor: colors.primary,
-      backgroundColor: colors.primary,
+      backgroundColor: colors.mutedForeground,
     },
-    checkmark: {
-      color: colors.text,
-      fontSize: 14,
-      fontWeight: 'bold',
-    },
-    optionIcon: {
-      fontSize: 24,
-    },
+
     optionTextWrap: {
       flex: 1,
     },
     optionLabel: {
-      fontSize: 15,
+      fontSize: s(15),
       fontWeight: '600',
       color: colors.text,
       marginBottom: 2,
     },
     optionLabelActive: {
-      color: colors.primary,
+      color: colors.text,
     },
     optionDesc: {
-      fontSize: 12,
+      fontSize: s(12),
       color: colors.mutedForeground,
     },
     btnRow: {
@@ -101,37 +100,7 @@ export default function UsageGuideModal() {
       gap: 10,
       marginTop: 6,
     },
-    skipBtn: {
-      flex: 1,
-      borderRadius: 10,
-      paddingVertical: 14,
-      alignItems: 'center',
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    skipBtnText: {
-      color: colors.mutedForeground,
-      fontSize: 14,
-    },
-    confirmBtn: {
-      flex: 1,
-      backgroundColor: colors.primary,
-      borderRadius: 10,
-      paddingVertical: 14,
-      alignItems: 'center',
-    },
-    confirmBtnDisabled: {
-      backgroundColor: colors.borderLight,
-    },
-    confirmBtnText: {
-      color: colors.text,
-      fontSize: 16,
-      fontWeight: '600',
-    },
-    confirmBtnTextDisabled: {
-      color: colors.disabledForeground,
-    },
-  }), [colors]);
+  }), [colors, cardBg, s]);
 
   useEffect(() => {
     checkGuideShown().then((shown) => {
@@ -172,6 +141,7 @@ export default function UsageGuideModal() {
 
           {OPTIONS.map((opt) => {
             const isActive = selected.has(opt.type);
+            const Icon = opt.icon;
             return (
               <TouchableOpacity
                 key={opt.type}
@@ -179,9 +149,9 @@ export default function UsageGuideModal() {
                 onPress={() => handleToggle(opt.type)}
               >
                 <View style={[styles.checkbox, isActive && styles.checkboxActive]}>
-                  {isActive && <Text style={styles.checkmark}>✓</Text>}
+                  {isActive && <Check size={12} color="#fff" />}
                 </View>
-                <Text style={styles.optionIcon}>{opt.icon}</Text>
+                <Icon size={22} color={isActive ? colors.text : colors.mutedForeground} />
                 <View style={styles.optionTextWrap}>
                   <Text style={[styles.optionLabel, isActive && styles.optionLabelActive]}>
                     {opt.label}
@@ -193,18 +163,12 @@ export default function UsageGuideModal() {
           })}
 
           <View style={styles.btnRow}>
-            <TouchableOpacity style={styles.skipBtn} onPress={dismiss}>
-              <Text style={styles.skipBtnText}>跳过</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.confirmBtn, selected.size === 0 && styles.confirmBtnDisabled]}
-              onPress={handleConfirm}
-              disabled={selected.size === 0}
-            >
-              <Text style={[styles.confirmBtnText, selected.size === 0 && styles.confirmBtnTextDisabled]}>
-                确认（{selected.size} 项）
-              </Text>
-            </TouchableOpacity>
+            <Button variant="secondary" size="md" onPress={dismiss}>
+              跳过
+            </Button>
+            <Button variant="primary" size="md" onPress={handleConfirm} disabled={selected.size === 0}>
+              确认（{selected.size} 项）
+            </Button>
           </View>
         </View>
       </View>

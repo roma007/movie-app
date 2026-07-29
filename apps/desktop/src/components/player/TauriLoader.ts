@@ -63,8 +63,6 @@ export class TauriLoader {
     }
 
     try {
-      console.log(`[TauriLoader] 开始加载: ${this.context.url}`);
-      console.log(`[TauriLoader] context type: ${this.context.type}, responseType: ${this.context.responseType}`);
       const response = await (videoFetchFn as any)(this.context.url, {
         method: 'GET',
         headers: {
@@ -72,7 +70,6 @@ export class TauriLoader {
           Referer: new URL(this.context.url).origin,
         },
       });
-      console.log(`[TauriLoader] 请求完成: status=${response.status}, ok=${response.ok}`);
       if (this.cancelled) return;
 
       const now = performance.now();
@@ -85,10 +82,8 @@ export class TauriLoader {
       let data: string | ArrayBuffer;
       if (isM3U8) {
         data = await response.text();
-        console.log(`[TauriLoader] 文本格式完成: length=${data.length} chars`);
       } else {
         data = await response.arrayBuffer();
-        console.log(`[TauriLoader] 二进制格式完成: length=${data.byteLength} bytes`);
       }
       if (this.cancelled) return;
 

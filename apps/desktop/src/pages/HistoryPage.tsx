@@ -7,8 +7,11 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Trash2, Play, ArrowLeft } from 'lucide-react';
 import type { Media } from '@movie-app/core';
+import { useBackgroundStore } from '../themes/backgroundStore';
 
 export default function HistoryPage() {
+  const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
+  useEffect(() => { clearBgImage(); }, [clearBgImage]);
   const { watchHistory, loadWatchHistory, clearHistory, removeHistoryItem } = useAppStore();
   const navigate = useNavigate();
   const confirm = useConfirm();
@@ -43,16 +46,17 @@ export default function HistoryPage() {
 
   return (
     <div className="p-6 space-y-5 max-w-7xl mx-auto">
-      <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pb-4 border-b border-border">
+      <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
+        <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="hover:text-primary">
-              <ArrowLeft className="size-4" /> 返回
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" onClick={() => navigate(-1)} className="hover:text-text">
+              <ArrowLeft className="size-4 mr-2" /> 返回
             </Button>
             <h1 className="text-2xl font-bold">观看历史</h1>
           </div>
           {watchHistory.length > 0 && (
-            <Button variant="outline" size="sm" onClick={handleClear} className="text-error hover:text-error">
+            <Button variant="outline" onClick={handleClear} className="text-error hover:text-error shrink-0">
               <Trash2 className="size-4" /> 清除全部
             </Button>
           )}
@@ -69,7 +73,7 @@ export default function HistoryPage() {
             const m = mediaMap[h.mediaId];
             const pct = h.duration > 0 ? Math.round((h.progress / h.duration) * 100) : 0;
             return (
-              <Card key={h.id} className="p-3 flex items-center gap-4 bg-card border-border hover:border-highlight transition-colors">
+              <Card key={h.id} className="p-3 flex items-center gap-4 hover:border-highlight transition-colors">
                 <div className="w-12 h-16 shrink-0 rounded-lg bg-secondary overflow-hidden">
                   {m?.posterUrl && (
                     <img src={m.posterUrl} alt={m.title} className="size-full object-cover" />
@@ -81,12 +85,12 @@ export default function HistoryPage() {
                     观看至 {pct}% · {new Date(h.updatedAt).toLocaleString()}
                   </div>
                   <div className="h-1 bg-secondary rounded-full mt-2 overflow-hidden">
-                    <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+                    <div className="h-full bg-muted-foreground transition-all" style={{ width: `${pct}%` }} />
                   </div>
                 </div>
                 <div className="flex gap-2">
                   {h.episodeId && (
-                    <Button size="sm" className="bg-primary hover:bg-primary-hover">
+                    <Button size="sm">
                       <Play className="size-3" /> 继续
                     </Button>
                   )}

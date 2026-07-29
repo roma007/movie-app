@@ -44,7 +44,9 @@ export class CMSAdapter {
              message.includes('500') ||
              message.includes('502') ||
              message.includes('503') ||
-             message.includes('504');
+             message.includes('504') ||
+             message.includes('429') ||
+             message.includes('too many requests');
     }
     return false;
   }
@@ -63,8 +65,9 @@ export class CMSAdapter {
           throw error;
         }
         if (attempt < this.maxRetries - 1) {
-          const baseDelay = Math.pow(2, attempt) * 1000;
-          const jitter = Math.random() * 500;
+          const isRateLimit = error?.message?.includes('429') || error?.message?.includes('too many requests');
+          const baseDelay = isRateLimit ? 5000 : Math.pow(2, attempt) * 1000;
+          const jitter = Math.random() * (isRateLimit ? 2000 : 500);
           const delay = baseDelay + jitter;
           await new Promise(resolve => setTimeout(resolve, delay));
         }

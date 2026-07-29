@@ -32,15 +32,17 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAppStore } from '../useAppStore';
 import { useConfirm } from '@/components/ConfirmProvider';
 import { useToast } from '@/components/Layout';
 import { getHttpClient, SourceImportService, AI_SOURCE_PROMPT, AI_SOURCE_IMPORT_SAMPLE } from '@movie-app/core';
 import type { VideoSource, CollectTask, CollectPreviewItem, ImportSourceItem, ParsedImportSource } from '@movie-app/core';
+import { useBackgroundStore } from '../themes/backgroundStore';
 
 export default function SourceManagerPage() {
+  const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
+  useEffect(() => { clearBgImage(); }, [clearBgImage]);
   const navigate = useNavigate();
   const confirm = useConfirm();
   const toast = useToast();
@@ -463,81 +465,84 @@ export default function SourceManagerPage() {
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-4 px-6 py-4 border-b border-border bg-background">
-        <Button variant="ghost" onClick={() => navigate('/settings')} className="hover:text-primary">
-          <ArrowLeft className="size-4 mr-2" />
-          返回
-        </Button>
-        <div className="flex-1">
-          <h1 className="text-xl font-bold">视频源管理</h1>
-          <p className="text-sm text-muted-foreground mt-1">管理视频源配置和采集任务</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            onClick={() => setShowKeywordDialog(true)}
-          >
-            <Search className="size-4 mr-2" />
-            搜索采集
+    <div className="p-6 max-w-7xl mx-auto">
+      <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
+        <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" onClick={() => navigate('/settings')} className="hover:text-text shrink-0">
+            <ArrowLeft className="size-4 mr-2" />
+            返回
           </Button>
-          <Button
-            variant="outline"
-            onClick={() => navigate('/tasks')}
-          >
-            <ClipboardList className="size-4 mr-2" />
-            采集任务列表
-          </Button>
-          <Button
-            variant="default"
-            onClick={() => {
-              setShowAiImportDialog(true);
-              handleAiReset();
-            }}
-          >
-            <Plus className="size-4 mr-2" />
-            AI 导入
-          </Button>
-          <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-            <DialogContent className="w-full max-w-[45vw]">
-              <DialogHeader>
-                <DialogTitle>添加视频源</DialogTitle>
-                <DialogDescription>输入视频源的信息</DialogDescription>
-              </DialogHeader>
-              <div className="space-y-3 py-2">
-                <div className="space-y-1.5">
-                  <Label>编码（唯一标识）</Label>
-                  <Input value={addForm.code} onChange={(e) => setAddForm({ ...addForm, code: e.target.value })} placeholder="如 hcwv" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>名称</Label>
-                  <Input value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} placeholder="如 红尘视频" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>API 地址</Label>
-                  <Input value={addForm.baseUrl} onChange={(e) => setAddForm({ ...addForm, baseUrl: e.target.value })} placeholder="https://example.com/api.php/provide/vod" />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl font-bold">视频源管理</h1>
+            <p className="text-sm text-muted-foreground mt-1">管理视频源配置和采集任务</p>
+          </div>
+          <div className="flex items-center gap-3 flex-wrap shrink-0">
+            <Button
+              variant="outline"
+              onClick={() => setShowKeywordDialog(true)}
+            >
+              <Search className="size-4 mr-2" />
+              搜索采集
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => navigate('/tasks')}
+            >
+              <ClipboardList className="size-4 mr-2" />
+              采集任务列表
+            </Button>
+            <Button
+              variant="default"
+              onClick={() => {
+                setShowAiImportDialog(true);
+                handleAiReset();
+              }}
+            >
+              <Plus className="size-4 mr-2" />
+              AI 导入
+            </Button>
+            <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+              <DialogContent className="w-full max-w-[45vw]">
+                <DialogHeader>
+                  <DialogTitle>添加视频源</DialogTitle>
+                  <DialogDescription>输入视频源的信息</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3 py-2">
                   <div className="space-y-1.5">
-                    <Label>速率限制（1-10）</Label>
-                    <Input type="number" value={addForm.rateLimit} onChange={(e) => setAddForm({ ...addForm, rateLimit: e.target.value })} />
+                    <Label>编码（唯一标识）</Label>
+                    <Input value={addForm.code} onChange={(e) => setAddForm({ ...addForm, code: e.target.value })} placeholder="如 hcwv" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>名称</Label>
+                    <Input value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} placeholder="如 红尘视频" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>API 地址</Label>
+                    <Input value={addForm.baseUrl} onChange={(e) => setAddForm({ ...addForm, baseUrl: e.target.value })} placeholder="https://example.com/api.php/provide/vod" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>速率限制（1-10）</Label>
+                      <Input type="number" value={addForm.rateLimit} onChange={(e) => setAddForm({ ...addForm, rateLimit: e.target.value })} />
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="flex justify-end gap-3 mt-4">
-                <Button variant="outline" onClick={() => setShowAddDialog(false)}>取消</Button>
-                <Button onClick={handleAdd}>添加</Button>
-              </div>
-            </DialogContent>
-          </Dialog>
-          <Button onClick={() => setShowAddDialog(true)}>
-            <Plus className="size-4 mr-2" />
-            添加视频源
-          </Button>
+                <div className="flex justify-end gap-3 mt-4">
+                  <Button variant="outline" onClick={() => setShowAddDialog(false)}>取消</Button>
+                  <Button onClick={handleAdd}>添加</Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+            <Button onClick={() => setShowAddDialog(true)}>
+              <Plus className="size-4 mr-2" />
+              添加视频源
+            </Button>
+          </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="mt-5">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <Loader2 className="size-8 text-muted-foreground mb-4 animate-spin" />
@@ -717,7 +722,7 @@ export default function SourceManagerPage() {
                   </div>
 
                   {expandedSources.has(source.code) && (
-                    <div className="px-4 pb-3 pt-0 border-t border-border">
+                    <div className="px-4 pb-3 pt-0">
                       <div className="pt-3 space-y-2 text-sm">
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">API 地址:</span>
@@ -744,7 +749,7 @@ export default function SourceManagerPage() {
                     const errorMsg = recentError?.message || failedTask?.errorMessage || '';
                     if (!errorMsg) return null;
                     return (
-                      <div className="px-4 pb-3 pt-0 border-t border-border">
+                      <div className="px-4 pb-3 pt-0">
                         <div className="pt-3 text-xs text-red-500 bg-red-500/5 rounded p-2">
                           <div className="font-medium mb-1">最近错误:</div>
                           <div className="break-all">{errorMsg}</div>
@@ -804,8 +809,6 @@ export default function SourceManagerPage() {
             <DialogDescription>输入关键词，遍历所有已启用的视频源搜索，预览结果后选择保存</DialogDescription>
           </DialogHeader>
 
-          <Separator />
-
           <div className="flex gap-2 px-6 py-3">
             <Input
               placeholder="输入电影/电视剧名称..."
@@ -818,8 +821,6 @@ export default function SourceManagerPage() {
               <Search className="size-4 mr-1" /> 搜索
             </Button>
           </div>
-
-          <Separator />
 
           <div className="flex-1 overflow-y-auto min-h-0 px-6 py-3">
             {previewLoading ? (
@@ -846,7 +847,7 @@ export default function SourceManagerPage() {
                       <label
                         key={item.fingerprint}
                         className={`flex items-start gap-3 p-2.5 rounded-md border cursor-pointer transition-colors ${
-                          isSelected ? 'border-primary bg-primary/5' : 'border-border hover:bg-hover'
+                          isSelected ? 'border-muted-foreground bg-muted-foreground/20' : 'hover:bg-hover'
                         }`}
                       >
                         <input
@@ -895,7 +896,6 @@ export default function SourceManagerPage() {
 
           {hasSearched && (!previewLoading || relaxBlacklist || relaxYear) && (
             <>
-              <Separator />
               <div className="flex items-center justify-between px-6 py-2.5">
                 <span className="text-base font-bold">放宽搜索条件</span>
                 <div className="flex items-center gap-5">
@@ -911,8 +911,6 @@ export default function SourceManagerPage() {
               </div>
             </>
           )}
-
-          <Separator />
 
           <div className="flex justify-end gap-3 px-6 py-3">
             <Button variant="outline" onClick={handleCloseKeywordDialog}>关闭</Button>
@@ -939,7 +937,6 @@ export default function SourceManagerPage() {
                   复制下方提示词，发给 AI 助手（如 ChatGPT、Claude 等），再将 AI 返回的结果粘贴到下一步
                 </DialogDescription>
               </DialogHeader>
-              <Separator />
               <div className="flex-1 overflow-y-auto min-h-0 px-6 py-4">
                 <div className="relative">
                   <pre className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-4 whitespace-pre-wrap break-all max-h-[360px] overflow-y-auto font-sans leading-relaxed">
@@ -947,7 +944,6 @@ export default function SourceManagerPage() {
                   </pre>
                 </div>
               </div>
-              <Separator />
               <div className="flex justify-end gap-3 px-6 py-3">
                 <Button variant="outline" onClick={() => setShowAiImportDialog(false)}>取消</Button>
                 <Button onClick={handleAiCopyPrompt}>
@@ -968,7 +964,6 @@ export default function SourceManagerPage() {
                   将 AI 返回的 JSON 数据粘贴到下方文本框中，然后点击解析
                 </DialogDescription>
               </DialogHeader>
-              <Separator />
               <div className="flex-1 overflow-y-auto min-h-0 px-6 py-4">
                 <div className="flex gap-2 mb-3">
                   <Button variant="outline" size="sm" onClick={handleAiPasteFromClipboard}>
@@ -985,7 +980,6 @@ export default function SourceManagerPage() {
                   onChange={(e) => setAiPastedText(e.target.value)}
                 />
               </div>
-              <Separator />
               <div className="flex justify-end gap-3 px-6 py-3">
                 <Button variant="outline" onClick={() => setAiStep('prompt')}>
                   <ChevronDown className="size-4 mr-1 rotate-90" /> 返回
@@ -1008,7 +1002,6 @@ export default function SourceManagerPage() {
                   }
                 </DialogDescription>
               </DialogHeader>
-              <Separator />
               <div className="flex-1 overflow-y-auto min-h-0 px-6 py-4">
                 {aiResult ? (
                   <div className="flex flex-col items-center justify-center h-32 text-muted-foreground gap-2">
@@ -1062,7 +1055,6 @@ export default function SourceManagerPage() {
                   </div>
                 )}
               </div>
-              <Separator />
               <div className="flex justify-end gap-3 px-6 py-3">
                 {aiResult ? (
                   <Button onClick={() => { setShowAiImportDialog(false); handleAiReset(); }}>完成</Button>
@@ -1090,9 +1082,10 @@ export default function SourceManagerPage() {
       </Dialog>
 
       {/* 实时日志面板 */}
-      <div className="border-t border-border bg-background">
+      <div className="relative">
+        <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
         <div
-          className="flex items-center justify-between w-full px-6 py-3 hover:bg-secondary/50 transition-colors cursor-pointer"
+          className="flex items-center justify-between w-full px-6 py-3 hover:bg-secondary/50 transition-colors cursor-pointer relative"
           onClick={() => setShowLogPanel(!showLogPanel)}
           role="button"
           tabIndex={0}

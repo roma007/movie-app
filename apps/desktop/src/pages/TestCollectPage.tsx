@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getCollector } from '../init';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useBackgroundStore } from '../themes/backgroundStore';
 
 export default function TestCollectPage() {
+  const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
+  useEffect(() => { clearBgImage(); }, [clearBgImage]);
   const [logs, setLogs] = useState<string[]>([]);
   const [collecting, setCollecting] = useState(false);
 

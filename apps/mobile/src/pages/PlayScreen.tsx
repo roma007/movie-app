@@ -1,14 +1,19 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { getProvider } from '../init';
 import { useAppStore } from '../useAppStore';
 import { ArrowLeft } from 'lucide-react-native';
 import { SystemConfigService } from '@movie-app/core';
 import { useThemeColors } from '../themes/useThemeColors';
+import { useThemeStore } from '../themes/store';
+import { useScaledFontSize } from '../themes/useScaledFontSize';
+import { hexToRgba } from '../themes/colorUtils';
 import { NextEpisodeOverlay } from '../components/NextEpisodeOverlay';
 import BlurredBackground from '../components/BlurredBackground';
+import { Button } from '../components/ui/Button';
 import type { PlaySource, VideoSource, Episode, Media } from '@movie-app/core';
+import { radius } from '../themes/radiusTokens';
 
 interface Props {
   route: any;
@@ -52,41 +57,36 @@ export default function PlayScreen({ route, navigation }: Props) {
   const [lastSaveTime, setLastSaveTime] = useState(0);
 
   const colors = useThemeColors();
+  const cardOpacity = useThemeStore((s) => s.cardOpacity);
+  const cardBg = hexToRgba(colors.card, cardOpacity / 100);
+  const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100);
+  const sf = useScaledFontSize();
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1 },
     header: { flexDirection: 'row', alignItems: 'center', padding: 15, paddingTop: 50, backgroundColor: colors.playerHeader },
     backButton: { padding: 8 },
-    headerTitle: { flex: 1, fontSize: 16, fontWeight: '600', color: colors.text, marginLeft: 8 },
+    headerTitle: { flex: 1, fontSize: sf(16), fontWeight: '600', color: colors.text, marginLeft: 8 },
     placeholder: { width: 40 },
     videoContainer: { width: '100%', aspectRatio: 16 / 9, backgroundColor: colors.playerBg },
     video: { width: '100%', height: '100%' },
     loadingOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1 },
-    loadingText: { color: colors.textSecondary, fontSize: 14, marginTop: 8 },
+    loadingText: { color: colors.textSecondary, fontSize: sf(14), marginTop: 8 },
     errorOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 1, padding: 20 },
-    errorText: { color: colors.error, fontSize: 16, textAlign: 'center' },
-    retryButton: { paddingHorizontal: 24, paddingVertical: 12, backgroundColor: colors.primary, borderRadius: 8, marginTop: 16 },
-    retryButtonText: { color: colors.text, fontSize: 16, fontWeight: '600' },
+    errorText: { color: colors.error, fontSize: sf(16), textAlign: 'center' },
+    retryButton: { marginTop: 16 },
     body: { flex: 1 },
-    mediaInfo: { padding: 15, borderBottomWidth: 1, borderBottomColor: colors.card },
-    mediaTitle: { fontSize: 18, fontWeight: '600', color: colors.text, marginBottom: 4 },
-    mediaSubtitle: { fontSize: 14, color: colors.mutedForeground },
-    section: { padding: 15, borderBottomWidth: 1, borderBottomColor: colors.card },
-    sectionLabel: { fontSize: 14, color: colors.mutedForeground, marginBottom: 10 },
+    mediaInfo: { padding: 15 },
+    mediaTitle: { fontSize: sf(18), fontWeight: '600', color: colors.text, marginBottom: 4 },
+    mediaSubtitle: { fontSize: sf(14), color: colors.mutedForeground },
+    section: { padding: 15 },
+    sectionLabel: { fontSize: sf(14), color: colors.mutedForeground, marginBottom: 10 },
     row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    chip: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: colors.card, borderRadius: 6 },
-    chipActive: { backgroundColor: colors.primary },
-    chipDisabled: { opacity: 0.5 },
-    chipText: { fontSize: 13, color: colors.textSecondary },
-    chipTextActive: { color: colors.text },
-    chipTextDisabled: { color: colors.disabledForeground },
+    chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.sm },
     episodeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-    episodeBtn: { width: '22%', paddingVertical: 10, backgroundColor: colors.surface, borderRadius: 6, alignItems: 'center' },
-    episodeBtnActive: { backgroundColor: colors.primary },
-    episodeBtnWatched: { opacity: 0.5 },
-    episodeText: { color: colors.textSecondary, fontSize: 13 },
+    episodeBtn: { width: '22%', paddingVertical: 10, borderRadius: radius.sm },
     episodeTextActive: { color: colors.text },
-  }), [colors]);
+  }), [colors, cardBg, surfaceBg, sf]);
 
   useEffect(() => {
     if (!mediaId) return;
@@ -328,9 +328,9 @@ export default function PlayScreen({ route, navigation }: Props) {
     <BlurredBackground imageUrl={media?.posterUrl}>
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+        <Button variant="icon" size="sm" style={styles.backButton} onPress={() => navigation.goBack()}>
           <ArrowLeft size={20} color="#fff" />
-        </TouchableOpacity>
+        </Button>
         <Text style={styles.headerTitle} numberOfLines={1}>{currentTitle || '正在播放'}</Text>
         <View style={styles.placeholder} />
       </View>
@@ -346,9 +346,9 @@ export default function PlayScreen({ route, navigation }: Props) {
           <View style={styles.errorOverlay}>
             <Text style={styles.errorText}>{error}</Text>
             {playSources.length > 0 && (
-              <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
-                <Text style={styles.retryButtonText}>重试</Text>
-              </TouchableOpacity>
+              <Button variant="primary" size="md" style={styles.retryButton} onPress={handleRetry}>
+                重试
+              </Button>
             )}
           </View>
         )}
@@ -403,17 +403,18 @@ export default function PlayScreen({ route, navigation }: Props) {
                   const qualityStr = s.quality ? ` · ${s.quality}` : '';
                   const suffix = count > 1 ? ` (${idx})` : '';
                   return (
-                    <TouchableOpacity
+                    <Button
                       key={s.id}
-                      style={[styles.chip, i === activePlayIdx && styles.chipActive, s.isActive === false && styles.chipDisabled]}
-                      onPress={() => s.isActive !== false && handlePlaySourceChange(i)}
+                      variant="secondary"
+                      size="sm"
+                      active={i === activePlayIdx}
                       disabled={s.isActive === false}
+                      style={styles.chip}
+                      onPress={() => s.isActive !== false && handlePlaySourceChange(i)}
                     >
-                      <Text style={[styles.chipText, i === activePlayIdx && styles.chipTextActive, s.isActive === false && styles.chipTextDisabled]}>
-                        {baseName}{qualityStr}{suffix}
-                        {s.isActive === false && ' (不可用)'}
-                      </Text>
-                    </TouchableOpacity>
+                      {baseName}{qualityStr}{suffix}
+                      {s.isActive === false && ' (不可用)'}
+                    </Button>
                   );
                 })}
               </View>
@@ -426,13 +427,16 @@ export default function PlayScreen({ route, navigation }: Props) {
             <Text style={styles.sectionLabel}>视频源</Text>
             <View style={styles.row}>
               {episodeSources.map((s: VideoSource) => (
-                <TouchableOpacity
+                <Button
                   key={s.id}
-                  style={[styles.chip, selectedSourceId === s.id && styles.chipActive]}
+                  variant="secondary"
+                  size="sm"
+                  active={selectedSourceId === s.id}
+                  style={styles.chip}
                   onPress={() => handleSourceChange(s.id)}
                 >
-                  <Text style={[styles.chipText, selectedSourceId === s.id && styles.chipTextActive]}>{s.name}</Text>
-                </TouchableOpacity>
+                  {s.name}
+                </Button>
               ))}
             </View>
           </View>
@@ -445,13 +449,16 @@ export default function PlayScreen({ route, navigation }: Props) {
               {displaySeasons.map((s: number) => {
                 const isCurrent = seasonToMediaMap.get(s) === mediaId || (!seasonToMediaMap.has(s) && currentSeason === s);
                 return (
-                  <TouchableOpacity
+                  <Button
                     key={s}
-                    style={[styles.chip, isCurrent && styles.chipActive]}
+                    variant="secondary"
+                    size="sm"
+                    active={isCurrent}
+                    style={styles.chip}
                     onPress={() => handleSeasonChange(s)}
                   >
-                    <Text style={[styles.chipText, isCurrent && styles.chipTextActive]}>第{s}季</Text>
-                  </TouchableOpacity>
+                    第{s}季
+                  </Button>
                 );
               })}
             </View>
@@ -465,22 +472,18 @@ export default function PlayScreen({ route, navigation }: Props) {
             {filteredEpisodes.map((ep: Episode) => {
               const isWatched = watchedEpisodes.has(ep.id) && ep.id !== currentEpisodeId;
               return (
-                <TouchableOpacity
+                <Button
                   key={ep.id}
-                  style={[
-                    styles.episodeBtn,
-                    ep.id === currentEpisodeId && styles.episodeBtnActive,
-                    isWatched && styles.episodeBtnWatched,
-                  ]}
+                  variant="secondary"
+                  size="sm"
+                  active={ep.id === currentEpisodeId}
+                  disabled={isWatched}
+                  style={styles.episodeBtn}
+                  textStyle={ep.id === currentEpisodeId ? styles.episodeTextActive : undefined}
                   onPress={() => handleEpisodePress(ep)}
                 >
-                  <Text style={[
-                    styles.episodeText,
-                    ep.id === currentEpisodeId && styles.episodeTextActive,
-                  ]}>
-                    {ep.title || `第${ep.episodeNumber}集`}
-                  </Text>
-                </TouchableOpacity>
+                  {ep.title || `第${ep.episodeNumber}集`}
+                </Button>
               );
             })}
           </View>

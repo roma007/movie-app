@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../useAppStore';
 import { useConfirm } from '@/components/ConfirmProvider';
+import { useBackgroundStore } from '../themes/backgroundStore';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import {
@@ -36,7 +37,7 @@ function getStatusLabel(status: string): { label: string; className: string } {
     case 'PENDING':
       return { label: '等待中', className: 'text-gray-400 bg-gray-500/10' };
     case 'RUNNING':
-      return { label: '运行中', className: 'text-primary bg-primary/10' };
+      return { label: '运行中', className: 'text-muted-foreground bg-muted-foreground/20' };
     case 'COMPLETED':
       return { label: '已完成', className: 'text-success bg-success/10' };
     case 'FAILED':
@@ -88,6 +89,8 @@ function formatTimeAgo(dateString: string): string {
 
 export default function TaskListPage() {
   const navigate = useNavigate();
+  const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
+  useEffect(() => { clearBgImage(); }, [clearBgImage]);
   const { collectTasks, loadCollectTasks, deleteCollectTask, deleteOldTasks } = useAppStore();
   const confirm = useConfirm();
   const [refreshing, setRefreshing] = useState(false);
@@ -130,33 +133,34 @@ export default function TaskListPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pb-4 border-b border-border">
+      <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
+        <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="sm" onClick={() => navigate('/sources')} className="hover:text-primary">
-              <ArrowLeft className="size-4 mr-1" /> 返回视频源
+            <Button variant="ghost" onClick={() => navigate('/sources')} className="hover:text-text shrink-0">
+              <ArrowLeft className="size-4 mr-2" /> 返回视频源
             </Button>
             <div>
               <h1 className="text-2xl font-bold">采集任务列表</h1>
               <p className="text-sm text-muted-foreground">查看所有采集任务的执行状态和进度</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={refreshing}>
-              {refreshing ? <Loader2 className="size-4 mr-1 animate-spin" /> : <RefreshCw className="size-4 mr-1" />} 刷新
+          <div className="flex items-center gap-3 flex-wrap shrink-0">
+            <Button variant="ghost" onClick={handleRefresh} disabled={refreshing}>
+              {refreshing ? <Loader2 className="size-4 mr-2 animate-spin" /> : <RefreshCw className="size-4 mr-2" />} 刷新
             </Button>
-            <Button variant="ghost" size="sm" onClick={handleClearOld}>
-              <Trash2 className="size-4 mr-1" /> 清除7天前任务
+            <Button variant="ghost" onClick={handleClearOld}>
+              <Trash2 className="size-4 mr-2" /> 清除7天前任务
             </Button>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-3 gap-4 mb-6">
-        <Card className="p-4 bg-card border-border">
+        <Card className="p-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-full bg-primary/10">
-              <Loader2 className="size-4 text-primary" />
+            <div className="p-2 rounded-full bg-muted-foreground/10">
+              <Loader2 className="size-4 text-muted-foreground" />
             </div>
             <div>
               <div className="text-sm text-muted-foreground">运行中</div>
@@ -164,7 +168,7 @@ export default function TaskListPage() {
             </div>
           </div>
         </Card>
-        <Card className="p-4 bg-card border-border">
+        <Card className="p-4">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-full bg-success/10">
               <CheckCircle2 className="size-4 text-success" />
@@ -175,7 +179,7 @@ export default function TaskListPage() {
             </div>
           </div>
         </Card>
-        <Card className="p-4 bg-card border-border">
+        <Card className="p-4">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-full bg-error/10">
               <XCircle className="size-4 text-error" />
@@ -188,11 +192,11 @@ export default function TaskListPage() {
         </Card>
       </div>
 
-      <Card className="bg-card border-border">
+      <Card>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-border">
+              <tr>
                 <th className="text-left p-3 text-xs font-semibold text-muted-foreground">任务ID</th>
                 <th className="text-left p-3 text-xs font-semibold text-muted-foreground">视频源</th>
                 <th className="text-left p-3 text-xs font-semibold text-muted-foreground">类型</th>
@@ -216,7 +220,7 @@ export default function TaskListPage() {
                   const progress = task.totalPages > 0 ? Math.round((task.currentPage / task.totalPages) * 100) : 0;
 
                   return (
-                    <tr key={task.id} className="border-b border-border/50 hover:bg-hover transition-colors">
+                    <tr key={task.id} className="hover:bg-hover transition-colors">
                       <td className="p-3 text-sm font-mono text-muted-foreground max-w-[100px] truncate" title={task.taskId}>
                         {task.taskId}
                       </td>
@@ -225,7 +229,7 @@ export default function TaskListPage() {
                         <div className="text-xs text-muted-foreground">{task.sourceCode}</div>
                       </td>
                       <td className="p-3 text-sm">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-primary/10 text-primary">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-muted-foreground/10 text-muted-foreground">
                           <Play className="size-3" /> {getTypeLabel(task.type)}
                         </span>
                       </td>
@@ -255,7 +259,7 @@ export default function TaskListPage() {
                       <td className="p-3">
                         <div className="w-24 h-2 bg-secondary rounded-full overflow-hidden">
                           <div
-                            className={`h-full transition-all ${task.status === 'RUNNING' ? 'bg-primary' : task.status === 'COMPLETED' ? 'bg-success' : task.status === 'FAILED' ? 'bg-error' : 'bg-gray-500'}`}
+                            className={`h-full transition-all ${task.status === 'RUNNING' ? 'bg-muted-foreground' : task.status === 'COMPLETED' ? 'bg-success' : task.status === 'FAILED' ? 'bg-error' : 'bg-gray-500'}`}
                             style={{ width: `${progress}%` }}
                           />
                         </div>

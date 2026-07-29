@@ -7,7 +7,6 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import {
   CheckCircle2,
@@ -129,13 +128,11 @@ export function AiSourceImportDialog({ open, onOpenChange, onImported }: Props) 
                 复制下方提示词，发给 AI 助手（如 ChatGPT、Claude 等），再将 AI 返回的结果粘贴到下一步
               </DialogDescription>
             </DialogHeader>
-            <Separator />
             <div className="flex-1 overflow-y-auto min-h-0 px-6 py-4">
               <pre className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-4 whitespace-pre-wrap break-all max-h-[360px] overflow-y-auto font-sans leading-relaxed">
                 {AI_SOURCE_PROMPT}
               </pre>
             </div>
-            <Separator />
             <div className="flex justify-end gap-3 px-6 py-3">
               <Button variant="outline" onClick={() => handleClose(false)}>取消</Button>
               <Button onClick={handleCopyPrompt}>
@@ -156,7 +153,6 @@ export function AiSourceImportDialog({ open, onOpenChange, onImported }: Props) 
                 将 AI 返回的 JSON 数据粘贴到下方文本框中，然后点击解析
               </DialogDescription>
             </DialogHeader>
-            <Separator />
             <div className="flex-1 overflow-y-auto min-h-0 px-6 py-4">
               <div className="flex gap-2 mb-3">
                 <Button variant="outline" size="sm" onClick={handleClipboardPaste}>
@@ -173,7 +169,6 @@ export function AiSourceImportDialog({ open, onOpenChange, onImported }: Props) 
                 onChange={(e) => setPastedText(e.target.value)}
               />
             </div>
-            <Separator />
             <div className="flex justify-end gap-3 px-6 py-3">
               <Button variant="outline" onClick={() => setStep('prompt')}>
                 <ChevronDown className="size-4 mr-1 rotate-90" /> 返回
@@ -196,7 +191,6 @@ export function AiSourceImportDialog({ open, onOpenChange, onImported }: Props) 
                 }
               </DialogDescription>
             </DialogHeader>
-            <Separator />
             <div className="flex-1 overflow-y-auto min-h-0 px-6 py-4">
               {result ? (
                 <div className="flex flex-col items-center justify-center h-32 text-muted-foreground gap-2">
@@ -238,7 +232,6 @@ export function AiSourceImportDialog({ open, onOpenChange, onImported }: Props) 
                 </div>
               )}
             </div>
-            <Separator />
             <div className="flex justify-end gap-3 px-6 py-3">
               {result ? (
                 <Button onClick={() => handleClose(false)}>完成</Button>

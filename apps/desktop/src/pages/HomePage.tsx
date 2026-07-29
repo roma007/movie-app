@@ -2,11 +2,13 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { Media, Episode, UserUsageType } from '@movie-app/core';
 import { useAppStore, getProvider } from '../useAppStore';
+import { useBackgroundStore } from '../themes/backgroundStore';
+import { useImportDialogStore } from '../themes/importDialogStore';
 import { MediaGrid, MediaCard } from '@/components/MediaCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { Separator } from '@/components/ui/separator';
+import { Card } from '@/components/ui/card';
 import { Search, X, Heart, Clock, ChevronRight as ChevronRightIcon, Film, Tv, Sparkles, Download, Plus, Database, Loader2 } from 'lucide-react';
 import { CollectProgressDialog } from '@/components/CollectProgressDialog';
 import { useToast } from '@/components/Layout';
@@ -23,11 +25,15 @@ export default function HomePage() {
     loadFavorites, loadWatchHistory,
     userUsageTypes, loadUserUsageTypes,
     collectLatest, searchKeywordPreview, previewResults, previewLoading,
-    saveSelectedPreviewItems, clearPreviewResults, isLoading, collectSourceProgress,
+    saveSelectedPreviewItems, clearPreviewResults, isCollecting, collectSourceProgress,
+    videoSources,
   } = useAppStore();
+  const openAiImport = useImportDialogStore((s) => s.openAiImport);
   const navigate = useNavigate();
   const location = useLocation();
   const toast = useToast();
+  const setBgImage = useBackgroundStore((s) => s.setBgImage);
+  const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
   const [mediaMap, setMediaMap] = useState<Record<string, Media | null>>({});
   const [episodeMap, setEpisodeMap] = useState<Record<string, Episode | null>>({});
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -93,6 +99,40 @@ export default function HomePage() {
     }
   }, [userUsageTypes, provider]);
 
+  useEffect(() => {
+    if (isSearching) {
+      const url = mediaList[0]?.posterUrl ?? null;
+      setBgImage(url);
+      return () => clearBgImage();
+    }
+
+    const candidates: string[] = [];
+
+    if (userUsageTypes.includes('SEARCH_FIRST') && previewResults.length > 0) {
+      const url = previewResults[0]?.posterUrl;
+      if (url) candidates.push(url);
+    }
+
+    if (userUsageTypes.includes('NEW_MOVIES') && latestMedia.length > 0) {
+      const url = latestMedia[0]?.posterUrl;
+      if (url) candidates.push(url);
+    }
+
+    for (const h of watchHistory) {
+      const m = mediaMap[h.mediaId];
+      if (m?.posterUrl) { candidates.push(m.posterUrl); break; }
+    }
+
+    for (const f of favorites) {
+      const m = mediaMap[f.mediaId];
+      if (m?.posterUrl) { candidates.push(m.posterUrl); break; }
+    }
+
+    const bgUrl = candidates[0] ?? null;
+    setBgImage(bgUrl);
+    return () => clearBgImage();
+  }, [isSearching, mediaList, latestMedia, watchHistory, favorites, mediaMap, userUsageTypes, previewResults, setBgImage, clearBgImage]);
+
   const handleSearch = async () => {
     const kw = searchKeyword.trim();
     if (!kw) return;
@@ -150,6 +190,11 @@ export default function HomePage() {
   }, [previewResults, selectedPreviewIds, saveSelectedPreviewItems, clearPreviewResults, toast, getOverrides]);
 
   const handleCollectLatest = useCallback(async () => {
+    if (videoSources.length === 0) {
+      toast('暂无视频源，请先添加', 'error');
+      openAiImport();
+      return;
+    }
     toast('开始增量采集...');
     await collectLatest();
     toast('增量采集完成');
@@ -158,7 +203,7 @@ export default function HomePage() {
         .then((r) => setLatestMedia(r.items))
         .catch(() => {});
     }
-  }, [collectLatest, provider, toast, userUsageTypes]);
+  }, [collectLatest, provider, toast, userUsageTypes, videoSources.length, openAiImport]);
 
   const togglePreviewItem = (fingerprint: string) => {
     setSelectedPreviewIds((prev) => {
@@ -170,9 +215,9 @@ export default function HomePage() {
   };
 
   const renderSearchFirstCard = () => (
-    <div className="rounded-lg border border-border bg-card p-4">
+    <Card className="p-4">
       <div className="flex items-center gap-2 mb-3">
-        <Sparkles className="size-5 text-primary" />
+        <Sparkles className="size-5 text-muted-foreground" />
         <span className="font-medium text-lg">快速搜索采集</span>
       </div>
       <p className="text-sm text-muted-foreground mb-3">输入关键词搜索并一键采集你想看的视频</p>
@@ -182,7 +227,7 @@ export default function HomePage() {
           value={quickKeyword}
           onChange={(e) => setQuickKeyword(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleQuickPreview()}
-          className="flex-1 bg-background border-border"
+          className="flex-1"
         />
         <label className="flex items-center gap-1.5 text-xs whitespace-nowrap cursor-pointer select-none">
           <Switch checked={relaxBlacklist} onCheckedChange={setRelaxBlacklist} />
@@ -215,7 +260,7 @@ export default function HomePage() {
         </div>
       )}
       {hasQuickSearched && !previewLoading && quickCollectCount === 0 && previewResults.length > 0 && (
-        <div className="space-y-2 max-h-64 overflow-y-auto border border-border rounded-lg p-2">
+        <div className="space-y-2 max-h-64 overflow-y-auto bg-[var(--color-surface-alpha)] rounded-lg p-2">
           {previewResults.map((item) => (
             <label
               key={item.fingerprint}
@@ -240,7 +285,6 @@ export default function HomePage() {
       )}
       {hasQuickSearched && !previewLoading && quickCollectCount === 0 && previewResults.length > 0 && (
         <>
-          <Separator className="my-3" />
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">
               已选 {selectedPreviewIds.size} / 共 {previewResults.length} 个
@@ -251,19 +295,19 @@ export default function HomePage() {
           </div>
         </>
       )}
-    </div>
+    </Card>
   );
 
   const renderNewMoviesCard = () => (
-    <div className="rounded-lg border border-border bg-card p-4">
+    <Card className="p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Film className="size-5 text-primary" />
+          <Film className="size-5 text-muted-foreground" />
           <span className="font-medium text-lg">新片增量采集</span>
         </div>
-        <Button onClick={handleCollectLatest} disabled={isLoading} variant="default">
+        <Button onClick={handleCollectLatest} disabled={isCollecting} variant="default">
           <Download className="size-4 mr-1" />
-          {isLoading ? '采集中' : '增量采集'}
+          {isCollecting ? '采集中' : '增量采集'}
         </Button>
       </div>
       <p className="text-sm text-muted-foreground mb-4">一键从所有视频源采集最新内容</p>
@@ -271,7 +315,7 @@ export default function HomePage() {
         <>
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium">最新入库</span>
-            <Button variant="ghost" size="sm" onClick={() => navigate('/movie')} className="text-primary text-xs">
+            <Button variant="ghost" size="sm" onClick={() => navigate('/movie')} className="text-text-secondary text-xs">
               更多 <ChevronRightIcon className="size-3" />
             </Button>
           </div>
@@ -284,7 +328,7 @@ export default function HomePage() {
           </div>
         </>
       )}
-    </div>
+    </Card>
   );
 
   const renderTvSeriesCard = () => {
@@ -294,15 +338,15 @@ export default function HomePage() {
     });
 
     return (
-      <div className="rounded-lg border border-border bg-card p-4">
+      <Card className="p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <Tv className="size-5 text-primary" />
+            <Tv className="size-5 text-muted-foreground" />
             <span className="font-medium text-lg">我的追剧</span>
           </div>
-          <Button onClick={handleCollectLatest} disabled={isLoading} variant="default">
+          <Button onClick={handleCollectLatest} disabled={isCollecting} variant="default">
             <Download className="size-4 mr-1" />
-            {isLoading ? '采集中' : '增量采集'}
+            {isCollecting ? '采集中' : '增量采集'}
           </Button>
         </div>
         {tvWatchHistory.length === 0 ? (
@@ -335,37 +379,32 @@ export default function HomePage() {
                     <div className="text-sm font-medium truncate">{media.title}</div>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span>{media.type === 'VARIETY' ? '综艺' : '电视剧'}</span>
-                      {epLabel && <span className="text-primary">{epLabel}</span>}
+                      {epLabel && <span className="text-text-secondary">{epLabel}</span>}
                     </div>
-                    <div className="w-full bg-secondary rounded-full h-1 mt-1">
-                      <div className="bg-primary h-1 rounded-full transition-all" style={{ width: `${progressPct}%` }} />
+                    <div className="w-full bg-[var(--color-secondary-alpha)] rounded-full h-1 mt-1">
+                      <div className="bg-muted-foreground h-1 rounded-full transition-all" style={{ width: `${progressPct}%` }} />
                     </div>
                   </div>
-                  <Button variant="ghost" size="sm" className="shrink-0 text-primary">
+                  <Button variant="ghost" size="sm" className="shrink-0 text-text-secondary">
                     续看
                   </Button>
                 </div>
               );
             })}
             {tvWatchHistory.length > 5 && (
-              <Button variant="ghost" size="sm" onClick={() => navigate('/history')} className="text-primary mt-1">
+              <Button variant="ghost" size="sm" onClick={() => navigate('/history')} className="text-text-secondary mt-1">
                 查看全部追剧 <ChevronRightIcon className="size-3" />
               </Button>
             )}
           </div>
         )}
-      </div>
+      </Card>
     );
   };
 
   return (
     <div className="p-6 space-y-5 max-w-7xl mx-auto">
       <CollectProgressDialog />
-      <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pb-4 border-b border-border">
-        <div className="flex items-center gap-4">
-          <h1 className="text-2xl font-bold">首页</h1>
-        </div>
-      </div>
 
       <div className="flex gap-2 items-center">
         <div className="relative flex-1">
@@ -381,22 +420,18 @@ export default function HomePage() {
               if (e.key === 'Enter') handleSearch();
               if (e.key === 'Escape' && isSearching) handleClearSearch();
             }}
-            className="flex-1 bg-card border-border pl-14 pr-8"
+            className="flex-1 pl-14 pr-8"
           />
           {searchKeyword && (
             <button
               onClick={handleClearSearch}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-text transition-colors"
             >
               <X className="size-4" />
             </button>
           )}
         </div>
-        {isSearching ? (
-          <Button variant="secondary" onClick={handleClearSearch}>清除搜索</Button>
-        ) : (
-          <Button onClick={handleSearch} variant="outline"><Search className="size-4" />本地搜索</Button>
-        )}
+        <Button onClick={handleSearch} variant="outline"><Search className="size-4" />本地搜索</Button>
       </div>
 
       {isSearching ? (
@@ -418,14 +453,14 @@ export default function HomePage() {
           {userUsageTypes.includes('NEW_MOVIES') && renderNewMoviesCard()}
           {userUsageTypes.includes('TV_SERIES') && renderTvSeriesCard()}
 
-          <div className="rounded-lg border border-border bg-card p-4">
+          <Card className="p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-                <Clock className="size-4 text-primary" />
+                <Clock className="size-4 text-muted-foreground" />
                 <span className="font-medium">观看历史</span>
                 <span className="text-xs text-muted-foreground">({watchHistory.length})</span>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => navigate('/history')} className="text-primary">
+              <Button variant="ghost" size="sm" onClick={() => navigate('/history')} className="text-text-secondary">
                 更多 <ChevronRightIcon className="size-3" />
               </Button>
             </div>
@@ -444,16 +479,16 @@ export default function HomePage() {
                 })}
               </div>
             )}
-          </div>
+          </Card>
 
-          <div className="rounded-lg border border-border bg-card p-4">
+          <Card className="p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Heart className="size-4 text-favorite" />
                 <span className="font-medium">我的收藏</span>
                 <span className="text-xs text-muted-foreground">({favorites.length})</span>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => navigate('/favorites')} className="text-primary">
+              <Button variant="ghost" size="sm" onClick={() => navigate('/favorites')} className="text-text-secondary">
                 更多 <ChevronRightIcon className="size-3" />
               </Button>
             </div>
@@ -472,7 +507,7 @@ export default function HomePage() {
                 })}
               </div>
             )}
-          </div>
+          </Card>
         </>
       )}
     </div>

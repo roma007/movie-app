@@ -84,7 +84,7 @@ export function ColorControls({ brightness, contrast, saturation, hue, onChange 
         <svg className="vds-menu-open-icon vds-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
       </Menu.Button>
       <Menu.Items className="vds-menu-items">
-        <div className="border-t border-white/10">
+        <div>
           <SliderRow
             label="亮度"
             value={brightness}

@@ -1,7 +1,13 @@
 import { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { ArrowLeft } from 'lucide-react-native';
 import { useThemeColors } from '../themes/useThemeColors';
+import { useThemeStore } from '../themes/store';
+import { useScaledFontSize } from '../themes/useScaledFontSize';
+import { hexToRgba } from '../themes/colorUtils';
+import { radius } from '../themes/radiusTokens';
 import BlurredBackground from '../components/BlurredBackground';
+import { Button } from '../components/ui/Button';
 
 interface Props {
   navigation: any;
@@ -30,25 +36,36 @@ const FAQS = [
   },
 ];
 
-export default function HelpCenterScreen(_: Props) {
+export default function HelpCenterScreen({ navigation }: Props) {
   const colors = useThemeColors();
+  const cardOpacity = useThemeStore((s) => s.cardOpacity);
+  const cardBg = hexToRgba(colors.card, cardOpacity / 100);
+  const s = useScaledFontSize();
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1 },
-    header: { padding: 20, paddingTop: 60 },
-    title: { fontSize: 24, fontWeight: 'bold', color: colors.text },
-    content: { paddingHorizontal: 15, gap: 12 },
-    card: { backgroundColor: colors.card, borderRadius: 12, padding: 16 },
-    question: { fontSize: 16, fontWeight: '600', color: colors.text, marginBottom: 8 },
-    answer: { fontSize: 14, color: colors.textSecondary, lineHeight: 22 },
-    footer: { textAlign: 'center', color: colors.disabledForeground, fontSize: 13, paddingVertical: 30 },
-  }), [colors]);
+    header: { paddingTop: 50, paddingHorizontal: 15, paddingBottom: 15, backgroundColor: colors.surfaceElevated },
+    headerRow: { flexDirection: 'row', alignItems: 'center' },
+    title: { flex: 1, fontSize: s(18), fontWeight: 'bold', color: colors.text, textAlign: 'center' },
+    placeholder: { width: 40 },
+    content: { paddingHorizontal: 15, gap: 12, paddingTop: 15 },
+    card: { backgroundColor: cardBg, borderRadius: radius.lg, padding: 16 },
+    question: { fontSize: s(16), fontWeight: '600', color: colors.text, marginBottom: 8 },
+    answer: { fontSize: s(14), color: colors.textSecondary, lineHeight: 22 },
+    footer: { textAlign: 'center', color: colors.disabledForeground, fontSize: s(13), paddingVertical: 30 },
+  }), [colors, cardBg, s]);
 
   return (
     <BlurredBackground imageUrl={null}>
     <ScrollView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>帮助中心</Text>
+        <View style={styles.headerRow}>
+          <Button variant="icon" size="sm" onPress={() => navigation.goBack()}>
+            <ArrowLeft size={20} color={colors.text} />
+          </Button>
+          <Text style={styles.title}>帮助中心</Text>
+          <View style={styles.placeholder} />
+        </View>
       </View>
       <View style={styles.content}>
         {FAQS.map((faq, index) => (

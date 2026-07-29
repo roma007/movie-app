@@ -2,7 +2,12 @@ import { useMemo, useRef, useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useThemeColors } from '../themes/useThemeColors';
+import { useThemeStore } from '../themes/store';
+import { radius } from '../themes/radiusTokens';
+import { useScaledFontSize } from '../themes/useScaledFontSize';
+import { hexToRgba } from '../themes/colorUtils';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Search } from 'lucide-react-native';
 
 const TAB_GAP = 0;
 const TAB_PADDING_H = 16;
@@ -24,6 +29,9 @@ interface CategoryHeaderProps {
 export default function CategoryHeader({ activeType }: CategoryHeaderProps) {
   const navigation = useNavigation<any>();
   const colors = useThemeColors();
+  const cardOpacity = useThemeStore((s) => s.cardOpacity);
+  const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100);
+  const s = useScaledFontSize();
   const scrollRef = useRef<ScrollView>(null);
   const [tabWidths, setTabWidths] = useState<number[]>([]);
   const screenWidth = Dimensions.get('window').width;
@@ -74,19 +82,16 @@ export default function CategoryHeader({ activeType }: CategoryHeaderProps) {
     searchBar: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: colors.surface,
+      backgroundColor: surfaceBg,
       marginHorizontal: SCREEN_PADDING,
       marginTop: 12,
       paddingHorizontal: 14,
       paddingVertical: 12,
-      borderRadius: 10,
+      borderRadius: radius.md,
     },
-    searchIcon: {
-      fontSize: 16,
-      marginRight: 8,
-    },
+
     searchPlaceholder: {
-      fontSize: 15,
+      fontSize: s(15),
       color: colors.disabledForeground,
     },
     typeTabs: {
@@ -102,23 +107,21 @@ export default function CategoryHeader({ activeType }: CategoryHeaderProps) {
       marginRight: TAB_GAP,
     },
     typeTabText: {
-      fontSize: 16,
-      color: colors.foreground,
+      fontSize: s(16),
+      color: colors.textSecondary,
       fontWeight: '400',
-      opacity: 0.6,
     },
     typeTabTextActive: {
-      fontSize: 20,
+      fontSize: s(20),
       color: colors.text,
       fontWeight: '700',
-      opacity: 1,
     },
-  }), [colors]);
+  }), [colors, surfaceBg, s]);
 
   return (
     <View style={{ paddingTop: insets.top + 8 }}>
       <TouchableOpacity style={styles.searchBar} onPress={() => navigation.navigate('搜索')}>
-        <Text style={styles.searchIcon}>🔍</Text>
+        <Search size={16} color={colors.mutedForeground} style={{ marginRight: 8 }} />
         <Text style={styles.searchPlaceholder}>搜索电影、电视剧、综艺...</Text>
       </TouchableOpacity>
 

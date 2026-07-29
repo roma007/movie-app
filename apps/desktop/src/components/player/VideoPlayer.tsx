@@ -17,6 +17,8 @@ import { ZH_TRANSLATIONS } from './zhTranslations';
 import { ColorControls } from './ColorControls';
 import { NextEpisodeOverlay } from './NextEpisodeOverlay';
 import { register as registerGlobalShortcut, unregister as unregisterGlobalShortcut } from '@tauri-apps/plugin-global-shortcut';
+import { X } from 'lucide-react';
+import { useThemeStore } from '../../themes/store';
 
 interface VideoPlayerProps {
   sources: PlaySource[];
@@ -82,6 +84,8 @@ export function VideoPlayer({
     [activeSources, initialSourceId],
   );
   const [currentIndex, setCurrentIndex] = useState(initialIndex >= 0 ? initialIndex : 0);
+  const [shortcutsVisible, setShortcutsVisible] = useState(true);
+  const maxBufferSize = useThemeStore((s) => s.maxBufferSize);
 
   useEffect(() => {
     const newIndex = initialSourceId ? activeSources.findIndex((s) => s.id === initialSourceId) : 0;
@@ -97,7 +101,7 @@ export function VideoPlayer({
   const onTimeUpdateRef = useRef(onTimeUpdate);
   const onEndedRef = useRef(onEnded);
   const initialSeekDoneRef = useRef(false);
-
+  const hlsProviderRef = useRef<any>(null);
   useEffect(() => {
     currentIndexRef.current = currentIndex;
   }, [currentIndex]);
@@ -206,14 +210,24 @@ export function VideoPlayer({
     (provider: MediaProviderAdapter | null, _nativeEvent: MediaProviderChangeEvent) => {
       if (!isHLSProvider(provider)) return;
       provider.library = HLS;
+      hlsProviderRef.current = provider;
       provider.config = {
         loader: TauriLoader as any,
         enableWorker: false,
-        debug: true,
+        debug: false,
+        maxBufferSize: maxBufferSize * 1000 * 1000,
+        maxBufferHole: 0.5,
+        startFragPrefetch: true,
+        testBandwidth: false,
+        lowLatencyMode: false,
+        backBufferLength: 90,
+        abrEwmaDefaultEstimate: 1000000,
+        abrBandWidthFactor: 0.95,
+        abrBandWidthUpFactor: 0.7,
       };
       console.log('[VideoPlayer] HLS provider ready, TauriLoader injected');
     },
-    [],
+    [maxBufferSize],
   );
 
   useEffect(() => {
@@ -287,27 +301,39 @@ export function VideoPlayer({
 
   return (
     <div ref={playerContainerRef} className="relative w-full aspect-video bg-black rounded-lg overflow-hidden">
-      <div className="absolute top-2 left-2 z-20 bg-black/60 rounded-md px-2.5 py-1.5 text-xs text-white/80 space-y-0.5 pointer-events-none select-none">
-        <div className="font-semibold text-white/90 mb-0.5">快捷键</div>
-        <div>置顶 <kbd className="ml-1 px-1 py-0.5 bg-white/15 rounded-sm">i</kbd></div>
-        <div>老板键 <kbd className="ml-1 px-1 py-0.5 bg-white/15 rounded-sm">Ctrl + `</kbd></div>
-        <div>全屏 <kbd className="ml-1 px-1 py-0.5 bg-white/15 rounded-sm">f</kbd></div>
-      </div>
+      {shortcutsVisible && (
+        <div className="absolute top-2 left-2 z-20 bg-[var(--color-card-alpha)] backdrop-blur-sm rounded-md px-2.5 py-1.5 text-xs text-text-secondary space-y-0.5 select-none">
+          <div className="font-semibold text-text mb-0.5 flex items-center justify-between">
+            <span>快捷键</span>
+            <button
+              onClick={() => setShortcutsVisible(false)}
+              className="p-0.5 text-text-secondary hover:text-text transition-colors"
+              aria-label="关闭快捷键提示"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+          <div>置顶 <kbd className="ml-1 text-text-secondary">i</kbd></div>
+          <div>老板键 <kbd className="ml-1 text-text-secondary">Ctrl + `</kbd></div>
+          <div>全屏 <kbd className="ml-1 text-text-secondary">f</kbd></div>
+        </div>
+      )}
+
 
       {loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10">
-          <div className="text-muted-foreground">
+        <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-card-alpha)] backdrop-blur-sm z-10">
+          <div className="text-text-secondary">
             加载中...（线路 {currentIndex + 1}/{activeSources.length}）
           </div>
         </div>
       )}
       {error && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-10 p-4">
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--color-card-alpha)] backdrop-blur-sm z-10 p-4">
           <div className="text-destructive mb-4">{error}</div>
           {activeSources.length > 0 && (
             <button
               onClick={handleRetry}
-              className="px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+              className="px-6 py-2 bg-muted-foreground/20 text-text rounded-lg hover:bg-[var(--color-hover-alpha)] transition-colors"
             >
               重试
             </button>
@@ -336,7 +362,6 @@ export function VideoPlayer({
           }
         }}
         onHlsManifestParsed={() => {
-          console.log('[VideoPlayer] HLS manifest parsed, ready to play');
           setLoading(false);
           setError(null);
         }}
@@ -369,7 +394,7 @@ export function VideoPlayer({
       </MediaPlayer>
       <NextEpisodeOverlay
         show={overlayVisible}
-        nextEpisodeTitle={nextEpisodeRef.current ? `第${nextEpisodeRef.current.episodeNumber}集${nextEpisodeRef.current.title ? ` · ${nextEpisodeRef.current.title}` : ''}` : ''}
+        nextEpisodeTitle={nextEpisodeRef.current ? `下一集${nextEpisodeRef.current.title ? ` · ${nextEpisodeRef.current.title}` : ''}` : ''}
         onNext={() => onNextEpisodeRef.current?.()}
         onClose={handleOverlayClose}
       />

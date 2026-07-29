@@ -1,7 +1,9 @@
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ArrowLeft, BookOpen, ExternalLink } from 'lucide-react';
+import { useBackgroundStore } from '../themes/backgroundStore';
 
 const cmsGuides = [
   {
@@ -85,13 +87,16 @@ const cmsGuides = [
 ];
 
 export default function CollectGuidePage() {
+  const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
+  useEffect(() => { clearBgImage(); }, [clearBgImage]);
   const navigate = useNavigate();
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pb-4 border-b border-border">
+      <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
+        <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
         <div className="flex items-center gap-4">
-          <Button variant="ghost" onClick={() => navigate('/settings')} className="hover:text-primary">
+          <Button variant="ghost" onClick={() => navigate('/settings')} className="hover:text-text">
             <ArrowLeft className="size-4 mr-2" />
             返回
           </Button>
@@ -99,9 +104,9 @@ export default function CollectGuidePage() {
         </div>
       </div>
 
-      <Card className="p-6 mb-6 bg-card border-border">
+      <Card className="p-6 mb-6">
         <div className="flex items-start gap-4">
-          <BookOpen className="size-8 text-primary shrink-0 mt-1" />
+          <BookOpen className="size-8 text-muted-foreground shrink-0 mt-1" />
           <div>
             <h2 className="text-lg font-semibold mb-2">视频源配置指南</h2>
             <p className="text-sm text-muted-foreground leading-relaxed">
@@ -114,12 +119,12 @@ export default function CollectGuidePage() {
 
       <div className="space-y-4">
         {cmsGuides.map((cms) => (
-          <Card key={cms.name} className="p-5 bg-card border-border hover:border-primary/30 transition-colors">
+          <Card key={cms.name} className="p-5 hover:border-muted-foreground/30 transition-colors">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-lg font-semibold">{cms.name}</h3>
-                  <span className="px-2 py-0.5 text-xs rounded-full bg-primary/10 text-primary">
+                  <span className="px-2 py-0.5 text-xs rounded-full bg-muted-foreground/10 text-text-secondary">
                     {cms.version}
                   </span>
                 </div>
@@ -129,7 +134,7 @@ export default function CollectGuidePage() {
                 href={`https://www.baidu.com/s?wd=${encodeURIComponent(cms.name + ' CMS')}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-muted-foreground hover:text-primary transition-colors"
+                className="text-muted-foreground hover:text-text transition-colors"
               >
                 <ExternalLink className="size-4" />
               </a>
@@ -137,11 +142,11 @@ export default function CollectGuidePage() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
-                <div className="text-sm font-medium text-primary">主要功能</div>
+                <div className="text-sm font-medium text-text-secondary">主要功能</div>
                 <ul className="text-sm text-muted-foreground space-y-1">
                   {cms.features.map((feature) => (
                     <li key={feature} className="flex items-center gap-1">
-                      <span className="w-1 h-1 rounded-full bg-primary" />
+                      <span className="w-1 h-1 rounded-full bg-muted-foreground" />
                       {feature}
                     </li>
                   ))}
@@ -149,11 +154,11 @@ export default function CollectGuidePage() {
               </div>
 
               <div className="space-y-2">
-                <div className="text-sm font-medium text-primary">配置方法</div>
+                <div className="text-sm font-medium text-text-secondary">配置方法</div>
                 <ul className="text-sm text-muted-foreground space-y-1">
                   {cms.config.map((item) => (
                     <li key={item} className="flex items-start gap-1">
-                      <span className="w-1 h-1 rounded-full bg-primary mt-1.5 shrink-0" />
+                      <span className="w-1 h-1 rounded-full bg-muted-foreground mt-1.5 shrink-0" />
                       <span>{item}</span>
                     </li>
                   ))}
@@ -161,7 +166,7 @@ export default function CollectGuidePage() {
               </div>
 
               <div className="space-y-2">
-                <div className="text-sm font-medium text-primary">使用提示</div>
+                <div className="text-sm font-medium text-text-secondary">使用提示</div>
                 <p className="text-sm text-muted-foreground">{cms.tips}</p>
               </div>
             </div>
@@ -169,48 +174,48 @@ export default function CollectGuidePage() {
         ))}
       </div>
 
-      <Card className="p-6 mt-6 bg-card border-border">
+      <Card className="p-6 mt-6">
         <h3 className="text-lg font-semibold mb-3">通用配置步骤</h3>
         <ol className="text-sm text-muted-foreground space-y-2">
           <li className="flex items-start gap-2">
-            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-primary text-white text-xs shrink-0">1</span>
+            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-muted-foreground text-white text-xs shrink-0">1</span>
             在设置页面点击"视频源管理"，进入视频源列表
           </li>
           <li className="flex items-start gap-2">
-            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-primary text-white text-xs shrink-0">2</span>
+            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-muted-foreground text-white text-xs shrink-0">2</span>
             点击"添加视频源"，输入视频源名称和API地址
           </li>
           <li className="flex items-start gap-2">
-            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-primary text-white text-xs shrink-0">3</span>
+            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-muted-foreground text-white text-xs shrink-0">3</span>
             根据视频源类型选择对应的CMS类型
           </li>
           <li className="flex items-start gap-2">
-            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-primary text-white text-xs shrink-0">4</span>
+            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-muted-foreground text-white text-xs shrink-0">4</span>
             点击保存
           </li>
           <li className="flex items-start gap-2">
-            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-primary text-white text-xs shrink-0">5</span>
+            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-muted-foreground text-white text-xs shrink-0">5</span>
             在采集任务页面创建采集任务，选择刚添加的视频源进行采集
           </li>
         </ol>
       </Card>
 
-      <Card className="p-6 mt-4 bg-card border-border">
+      <Card className="p-6 mt-4">
         <h3 className="text-lg font-semibold mb-3">常见问题</h3>
         <div className="space-y-4">
-          <div className="border-b border-border pb-3">
+          <div className="pb-3">
             <div className="font-medium text-sm">Q: 采集时提示"无法连接到视频源"怎么办？</div>
             <div className="text-sm text-muted-foreground mt-1">
               A: 请检查视频源的API地址是否正确，网络是否可以访问该地址。部分站点可能需要科学上网才能访问。
             </div>
           </div>
-          <div className="border-b border-border pb-3">
+          <div className="pb-3">
             <div className="font-medium text-sm">Q: 采集到的数据不全或重复怎么办？</div>
             <div className="text-sm text-muted-foreground mt-1">
               A: 本APP使用指纹去重机制，相同名称和年份的视频会自动去重。如果数据不全，可能是视频源API限制了返回数量，可以尝试调整pageSize参数。
             </div>
           </div>
-          <div className="border-b border-border pb-3">
+          <div className="pb-3">
             <div className="font-medium text-sm">Q: 播放视频时无法加载怎么办？</div>
             <div className="text-sm text-muted-foreground mt-1">
               A: 请检查网络连接，尝试切换不同的播放源。部分视频源可能存在防盗链机制，需要在采集配置中设置referer头。

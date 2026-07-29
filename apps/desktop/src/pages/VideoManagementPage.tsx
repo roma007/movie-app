@@ -9,6 +9,7 @@ import { useAppStore, getProvider } from '../useAppStore';
 import { useConfirm } from '@/components/ConfirmProvider';
 import { useToast } from '@/components/Layout';
 import type { ShortDramaConfig } from '@movie-app/core';
+import { useBackgroundStore } from '../themes/backgroundStore';
 
 interface MediaStats {
   total: number;
@@ -16,6 +17,8 @@ interface MediaStats {
 }
 
 export default function VideoManagementPage() {
+  const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
+  useEffect(() => { clearBgImage(); }, [clearBgImage]);
   const navigate = useNavigate();
   const confirm = useConfirm();
   const toast = useToast();
@@ -450,20 +453,23 @@ export default function VideoManagementPage() {
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-4 px-6 py-4 border-b border-border bg-background">
-        <Button variant="ghost" onClick={() => navigate('/settings')} className="hover:text-primary">
-          <ArrowLeft className="size-4 mr-2" />
-          返回
-        </Button>
-        <div className="flex-1">
-          <h1 className="text-xl font-bold">视频管理</h1>
-          <p className="text-sm text-muted-foreground mt-1">查看视频统计和管理视频数据</p>
+    <div className="p-6 max-w-7xl mx-auto">
+      <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
+        <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" onClick={() => navigate('/settings')} className="hover:text-text">
+            <ArrowLeft className="size-4 mr-2" />
+            返回
+          </Button>
+          <div className="flex-1">
+            <h1 className="text-2xl font-bold">视频管理</h1>
+            <p className="text-sm text-muted-foreground mt-1">查看视频统计和管理视频数据</p>
+          </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
-        <Card className="p-6 mb-6 bg-card border-border">
+      <div className="mt-5">
+        <Card className="p-6 mb-6">
           <h2 className="text-lg font-semibold mb-4">数据统计</h2>
           {loading ? (
             <div className="flex items-center justify-center py-8">
@@ -496,7 +502,7 @@ export default function VideoManagementPage() {
         </Card>
 
         <div className="grid grid-cols-2 gap-6 mb-6">
-          <Card className="p-6 bg-card border-border">
+          <Card className="p-6">
             <h2 className="text-lg font-semibold mb-4">删除所有视频</h2>
             <p className="text-sm text-muted-foreground mb-4">
               删除所有视频数据，包括播放源、剧集、收藏和观看历史。此操作无法撤销。
@@ -512,7 +518,7 @@ export default function VideoManagementPage() {
             </Button>
           </Card>
 
-          <Card className="p-6 bg-card border-border">
+          <Card className="p-6">
             <h2 className="text-lg font-semibold mb-4">删除无播放源视频</h2>
             <p className="text-sm text-muted-foreground mb-4">
               删除所有没有播放源的视频。此操作无法撤销。
@@ -528,7 +534,7 @@ export default function VideoManagementPage() {
           </Card>
         </div>
 
-        <Card className="p-6 mb-6 bg-card border-l-4 border-l-destructive border-border">
+        <Card className="p-6 mb-6 border-l-4 border-l-destructive">
           <h2 className="text-lg font-semibold mb-4 text-destructive">按子类型删除视频</h2>
           <p className="text-sm text-muted-foreground mb-4">
             先选择大类，再选择该大类下的子类型进行删除。此操作不可恢复。
@@ -542,7 +548,7 @@ export default function VideoManagementPage() {
                 className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
                   deleteMediaType === mt.value
                     ? 'bg-destructive text-white border-destructive'
-                    : 'bg-card text-foreground border-border hover:border-destructive/50'
+                    : 'bg-card text-text hover:border-destructive/50'
                 }`}
               >
                 {mt.label}
@@ -561,7 +567,7 @@ export default function VideoManagementPage() {
                 className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
                   selectedGenres.includes(genre)
                     ? 'bg-destructive text-white border-destructive'
-                    : 'bg-card text-foreground border-border hover:border-destructive/50'
+                    : 'bg-card text-text hover:border-destructive/50'
                 }`}
               >
                 {genre}
@@ -605,7 +611,7 @@ export default function VideoManagementPage() {
           </Button>
         </Card>
 
-        <Card className="p-6 mb-6 bg-card border-l-4 border-l-amber-500 border-border">
+        <Card className="p-6 mb-6 border-l-4 border-l-amber-500">
           <h2 className="text-lg font-semibold mb-4 text-amber-600">按子类型隐藏视频</h2>
           <p className="text-sm text-muted-foreground mb-4">
             点击子类型立即切换隐藏状态，无需确认。左栏点击可隐藏，右栏点击可取消隐藏。
@@ -618,8 +624,8 @@ export default function VideoManagementPage() {
                 onClick={() => setHideMediaType(mt.value)}
                 className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
                   hideMediaType === mt.value
-                    ? 'bg-primary text-primary-foreground border-primary'
-                    : 'bg-card text-foreground border-border hover:border-primary/50'
+                    ? 'bg-muted-foreground text-background border-muted-foreground'
+                    : 'bg-card text-text hover:border-muted-foreground/50'
                 }`}
               >
                 {mt.label}
@@ -632,7 +638,7 @@ export default function VideoManagementPage() {
               <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
                 未隐藏 ({visibleGenres.length})
               </div>
-              <div className="flex flex-wrap gap-2 min-h-[3rem] p-3 rounded-lg border border-border bg-secondary/30">
+              <div className="flex flex-wrap gap-2 min-h-[3rem] p-3 rounded-lg bg-secondary/30">
                 {visibleGenres.length === 0 && (
                   <span className="text-xs text-muted-foreground">暂无未隐藏的子类型</span>
                 )}
@@ -641,7 +647,7 @@ export default function VideoManagementPage() {
                     key={genre}
                     onClick={() => handleToggleHideGenre(genre)}
                     disabled={togglingGenre === genre}
-                    className="px-2.5 py-1 rounded-full text-xs border transition-colors bg-card text-foreground border-border hover:border-amber-500 hover:bg-amber-500/10 disabled:opacity-50"
+                    className="px-2.5 py-1 rounded-full text-xs transition-colors bg-card text-text hover:border-amber-500 hover:bg-amber-500/10 disabled:opacity-50"
                   >
                     {togglingGenre === genre ? '...' : genre}
                   </button>
@@ -672,7 +678,7 @@ export default function VideoManagementPage() {
           </div>
         </Card>
 
-        <Card className="p-6 mb-6 bg-card border-border">
+        <Card className="p-6 mb-6">
           <h2 className="text-lg font-semibold mb-4">长短剧判断配置</h2>
           <p className="text-sm text-muted-foreground mb-4">
             配置三层判断逻辑的参数。修改配置后需重新探测才能生效。
@@ -688,7 +694,7 @@ export default function VideoManagementPage() {
                     <button
                       key={i}
                       onClick={() => removePattern(pattern)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs border transition-colors bg-card text-foreground border-border hover:border-destructive/50 hover:text-destructive"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs transition-colors bg-card text-text hover:border-destructive/50 hover:text-destructive"
                     >
                       {pattern}
                       <X className="size-3" />
@@ -701,7 +707,7 @@ export default function VideoManagementPage() {
                     onChange={(e) => setPatternInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addPattern(); } }}
                     placeholder="输入模板，如 {N}分钟，按回车添加"
-                    className="flex-1 bg-secondary border-border text-xs"
+                    className="flex-1 bg-secondary text-xs"
                   />
                   <Button onClick={addPattern} variant="default" size="sm">
                     <Plus className="size-3 mr-1" />添加
@@ -719,7 +725,7 @@ export default function VideoManagementPage() {
                     max="120"
                     value={localConfig.durationThresholdMinutes}
                     onChange={(e) => setLocalConfig({ ...localConfig, durationThresholdMinutes: Math.max(1, parseInt(e.target.value) || 30) })}
-                    className="bg-secondary border-border"
+                    className="bg-secondary"
                   />
                 </div>
                 <div className="space-y-2">
@@ -731,7 +737,7 @@ export default function VideoManagementPage() {
                     max="20"
                     value={localConfig.probeEpisodeCount}
                     onChange={(e) => setLocalConfig({ ...localConfig, probeEpisodeCount: Math.max(1, parseInt(e.target.value) || 8) })}
-                    className="bg-secondary border-border"
+                    className="bg-secondary"
                   />
                 </div>
               </div>
@@ -744,7 +750,7 @@ export default function VideoManagementPage() {
                     <button
                       key={i}
                       onClick={() => removeKeyword(kw)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs border transition-colors bg-card text-foreground border-border hover:border-destructive/50 hover:text-destructive"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs transition-colors bg-card text-text hover:border-destructive/50 hover:text-destructive"
                     >
                       {kw}
                       <X className="size-3" />
@@ -757,7 +763,7 @@ export default function VideoManagementPage() {
                     onChange={(e) => setKeywordInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(); } }}
                     placeholder="输入关键词后按回车添加"
-                    className="flex-1 bg-secondary border-border"
+                    className="flex-1 bg-secondary"
                   />
                   <Button onClick={addKeyword} variant="default" size="sm">
                     <Plus className="size-3 mr-1" />添加
@@ -770,7 +776,7 @@ export default function VideoManagementPage() {
                   <RotateCcw className="size-3.5 mr-1.5" />
                   恢复默认
                 </Button>
-                <Button onClick={handleSaveConfig} className="bg-primary hover:bg-primary-hover">
+                <Button onClick={handleSaveConfig}>
                   <Save className="size-4 mr-2" />
                   {configSaved ? '已保存' : '保存配置'}
                 </Button>
@@ -779,7 +785,7 @@ export default function VideoManagementPage() {
           )}
         </Card>
 
-        <Card className="p-6 mb-6 bg-card border-border">
+        <Card className="p-6 mb-6">
           <h2 className="text-lg font-semibold mb-4">全量重新探测长短剧</h2>
           <p className="text-sm text-muted-foreground mb-4">
             清除所有电视剧的已有判断结果，全量重新执行三层判断逻辑。
@@ -797,12 +803,12 @@ export default function VideoManagementPage() {
           {fullReprobing && pollProgress && (
             <div className="space-y-3 mb-4">
               <div className="flex items-center gap-2 text-sm">
-                <Loader2 className="size-4 animate-spin text-primary" />
+                <Loader2 className="size-4 animate-spin text-muted-foreground" />
                 <span>正在全量探测：{pollProgress.currentMediaTitle || '准备中...'}</span>
               </div>
               <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-primary transition-all duration-300"
+                  className="h-full bg-muted-foreground transition-all duration-300"
                   style={{ width: `${pollProgress.total > 0 ? (pollProgress.processed / pollProgress.total) * 100 : 0}%` }}
                 />
               </div>
@@ -816,7 +822,7 @@ export default function VideoManagementPage() {
                   <div className="text-xs text-muted-foreground">短剧</div>
                 </div>
                 <div className="p-2 rounded bg-secondary">
-                  <div className="text-lg font-bold text-primary">{pollProgress.longDrama}</div>
+                  <div className="text-lg font-bold text-text-secondary">{pollProgress.longDrama}</div>
                   <div className="text-xs text-muted-foreground">长剧</div>
                 </div>
                 <div className="p-2 rounded bg-secondary">
@@ -843,7 +849,7 @@ export default function VideoManagementPage() {
                       <div>全量探测完成：共处理 {fullReprobeResult.total} 部电视剧</div>
                       <div className="flex gap-4 text-muted-foreground">
                         <span>短剧：<span className="text-success font-medium">{fullReprobeResult.shortDrama}</span></span>
-                        <span>长剧：<span className="text-primary font-medium">{fullReprobeResult.longDrama}</span></span>
+                        <span>长剧：<span className="text-text-secondary font-medium">{fullReprobeResult.longDrama}</span></span>
                         <span>失败：<span className="text-destructive font-medium">{fullReprobeResult.failed}</span></span>
                       </div>
                     </div>
@@ -864,7 +870,7 @@ export default function VideoManagementPage() {
           </Button>
         </Card>
 
-        <Card className="p-6 bg-card border-border">
+        <Card className="p-6">
           <h2 className="text-lg font-semibold mb-4">批量重新探测长短剧</h2>
           <p className="text-sm text-muted-foreground mb-4">
             对所有经过三级降级判断后仍为兜底状态（FALLBACK）或未判断的电视剧进行重新探测。
@@ -880,10 +886,10 @@ export default function VideoManagementPage() {
           </div>
 
           {runningReprobeTask && (
-            <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 mb-4">
+            <div className="p-3 rounded-lg bg-muted-foreground/10 border border-muted-foreground/20 mb-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Loader2 className="size-4 animate-spin text-primary" />
+                  <Loader2 className="size-4 animate-spin text-muted-foreground" />
                   <span className="text-sm font-medium">探测任务运行中</span>
                 </div>
                 <Button
@@ -903,11 +909,11 @@ export default function VideoManagementPage() {
           )}
 
           {reprobeMediaList.length > 0 && !reprobing && !runningReprobeTask && (
-            <div className="rounded-lg border border-border overflow-hidden mb-4">
-              <div className="px-3 py-2 bg-secondary text-xs font-medium text-muted-foreground border-b border-border">
+            <div className="rounded-lg overflow-hidden mb-4">
+              <div className="px-3 py-2 bg-secondary text-xs font-medium text-muted-foreground">
                 待探测清单（点击可查看详情）
               </div>
-              <div className="max-h-60 overflow-y-auto divide-y divide-border">
+              <div className="max-h-60 overflow-y-auto">
                 {reprobeMediaList.map((item) => (
                   <button
                     key={item.id}
@@ -925,13 +931,13 @@ export default function VideoManagementPage() {
           {(pollProgress || reprobeProgress) && reprobing && (
             <div className="space-y-3 mb-4">
               <div className="flex items-center gap-2 text-sm">
-                <Loader2 className="size-4 animate-spin text-primary" />
+                <Loader2 className="size-4 animate-spin text-muted-foreground" />
                 <span>正在探测：{(pollProgress || reprobeProgress)?.currentMediaTitle || '准备中...'}</span>
               </div>
               
               <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-primary transition-all duration-300"
+                  className="h-full bg-muted-foreground transition-all duration-300"
                   style={{ width: `${(pollProgress || reprobeProgress)!.total > 0 ? ((pollProgress || reprobeProgress)!.processed / (pollProgress || reprobeProgress)!.total) * 100 : 0}%` }}
                 />
               </div>
@@ -946,7 +952,7 @@ export default function VideoManagementPage() {
                   <div className="text-xs text-muted-foreground">短剧</div>
                 </div>
                 <div className="p-2 rounded bg-secondary">
-                  <div className="text-lg font-bold text-primary">{(pollProgress || reprobeProgress)!.longDrama}</div>
+                  <div className="text-lg font-bold text-text-secondary">{(pollProgress || reprobeProgress)!.longDrama}</div>
                   <div className="text-xs text-muted-foreground">长剧</div>
                 </div>
                 <div className="p-2 rounded bg-secondary">
@@ -975,7 +981,7 @@ export default function VideoManagementPage() {
                       </div>
                       <div className="flex gap-4 text-muted-foreground">
                         <span>短剧：<span className="text-success font-medium">{reprobeResult.shortDrama}</span></span>
-                        <span>长剧：<span className="text-primary font-medium">{reprobeResult.longDrama}</span></span>
+                        <span>长剧：<span className="text-text-secondary font-medium">{reprobeResult.longDrama}</span></span>
                         <span>失败：<span className="text-destructive font-medium">{reprobeResult.failed}</span></span>
                       </div>
                     </div>
@@ -984,11 +990,11 @@ export default function VideoManagementPage() {
               </div>
 
               {reprobeResult.failedItems.length > 0 && (
-                <div className="rounded-lg border border-border overflow-hidden">
-                  <div className="px-3 py-2 bg-secondary text-xs font-medium text-muted-foreground border-b border-border">
+                <div className="rounded-lg overflow-hidden">
+                  <div className="px-3 py-2 bg-secondary text-xs font-medium text-muted-foreground">
                     探测失败清单（点击可查看详情）
                   </div>
-                  <div className="max-h-48 overflow-y-auto divide-y divide-border">
+                  <div className="max-h-48 overflow-y-auto">
                     {reprobeResult.failedItems.map((item) => (
                       <button
                         key={item.id}
