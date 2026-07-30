@@ -2,6 +2,7 @@ name: Build Release
 
 on:
   push:
+    branches: [master]
     tags:
       - "v*"
   workflow_dispatch:
@@ -56,11 +57,11 @@ jobs:
         run: pnpm install
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tauriScript: pnpm tauri
+          projectPath: apps/desktop
           tagName: v__VERSION__
           releaseName: "Movie App v__VERSION__"
           releaseBody: "See the assets below to download and install."
