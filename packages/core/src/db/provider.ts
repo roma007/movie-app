@@ -9,6 +9,7 @@ import type {
   ListParams,
   CollectTask,
   TaskStatus,
+  CollectionLog,
 } from '../types';
 
 /**
@@ -141,6 +142,11 @@ export interface DatabaseProvider {
     status?: TaskStatus;
   }): Promise<void>;
   getRunningReprobeTask(): Promise<CollectTask | null>;
+
+  // —— CollectionLog DAO ——
+  addCollectionLog(log: CollectionLog): Promise<void>;
+  getCollectionLogs(filter?: { taskId?: string; sourceCode?: string; level?: string; limit?: number; offset?: number }): Promise<CollectionLog[]>;
+  clearCollectionLogs(beforeDays?: number): Promise<void>;
 
   // —— 通用 SQL ——
   select<T>(sql: string, params?: any[]): Promise<T[]>;

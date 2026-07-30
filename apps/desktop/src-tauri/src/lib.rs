@@ -6,16 +6,14 @@ use tauri_plugin_http::init as init_http;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let mut builder = tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(init_http())
         .plugin(tauri_plugin_sql::Builder::default().build());
 
     #[cfg(desktop)]
-    {
-        builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
-    }
+    let app = app.plugin(tauri_plugin_global_shortcut::Builder::new().build());
 
-    builder
+    app
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -105,7 +105,7 @@ export class CollectorService {
     this.onLogCallback = callback;
   }
 
-  private emitLog(level: 'info' | 'error' | 'warn', message: string, sourceCode?: string, sourceName?: string, taskId?: string): void {
+  private emitLog(level: 'info' | 'error' | 'warn', message: string, sourceCode?: string, sourceName?: string, taskId?: string, details?: string): void {
     const log: CollectionLog = {
       id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
       timestamp: new Date().toISOString(),
@@ -114,8 +114,12 @@ export class CollectorService {
       sourceCode,
       sourceName,
       taskId,
+      details,
     };
     this.onLogCallback?.(log);
+    if (level === 'error' || level === 'warn') {
+      this.db.addCollectionLog(log).catch(err => console.error('[Collector] 保存采集日志失败:', err));
+    }
   }
 
   cancelTask(taskId: string): void {
@@ -451,7 +455,14 @@ export class CollectorService {
       const errorMsg = `[Collector] getList failed: ${errInstance.message}`;
       const errorType = classifyError(err);
       console.error(`[Collector] getList 失败 (${errorType}):`, errorMsg);
-      await this.logToDb(`${errorMsg} [类型: ${errorType}]`, 'error');
+      await this.logToDb(`getList失败: ${errInstance.message}`, 'error', {
+        errorType,
+        sourceId,
+        page,
+        url: baseUrl,
+        rateLimit,
+        stack: errInstance.stack,
+      });
       
       let detailedError = errInstance.message;
       if (errInstance.message.includes('CORS') || errInstance.message.includes('opaque')) {
@@ -462,7 +473,7 @@ export class CollectorService {
         detailedError = '请求超时 - 服务器响应时间过长。';
       }
 
-      this.emitLog('error', detailedError);
+      this.emitLog('error', detailedError, undefined, undefined, undefined, JSON.stringify({ errorType, url: baseUrl, page }));
       
       return { media: [], total: 0, pagecount: 0, failedCount: 0, error: detailedError, errorType };
     }
@@ -595,8 +606,22 @@ export class CollectorService {
     return failedCount;
   }
 
-  private async logToDb(_message: string, _level: 'info' | 'error' = 'info'): Promise<void> {
-    // DiagnosticLogViewer removed; logs no longer written to system_config
+  private async logToDb(message: string, level: 'info' | 'error' = 'info', details?: Record<string, unknown>): Promise<void> {
+    try {
+      const log: CollectionLog = {
+        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+        timestamp: new Date().toISOString(),
+        level,
+        message,
+        sourceCode: details?.sourceCode as string | undefined,
+        sourceName: details?.sourceName as string | undefined,
+        taskId: details?.taskId as string | undefined,
+        details: details ? JSON.stringify(details) : undefined,
+      };
+      await this.db.addCollectionLog(log);
+    } catch (err) {
+      console.error('[Collector] logToDb 失败:', err);
+    }
   }
 
   async collectByKeyword(keyword: string): Promise<Media[]> {
@@ -850,6 +875,15 @@ export class CollectorService {
 
         await this.db.updateSourceLastCollectedAt(source.id, new Date().toISOString());
 
+        await this.logToDb(`批采 ${source.name} 完成: ${collected}条, ${failed}次失败`, 'info', {
+          sourceCode: source.code,
+          sourceName: source.name,
+          taskId,
+          collected,
+          failed,
+          pages: currentPage - 1,
+        });
+
         onSourceProgress?.({
           sourceIndex: si,
           sourceName: source.name,
@@ -859,9 +893,19 @@ export class CollectorService {
           status: 'done',
         });
       } catch (err) {
+        const errInstance = err instanceof Error ? err : new Error(String(err));
         const errType = classifyError(err);
-        const errorMsg = err instanceof Error ? err.message : String(err);
+        const errorMsg = errInstance.message;
         console.error(`采集源 ${source.name} 失败:`, errorMsg);
+        await this.logToDb(`批采 ${source.name} 失败: ${errorMsg}`, 'error', {
+          errorType: errType,
+          sourceCode: source.code,
+          taskId,
+          url: source.baseUrl,
+          rateLimit: source.rateLimit,
+          stack: errInstance.stack,
+        });
+        this.emitLog('error', `批采失败 [${source.name}]: ${errorMsg}`, source.code, source.name, taskId, JSON.stringify({ errorType: errType, url: source.baseUrl }));
         await this.db.updateCollectTask(taskId, {
           status: 'FAILED' as TaskStatus,
           errorMessage: getFriendlyErrorMessage(errType),
@@ -1058,11 +1102,20 @@ export class CollectorService {
           page++;
         } catch (err) {
           totalRuntimeMs += Date.now() - iterationStart;
+          const errInstance = err instanceof Error ? err : new Error(String(err));
           const errType = classifyError(err);
-          const errMsg = `[Collector] 增量采集第${page}页失败: ${err instanceof Error ? err.message : String(err)}`;
-          console.error(errMsg);
-          await this.logToDb(errMsg, 'error');
-          this.emitLog('error', `第${page}页失败: ${err instanceof Error ? err.message : String(err)}`, sourceCode, source.name, taskId);
+          const errMsg = errInstance.message;
+          console.error(`[Collector] 增量采集第${page}页失败: ${errMsg}`);
+          await this.logToDb(`增量采集第${page}页失败: ${errMsg}`, 'error', {
+            errorType: errType,
+            sourceCode,
+            taskId,
+            page,
+            url: source.baseUrl,
+            rateLimit: source.rateLimit,
+            stack: errInstance.stack,
+          });
+          this.emitLog('error', `第${page}页失败: ${errMsg}`, sourceCode, source.name, taskId, JSON.stringify({ errorType: errType, page, url: source.baseUrl }));
           lastErrorMsg = errMsg;
           lastErrorType = errType;
           failed++;
@@ -1084,6 +1137,14 @@ export class CollectorService {
           completedAt: new Date().toISOString(),
         });
         await this.db.updateSourceLastCollectedAt(source.id, new Date().toISOString());
+        await this.logToDb(`增量采集完成: ${collected}条, ${failed}次失败`, 'info', {
+          sourceCode,
+          sourceName: source.name,
+          taskId,
+          collected,
+          failed,
+          pages: page - 1,
+        });
         this.emitLog('info', `增量采集完成 [${source.name}]: 共采集${collected}条，失败${failed}条`, sourceCode, source.name, taskId);
       }
 
@@ -1091,8 +1152,18 @@ export class CollectorService {
       return { taskId, collected };
     } catch (err) {
       this.activeAbortControllers.delete(taskId);
+      const errInstance = err instanceof Error ? err : new Error(String(err));
       const errType = (err as any).errorType || classifyError(err);
-      const finalErrMsg = err instanceof Error ? err.message : String(err);
+      const finalErrMsg = errInstance.message;
+      await this.logToDb(`增量采集整体失败: ${finalErrMsg}`, 'error', {
+        errorType: errType,
+        sourceCode,
+        taskId,
+        page,
+        url: source.baseUrl,
+        rateLimit: source.rateLimit,
+        stack: errInstance.stack,
+      });
       await this.db.updateCollectTask(taskId, {
         status: 'FAILED' as TaskStatus,
         currentPage: page,
@@ -1101,7 +1172,7 @@ export class CollectorService {
         lastErrorPage: page,
         completedAt: new Date().toISOString(),
       });
-      this.emitLog('error', `增量采集失败 [${source.name}]: ${finalErrMsg}`, sourceCode, source.name, taskId);
+      this.emitLog('error', `增量采集失败 [${source.name}]: ${finalErrMsg}`, sourceCode, source.name, taskId, JSON.stringify({ errorType: errType, page, url: source.baseUrl }));
       throw err;
     }
   }
@@ -1186,11 +1257,20 @@ export class CollectorService {
           page++;
         } catch (err) {
           totalRuntimeMs += Date.now() - iterationStart;
+          const errInstance = err instanceof Error ? err : new Error(String(err));
           const errType = classifyError(err);
-          const errMsg = `[Collector] 全量采集第${page}页失败: ${err instanceof Error ? err.message : String(err)}`;
-          console.error(errMsg);
-          await this.logToDb(errMsg, 'error');
-          this.emitLog('error', `第${page}页失败: ${err instanceof Error ? err.message : String(err)}`, sourceCode, source.name, taskId);
+          const errMsg = errInstance.message;
+          console.error(`[Collector] 全量采集第${page}页失败: ${errMsg}`);
+          await this.logToDb(`全量采集第${page}页失败: ${errMsg}`, 'error', {
+            errorType: errType,
+            sourceCode,
+            taskId,
+            page,
+            url: source.baseUrl,
+            rateLimit: source.rateLimit,
+            stack: errInstance.stack,
+          });
+          this.emitLog('error', `第${page}页失败: ${errMsg}`, sourceCode, source.name, taskId, JSON.stringify({ errorType: errType, page, url: source.baseUrl }));
           lastErrorMsg = errMsg;
           lastErrorType = errType;
           failed++;
@@ -1212,6 +1292,14 @@ export class CollectorService {
           completedAt: new Date().toISOString(),
         });
         await this.db.updateSourceLastCollectedAt(source.id, new Date().toISOString());
+        await this.logToDb(`全量采集完成: ${collected}条, ${failed}次失败`, 'info', {
+          sourceCode,
+          sourceName: source.name,
+          taskId,
+          collected,
+          failed,
+          pages: page - 1,
+        });
         this.emitLog('info', `全量采集完成 [${source.name}]: 共采集${collected}条，失败${failed}条`, sourceCode, source.name, taskId);
       }
 
@@ -1219,8 +1307,18 @@ export class CollectorService {
       return { taskId, collected, pages };
     } catch (err) {
       this.activeAbortControllers.delete(taskId);
+      const errInstance = err instanceof Error ? err : new Error(String(err));
       const errType = (err as any).errorType || classifyError(err);
-      const finalErrMsg = err instanceof Error ? err.message : String(err);
+      const finalErrMsg = errInstance.message;
+      await this.logToDb(`全量采集整体失败: ${finalErrMsg}`, 'error', {
+        errorType: errType,
+        sourceCode,
+        taskId,
+        page,
+        url: source.baseUrl,
+        rateLimit: source.rateLimit,
+        stack: errInstance.stack,
+      });
       await this.db.updateCollectTask(taskId, {
         status: 'FAILED' as TaskStatus,
         currentPage: page,
@@ -1229,7 +1327,7 @@ export class CollectorService {
         lastErrorPage: page,
         completedAt: new Date().toISOString(),
       });
-      this.emitLog('error', `全量采集失败 [${source.name}]: ${finalErrMsg}`, sourceCode, source.name, taskId);
+      this.emitLog('error', `全量采集失败 [${source.name}]: ${finalErrMsg}`, sourceCode, source.name, taskId, JSON.stringify({ errorType: errType, page, url: source.baseUrl }));
       throw err;
     }
   }

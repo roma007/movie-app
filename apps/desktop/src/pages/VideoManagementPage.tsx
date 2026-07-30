@@ -866,7 +866,7 @@ export default function VideoManagementPage() {
             className="w-full"
           >
             <Radar className={`size-4 mr-2 ${fullReprobing ? 'animate-spin' : ''}`} />
-            {runningReprobeTask ? '任务运行中...' : fullReprobing ? '启动中...' : `开始全量重新探测 (${fullReprobeMediaCount})`}
+            {fullReprobing ? '启动中...' : `开始全量重新探测 (${fullReprobeMediaCount})`}
           </Button>
         </Card>
 
@@ -902,9 +902,41 @@ export default function VideoManagementPage() {
                   取消
                 </Button>
               </div>
-              <div className="text-xs text-muted-foreground mt-1">
-                任务ID: {runningReprobeTask.taskId}
-              </div>
+
+              {reprobing && (pollProgress || reprobeProgress) && (
+                <div className="space-y-3 mt-4">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                    <span>正在探测：{(pollProgress || reprobeProgress)?.currentMediaTitle || '准备中...'}</span>
+                  </div>
+                  
+                  <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-muted-foreground transition-all duration-300"
+                      style={{ width: `${(pollProgress || reprobeProgress)!.total > 0 ? ((pollProgress || reprobeProgress)!.processed / (pollProgress || reprobeProgress)!.total) * 100 : 0}%` }}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-4 gap-4 text-center">
+                    <div className="p-2 rounded bg-secondary">
+                      <div className="text-lg font-bold">{(pollProgress || reprobeProgress)!.processed}</div>
+                      <div className="text-xs text-muted-foreground">已处理</div>
+                    </div>
+                    <div className="p-2 rounded bg-secondary">
+                      <div className="text-lg font-bold text-success">{(pollProgress || reprobeProgress)!.shortDrama}</div>
+                      <div className="text-xs text-muted-foreground">短剧</div>
+                    </div>
+                    <div className="p-2 rounded bg-secondary">
+                      <div className="text-lg font-bold text-text-secondary">{(pollProgress || reprobeProgress)!.longDrama}</div>
+                      <div className="text-xs text-muted-foreground">长剧</div>
+                    </div>
+                    <div className="p-2 rounded bg-secondary">
+                      <div className="text-lg font-bold text-destructive">{(pollProgress || reprobeProgress)!.failed}</div>
+                      <div className="text-xs text-muted-foreground">失败</div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -924,41 +956,6 @@ export default function VideoManagementPage() {
                     <span className="truncate">{item.title}</span>
                   </button>
                 ))}
-              </div>
-            </div>
-          )}
-
-          {(pollProgress || reprobeProgress) && reprobing && (
-            <div className="space-y-3 mb-4">
-              <div className="flex items-center gap-2 text-sm">
-                <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                <span>正在探测：{(pollProgress || reprobeProgress)?.currentMediaTitle || '准备中...'}</span>
-              </div>
-              
-              <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-muted-foreground transition-all duration-300"
-                  style={{ width: `${(pollProgress || reprobeProgress)!.total > 0 ? ((pollProgress || reprobeProgress)!.processed / (pollProgress || reprobeProgress)!.total) * 100 : 0}%` }}
-                />
-              </div>
-
-              <div className="grid grid-cols-4 gap-4 text-center">
-                <div className="p-2 rounded bg-secondary">
-                  <div className="text-lg font-bold">{(pollProgress || reprobeProgress)!.processed}</div>
-                  <div className="text-xs text-muted-foreground">已处理</div>
-                </div>
-                <div className="p-2 rounded bg-secondary">
-                  <div className="text-lg font-bold text-success">{(pollProgress || reprobeProgress)!.shortDrama}</div>
-                  <div className="text-xs text-muted-foreground">短剧</div>
-                </div>
-                <div className="p-2 rounded bg-secondary">
-                  <div className="text-lg font-bold text-text-secondary">{(pollProgress || reprobeProgress)!.longDrama}</div>
-                  <div className="text-xs text-muted-foreground">长剧</div>
-                </div>
-                <div className="p-2 rounded bg-secondary">
-                  <div className="text-lg font-bold text-destructive">{(pollProgress || reprobeProgress)!.failed}</div>
-                  <div className="text-xs text-muted-foreground">失败</div>
-                </div>
               </div>
             </div>
           )}
@@ -1018,7 +1015,7 @@ export default function VideoManagementPage() {
             className="w-full"
           >
             <Radar className={`size-4 mr-2 ${reprobing ? 'animate-spin' : ''}`} />
-            {runningReprobeTask ? '任务运行中...' : reprobing ? '启动中...' : `开始批量重新探测 (${reprobeMediaList.length})`}
+            {reprobing ? '启动中...' : `开始批量重新探测 (${reprobeMediaList.length})`}
           </Button>
         </Card>
       </div>

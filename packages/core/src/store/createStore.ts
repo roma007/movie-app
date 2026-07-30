@@ -135,6 +135,7 @@ hasShortDrama: (type?: string) => Promise<boolean>;
   collectionLogs: CollectionLog[];
   addCollectionLog: (log: CollectionLog) => void;
   clearCollectionLogs: () => void;
+  loadPersistedCollectionLogs: (filter?: { taskId?: string; sourceCode?: string; limit?: number }) => Promise<void>;
 
   previewResults: CollectPreviewItem[];
   previewLoading: boolean;
@@ -863,6 +864,14 @@ export function createAppStore(db: DatabaseProvider) {
       }));
     },
     clearCollectionLogs: () => set({ collectionLogs: [] }),
+    loadPersistedCollectionLogs: async (filter?: { taskId?: string; sourceCode?: string; limit?: number }) => {
+      try {
+        const logs = await db.getCollectionLogs(filter);
+        set({ collectionLogs: logs });
+      } catch (err: any) {
+        console.error('[Store] 加载采集日志失败:', err);
+      }
+    },
 
     searchKeywordPreview: async (keyword: string, overrides?) => {
       set({ previewLoading: true, previewResults: [] });

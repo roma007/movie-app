@@ -271,7 +271,7 @@ export default function CollectConfigScreen({ navigation }: Props) {
             </View>
           </View>
           <View style={styles.fieldRow}>
-            <View style={styles.fieldColLeft}>
+            <View style={styles.fieldCol}>
               <Text style={styles.fieldLabel}>每页大小</Text>
               <Input
                 size="sm"

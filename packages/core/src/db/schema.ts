@@ -165,6 +165,20 @@ export const SCHEMA_SQL = `
     updated_at TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS collection_log (
+    id TEXT PRIMARY KEY,
+    timestamp TEXT NOT NULL,
+    level TEXT NOT NULL,
+    message TEXT NOT NULL,
+    task_id TEXT,
+    source_code TEXT,
+    source_name TEXT,
+    details TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_collection_log_ts ON collection_log(timestamp);
+  CREATE INDEX IF NOT EXISTS idx_collection_log_task ON collection_log(task_id);
+
   CREATE INDEX IF NOT EXISTS idx_episode_media_id ON episode(media_id);
   CREATE INDEX IF NOT EXISTS idx_episode_source_id ON episode(source_id);
   CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source(episode_id);

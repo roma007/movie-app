@@ -37,6 +37,7 @@ import { getHttpClient, SourceImportService, AI_SOURCE_PROMPT, AI_SOURCE_IMPORT_
 import type { VideoSource, CollectTask, CollectPreviewItem, ImportSourceItem, ParsedImportSource } from '@movie-app/core';
 import { useBackgroundStore } from '../themes/backgroundStore';
 
+
 export default function SourceManagerPage() {
   const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
   useEffect(() => { clearBgImage(); }, [clearBgImage]);
@@ -244,14 +245,14 @@ export default function SourceManagerPage() {
           toast(`采集失败: ${result.error || '未知错误'}`, 'error');
           return;
         }
-        toast(`采集任务已创建: ${result.taskId}, 新增 ${result.collected} 条`);
+        toast(`采集任务已完成: ${result.taskId}, 新增 ${result.collected} 条`);
       } else {
         result = await collectSourceAll(source.code);
         if (!result.success) {
           toast(`采集失败: ${result.error || '未知错误'}`, 'error');
           return;
         }
-        toast(`采集任务已创建: ${result.taskId}, 新增 ${result.collected} 条, ${result.pages} 页`);
+        toast(`采集任务已完成: ${result.taskId}, 新增 ${result.collected} 条, ${result.pages} 页`);
       }
       await loadVideoSources();
       await loadRunningCollectTasks();
@@ -464,70 +465,74 @@ export default function SourceManagerPage() {
             <h1 className="text-2xl font-bold">视频源管理</h1>
             <p className="text-sm text-muted-foreground mt-1">管理视频源配置和采集任务</p>
           </div>
-          <div className="flex items-center gap-3 flex-wrap shrink-0">
-            <Button
-              variant="outline"
-              onClick={() => setShowKeywordDialog(true)}
-            >
-              <Search className="size-4 mr-2" />
-              搜索采集
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => navigate('/tasks')}
-            >
-              <ClipboardList className="size-4 mr-2" />
-              采集任务列表
-            </Button>
-            <Button
-              variant="default"
-              onClick={() => {
-                setShowAiImportDialog(true);
-                handleAiReset();
-              }}
-            >
-              <Plus className="size-4 mr-2" />
-              AI 导入
-            </Button>
-            <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-              <DialogContent className="w-full max-w-[45vw]">
-                <DialogHeader>
-                  <DialogTitle>添加视频源</DialogTitle>
-                  <DialogDescription>输入视频源的信息</DialogDescription>
-                </DialogHeader>
-                <div className="space-y-3 py-2">
-                  <div className="space-y-1.5">
-                    <Label>编码（唯一标识）</Label>
-                    <Input value={addForm.code} onChange={(e) => setAddForm({ ...addForm, code: e.target.value })} placeholder="如 hcwv" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>名称</Label>
-                    <Input value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} placeholder="如 红尘视频" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>API 地址</Label>
-                    <Input value={addForm.baseUrl} onChange={(e) => setAddForm({ ...addForm, baseUrl: e.target.value })} placeholder="https://example.com/api.php/provide/vod" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label>速率限制（1-10）</Label>
-                      <Input type="number" value={addForm.rateLimit} onChange={(e) => setAddForm({ ...addForm, rateLimit: e.target.value })} />
-                    </div>
-                  </div>
-                </div>
-                <div className="flex justify-end gap-3 mt-4">
-                  <Button variant="outline" onClick={() => setShowAddDialog(false)}>取消</Button>
-                  <Button onClick={handleAdd}>添加</Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-            <Button onClick={() => setShowAddDialog(true)}>
-              <Plus className="size-4 mr-2" />
-              添加视频源
-            </Button>
-          </div>
+        </div>
+        <div className="grid grid-cols-4 gap-3 mt-4">
+          <Button
+            variant="default"
+            onClick={() => setShowKeywordDialog(true)}
+          >
+            <Search className="size-4 mr-2" />
+            搜索采集
+          </Button>
+          <Button
+            variant="default"
+            onClick={() => navigate('/tasks')}
+          >
+            <ClipboardList className="size-4 mr-2" />
+            采集任务列表
+          </Button>
+          <Button
+            variant="default"
+            onClick={() => {
+              setShowAiImportDialog(true);
+              handleAiReset();
+            }}
+          >
+            <Plus className="size-4 mr-2" />
+            AI 导入
+          </Button>
+          <Button
+            variant="default"
+            onClick={() => setShowAddDialog(true)}
+          >
+            <Plus className="size-4 mr-2" />
+            添加视频源
+          </Button>
         </div>
       </div>
+
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent className="w-full max-w-[45vw]">
+          <DialogHeader>
+            <DialogTitle>添加视频源</DialogTitle>
+            <DialogDescription>输入视频源的信息</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label>编码（唯一标识）</Label>
+              <Input value={addForm.code} onChange={(e) => setAddForm({ ...addForm, code: e.target.value })} placeholder="如 hcwv" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>名称</Label>
+              <Input value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} placeholder="如 红尘视频" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>API 地址</Label>
+              <Input value={addForm.baseUrl} onChange={(e) => setAddForm({ ...addForm, baseUrl: e.target.value })} placeholder="https://example.com/api.php/provide/vod" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>速率限制（1-10）</Label>
+                <Input type="number" value={addForm.rateLimit} onChange={(e) => setAddForm({ ...addForm, rateLimit: e.target.value })} />
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-3 mt-4">
+            <Button variant="outline" onClick={() => setShowAddDialog(false)}>取消</Button>
+            <Button onClick={handleAdd}>添加</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <div className="mt-5">
         {isLoading ? (
@@ -566,7 +571,6 @@ export default function SourceManagerPage() {
                       </button>
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{source.name}</span>
-                        <Badge variant="outline" className="text-xs">{source.code}</Badge>
                         {source.isEnabled && (
                           <Badge className="text-xs" style={{ backgroundColor: '#22c55e', color: 'white' }}>源</Badge>
                         )}
@@ -577,39 +581,6 @@ export default function SourceManagerPage() {
                     </div>
 
                     <div className="flex items-center gap-6">
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 w-8 p-0 text-xl font-bold"
-                          disabled={(source.rateLimit || 0) <= 1}
-                          onClick={() => updateSourceRateLimit(source.id, Math.max(1, (source.rateLimit || 5) - 1))}
-                        >
-                          -
-                        </Button>
-                        {[2, 4, 6, 8, 10].map((threshold) => (
-                          <div
-                            key={threshold}
-                            className="w-2 h-2 rounded-full"
-                            style={{ backgroundColor: (source.rateLimit || 0) >= threshold ? '#22c55e' : '#4b5563' }}
-                          />
-                        ))}
-                        <span className="text-xs text-muted-foreground ml-1">{source.rateLimit || 0}</span>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 w-8 p-0 text-xl font-bold"
-                          disabled={(source.rateLimit || 0) >= 10}
-                          onClick={() => updateSourceRateLimit(source.id, Math.min(10, (source.rateLimit || 5) + 1))}
-                        >
-                          +
-                        </Button>
-                      </div>
-
-                      <Badge variant="outline" className="text-xs" style={{ color: health.color }}>
-                        {health.label}
-                      </Badge>
-
                       <Badge className="text-xs" style={{ backgroundColor: '#8b5cf6', color: 'white' }}>
                         视频: {source.mediaCount || 0}
                       </Badge>
@@ -621,6 +592,41 @@ export default function SourceManagerPage() {
                         上次采集: {source.lastCollectedAt ? new Date(source.lastCollectedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '从未'}
                       </span>
                     </div>
+                  </div>
+
+                  <div className="px-4 py-2 flex items-center justify-end gap-6">
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-lg font-bold"
+                        disabled={(source.rateLimit || 0) <= 1}
+                        onClick={() => updateSourceRateLimit(source.id, Math.max(1, (source.rateLimit || 5) - 1))}
+                      >
+                        -
+                      </Button>
+                      {[2, 4, 6, 8, 10].map((threshold) => (
+                        <div
+                          key={threshold}
+                          className="w-2 h-2 rounded-full"
+                          style={{ backgroundColor: (source.rateLimit || 0) >= threshold ? '#22c55e' : '#4b5563' }}
+                        />
+                      ))}
+                      <span className="text-xs text-muted-foreground ml-1">{source.rateLimit || 0}</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-lg font-bold"
+                        disabled={(source.rateLimit || 0) >= 10}
+                        onClick={() => updateSourceRateLimit(source.id, Math.min(10, (source.rateLimit || 5) + 1))}
+                      >
+                        +
+                      </Button>
+                    </div>
+
+                    <Badge variant="outline" className="text-xs" style={{ color: health.color }}>
+                      {health.label}
+                    </Badge>
                   </div>
 
                   <div className="px-4 pb-3 flex items-center justify-end gap-2 flex-wrap">
@@ -723,21 +729,20 @@ export default function SourceManagerPage() {
                     </div>
                   )}
 
-                  {/* 显示该视频源的最近失败错误 */}
+                  {/* 显示该视频源最新任务的错误（仅当最新任务自身失败时） */}
                   {!collecting && (() => {
-                    const sourceTasks = collectTasks.filter(
-                      (t: CollectTask) => t.sourceCode === source.code && t.status === 'FAILED'
-                    );
-                    const failedTask = sourceTasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-                    if (!failedTask?.errorMessage) return null;
+                    const latestTask = collectTasks
+                      .filter((t: CollectTask) => t.sourceCode === source.code)
+                      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+                    if (!latestTask || latestTask.status !== 'FAILED' || !latestTask.errorMessage) return null;
                     return (
                       <div className="px-4 pb-3 pt-0">
                         <div className="pt-3 text-xs text-red-500 bg-red-500/5 rounded p-2">
                           <div className="font-medium mb-1">最近错误:</div>
-                          <div className="break-all">{failedTask.errorMessage}</div>
-                          {failedTask.errorType && (
+                          <div className="break-all">{latestTask.errorMessage}</div>
+                          {latestTask.errorType && (
                             <Badge variant="destructive" className="text-[10px] mt-1">
-                              {failedTask.errorType}
+                              {latestTask.errorType}
                             </Badge>
                           )}
                         </div>

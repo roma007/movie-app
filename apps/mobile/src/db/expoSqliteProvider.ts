@@ -25,6 +25,7 @@ import type {
   PaginatedResponse,
   ListParams,
   CollectTask,
+  CollectionLog,
 } from '@movie-app/core';
 
 interface Migration {
@@ -1189,6 +1190,9 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async resetStaleTasks(): Promise<number> {
     const now = new Date().toISOString();
+    const staleTasks = await this.db!.getAllAsync<any>(
+      "SELECT task_id, source_code, created_at FROM collect_task WHERE status IN ('PENDING', 'RUNNING')"
+    );
     const result = await this.db!.runAsync(
       `UPDATE collect_task SET
          status = 'FAILED',
@@ -1198,7 +1202,24 @@ export class ExpoSqliteProvider implements DatabaseProvider {
        WHERE status IN ('PENDING', 'RUNNING')`,
       [now]
     );
-    return result?.changes ?? 0;
+    const affected = result?.changes ?? 0;
+    if (affected > 0) {
+      for (const task of staleTasks) {
+        await this.db!.runAsync(
+          'INSERT INTO collection_log (id, timestamp, level, message, task_id, source_code, details) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [
+            `log_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+            now,
+            'warn',
+            `重置残留任务: task=${task.task_id}, source=${task.source_code}, created_at=${task.created_at}`,
+            task.task_id,
+            task.source_code,
+            JSON.stringify({ action: 'resetStaleTasks', taskId: task.task_id, sourceCode: task.source_code, createdAt: task.created_at, resetAt: now }),
+          ]
+        );
+      }
+    }
+    return affected;
   }
 
   async cancelCollectTask(taskId: string): Promise<void> {
@@ -1274,6 +1295,48 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     );
     if (!row) return null;
     return rowToCollectTask(row);
+  }
+
+  async addCollectionLog(log: CollectionLog): Promise<void> {
+    await this.db!.runAsync(
+      'INSERT INTO collection_log (id, timestamp, level, message, task_id, source_code, source_name, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [log.id, log.timestamp, log.level, log.message, log.taskId || null, log.sourceCode || null, log.sourceName || null, log.details || null]
+    );
+  }
+
+  async getCollectionLogs(filter?: { taskId?: string; sourceCode?: string; level?: string; limit?: number; offset?: number }): Promise<CollectionLog[]> {
+    let sql = 'SELECT * FROM collection_log WHERE 1=1';
+    const params: any[] = [];
+
+    if (filter?.taskId) { sql += ' AND task_id = ?'; params.push(filter.taskId); }
+    if (filter?.sourceCode) { sql += ' AND source_code = ?'; params.push(filter.sourceCode); }
+    if (filter?.level) { sql += ' AND level = ?'; params.push(filter.level); }
+
+    sql += ' ORDER BY timestamp DESC';
+
+    if (filter?.limit) { sql += ' LIMIT ?'; params.push(filter.limit); }
+    if (filter?.offset) { sql += ' OFFSET ?'; params.push(filter.offset); }
+
+    const rows = await this.db!.getAllAsync<any>(sql, params);
+    return rows.map((row: any) => ({
+      id: row.id,
+      timestamp: row.timestamp,
+      level: row.level,
+      message: row.message,
+      taskId: row.task_id || undefined,
+      sourceCode: row.source_code || undefined,
+      sourceName: row.source_name || undefined,
+      details: row.details || undefined,
+    }));
+  }
+
+  async clearCollectionLogs(beforeDays?: number): Promise<void> {
+    if (beforeDays) {
+      const cutoff = new Date(Date.now() - beforeDays * 86400000).toISOString();
+      await this.db!.runAsync('DELETE FROM collection_log WHERE timestamp < ?', [cutoff]);
+    } else {
+      await this.db!.runAsync('DELETE FROM collection_log');
+    }
   }
 
   async select<T>(sql: string, params?: any[]): Promise<T[]> {

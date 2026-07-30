@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Image, Switch, ActivityIndicator } from 'react-native';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Image, Switch, ActivityIndicator, Animated } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAppStore, getProvider } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
@@ -542,12 +542,30 @@ export default function HomeScreen() {
   }), [colors, cardOpacity, cardBg, surfaceBg, s]);
 
   const bgImageUrl = latestMedia[0]?.posterUrl ?? null;
+  const tabsHidden = useRef(new Animated.Value(0)).current;
+  const prevScrollY = useRef(0);
+
+  const handleScroll = useCallback((event: any) => {
+    const currentY = event.nativeEvent.contentOffset.y;
+    const dy = currentY - prevScrollY.current;
+    if (dy > 30 && currentY > 40) {
+      Animated.timing(tabsHidden, { toValue: 1, duration: 150, useNativeDriver: false }).start();
+    } else if (dy < -10) {
+      Animated.timing(tabsHidden, { toValue: 0, duration: 150, useNativeDriver: false }).start();
+    }
+    prevScrollY.current = currentY;
+  }, [tabsHidden]);
 
   return (
     <BlurredBackground imageUrl={bgImageUrl}>
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <CategoryHeader activeType="首页" />
+      <CategoryHeader activeType="首页" tabsHiddenAnim={tabsHidden} />
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+      >
 
         {userUsageTypes.includes('SEARCH_FIRST') && renderSearchFirstCard()}
         {userUsageTypes.includes('NEW_MOVIES') && renderNewMoviesCard()}

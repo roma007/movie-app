@@ -188,6 +188,7 @@ export interface CollectionLog {
   taskId?: string;
   sourceCode?: string;
   sourceName?: string;
+  details?: string;
 }
 
 export interface ImportSourceItem {
