@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Dimensions, Animated } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { getProvider } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
@@ -8,8 +8,6 @@ import MediaCard from '../components/MediaCard';
 import CategoryHeader from '../components/CategoryHeader';
 import FilterDropdown from '../components/FilterDropdown';
 import BlurredBackground from '../components/BlurredBackground';
-import { Input } from '../components/ui/Input';
-import { Button } from '../components/ui/Button';
 import type { Media, PaginatedMeta } from '@movie-app/core';
 
 const PAGE_SIZE = 20;
@@ -61,12 +59,10 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
 
   const [expandedFilter, setExpandedFilter] = useState<string | null>(null);
 
-  const [searchKeyword, setSearchKeyword] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
-  const [isSearchLoading, setIsSearchLoading] = useState(false);
-
   const isLoadingRef = useRef(false);
   const flatListRef = useRef<FlatList>(null);
+  const tabsHidden = useRef(new Animated.Value(0)).current;
+  const prevScrollY = useRef(0);
 
   const loadList = useCallback(async (pageNum: number, replace: boolean) => {
     if (isLoadingRef.current) return;
@@ -145,39 +141,26 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
   }, [type, provider]);
 
   useDebounce(() => {
-    if (!isSearching) loadList(1, true);
-  }, 200, [selectedSubType, selectedYear, selectedArea, selectedEpisodeType, loadList, isSearching]);
-
-  const handleSearch = async () => {
-    const kw = searchKeyword.trim();
-    if (!kw) return;
-    setIsSearching(true);
-    setIsSearchLoading(true);
-    try {
-      const result = await provider.searchMedia(kw, { type });
-      setMediaList(result.items || []);
-      setMeta(result.meta || null);
-    } catch (err) {
-      console.error('searchMedia failed:', err);
-    } finally {
-      setIsSearchLoading(false);
-    }
-  };
-
-  const handleClearSearch = () => {
-    setSearchKeyword('');
-    setIsSearching(false);
-    setIsSearchLoading(false);
     loadList(1, true);
-  };
+  }, 200, [selectedSubType, selectedYear, selectedArea, selectedEpisodeType, loadList]);
+
+  const handleScroll = useCallback((event: any) => {
+    const currentY = event.nativeEvent.contentOffset.y;
+    const dy = currentY - prevScrollY.current;
+    if (dy > 30 && currentY > 40) {
+      Animated.timing(tabsHidden, { toValue: 1, duration: 150, useNativeDriver: false }).start();
+    } else if (dy < -10) {
+      Animated.timing(tabsHidden, { toValue: 0, duration: 150, useNativeDriver: false }).start();
+    }
+    prevScrollY.current = currentY;
+  }, [tabsHidden]);
 
   const handleEndReached = () => {
-    if (isSearching || isLoadingRef.current || !meta || page >= meta.totalPages) return;
+    if (isLoadingRef.current || !meta || page >= meta.totalPages) return;
     loadList(page + 1, false);
   };
 
   const handleRefresh = () => {
-    if (isSearching) return;
     setIsRefreshing(true);
     loadList(1, true).finally(() => setIsRefreshing(false));
   };
@@ -207,10 +190,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
 
   const renderHeader = () => (
     <View>
-      {isSearching && !isSearchLoading && (
-        <Text style={styles.count}>搜索结果："{searchKeyword}"（{mediaList.length}部）</Text>
-      )}
-      {!isSearching && meta && !isLoading && mediaList.length > 0 && (
+      {meta && !isLoading && mediaList.length > 0 && (
         <Text style={styles.count}>共 {meta.total} 部</Text>
       )}
     </View>
@@ -227,10 +207,10 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
   };
 
   const renderEmpty = () => {
-    if (isLoading || isSearchLoading) return null;
+    if (isLoading) return null;
     return (
       <View style={styles.emptyContainer}>
-        <Text style={styles.emptyText}>{isSearching ? '未找到相关内容' : '暂无数据'}</Text>
+        <Text style={styles.emptyText}>暂无数据</Text>
       </View>
     );
   };
@@ -260,13 +240,6 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
       gap: 8,
       paddingHorizontal: 15,
       marginTop: 12,
-    },
-    searchBar: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingHorizontal: 15,
-      marginTop: 12,
-      gap: 8,
     },
     count: {
       fontSize: s(13),
@@ -313,23 +286,9 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
         />
       )}
       <View style={styles.fixedHeader}>
-        <CategoryHeader activeType={typeNames[type] || type} />
+        <CategoryHeader activeType={typeNames[type] || type} tabsHiddenAnim={tabsHidden} />
 
-        <View style={styles.searchBar}>
-          <Input
-            style={{ flex: 1, height: 40 }}
-            placeholder={`搜索${typeNames[type] || ''}...`}
-            value={searchKeyword}
-            onChangeText={setSearchKeyword}
-            onSubmitEditing={handleSearch}
-            returnKeyType="search"
-          />
-          <Button variant="primary" size="sm" onPress={handleSearch}>
-            搜索
-          </Button>
-        </View>
-
-        {!isSearching && hasAnyFilter && (
+        {hasAnyFilter && (
           <View style={styles.filterBar}>
             {subTypes.length > 0 && (
               <FilterDropdown
@@ -391,6 +350,8 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
         ListHeaderComponent={renderHeader}
         ListFooterComponent={renderFooter}
         ListEmptyComponent={renderEmpty}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         onEndReached={handleEndReached}
         onEndReachedThreshold={0.3}
         refreshing={isRefreshing}

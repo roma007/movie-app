@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { Text, StyleSheet, View, ActivityIndicator, useColorScheme, Appearance } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -11,7 +10,6 @@ import { useThemeStore } from './src/themes/store';
 import { useThemeColors } from './src/themes/useThemeColors';
 import HomeScreen from './src/pages/HomeScreen';
 import SearchScreen from './src/pages/SearchScreen';
-import SettingsScreen from './src/pages/SettingsScreen';
 import DetailScreen from './src/pages/DetailScreen';
 import PlayScreen from './src/pages/PlayScreen';
 import SourceManagerScreen from './src/pages/SourceManagerScreen';
@@ -29,54 +27,9 @@ import TVScreen from './src/pages/TVScreen';
 import VarietyScreen from './src/pages/VarietyScreen';
 import AnimeScreen from './src/pages/AnimeScreen';
 import DocumentaryScreen from './src/pages/DocumentaryScreen';
+import Sidebar from './src/components/Sidebar';
 
 const Stack = createNativeStackNavigator();
-const Tab = createBottomTabNavigator();
-
-function TabNavigator() {
-  const colors = useThemeColors();
-  return (
-    <Tab.Navigator
-      screenOptions={{
-        headerShown: false,
-        tabBarStyle: {
-          backgroundColor: colors.background,
-          borderTopColor: colors.border,
-        },
-        tabBarActiveTintColor: colors.mutedForeground,
-        tabBarInactiveTintColor: colors.disabledForeground,
-      }}
-    >
-      <Tab.Screen
-        name="首页"
-        component={HomeScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <Text style={[styles.tabIcon, focused && styles.tabIconActive]}>🏠</Text>
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="搜索"
-        component={SearchScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <Text style={[styles.tabIcon, focused && styles.tabIconActive]}>🔍</Text>
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="设置"
-        component={SettingsScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <Text style={[styles.tabIcon, focused && styles.tabIconActive]}>⚙️</Text>
-          ),
-        }}
-      />
-    </Tab.Navigator>
-  );
-}
 
 function RootNavigator() {
   const colors = useThemeColors();
@@ -91,7 +44,8 @@ function RootNavigator() {
           animation: 'none',
         }}
       >
-        <Stack.Screen name="Tabs" component={TabNavigator} />
+        <Stack.Screen name="Home" component={HomeScreen} />
+        <Stack.Screen name="Search" component={SearchScreen} options={{ animation: 'default' }} />
         <Stack.Screen name="Movie" component={MovieScreen} />
         <Stack.Screen name="TV" component={TVScreen} />
         <Stack.Screen name="Variety" component={VarietyScreen} />
@@ -110,6 +64,7 @@ function RootNavigator() {
         <Stack.Screen name="VideoManagement" component={VideoManagementScreen} />
         <Stack.Screen name="TestCollect" component={TestCollectScreen} />
       </Stack.Navigator>
+      <Sidebar />
     </>
   );
 }
@@ -179,12 +134,5 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 12,
     fontSize: 14,
-  },
-  tabIcon: {
-    fontSize: 20,
-    opacity: 0.6,
-  },
-  tabIconActive: {
-    opacity: 1,
   },
 });

@@ -62,8 +62,8 @@ export default function CollectGuideScreen({ navigation }: Props) {
     featureText: { fontSize: s(13), color: colors.text, marginBottom: 8 },
     codeBox: { backgroundColor: surfaceElevatedBg, borderRadius: radius.sm, padding: 10, marginBottom: 8 },
     codeText: { fontFamily: 'monospace', fontSize: s(12), color: colors.mutedForeground },
-    sectionTitle: { fontSize: s(18), fontWeight: 'bold', color: colors.text, marginTop: 8, marginBottom: 4 },
-    stepsCard: { backgroundColor: cardBg, borderRadius: radius.lg, padding: 16, gap: 12 },
+    groupCard: { backgroundColor: cardBg, borderRadius: radius.lg, padding: 16 },
+    groupTitle: { fontSize: s(16), fontWeight: '600', color: colors.text, marginBottom: 12 },
     stepRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     stepBadge: { width: 24, height: 24, borderRadius: radius.full, backgroundColor: colors.mutedForeground, justifyContent: 'center', alignItems: 'center' },
     stepBadgeText: { color: colors.text, fontSize: s(13), fontWeight: 'bold' },
@@ -90,22 +90,24 @@ export default function CollectGuideScreen({ navigation }: Props) {
           </Text>
         </View>
 
-        <Text style={styles.sectionTitle}>支持的 CMS 类型</Text>
-        {CMS_GUIDES.map((cms, i) => (
-          <View key={i} style={styles.card}>
-            <Text style={styles.cardTitle}>{cms.name}</Text>
-            <Text style={styles.featureText}>{cms.features}</Text>
-            <View style={styles.codeBox}>
-              <Text style={styles.codeText}>{cms.apiFormat}</Text>
+        <View style={styles.groupCard}>
+          <Text style={styles.groupTitle}>支持的 CMS 类型</Text>
+          {CMS_GUIDES.map((cms, i) => (
+            <View key={i} style={[styles.card, i > 0 && { marginTop: 12 }]}>
+              <Text style={styles.cardTitle}>{cms.name}</Text>
+              <Text style={styles.featureText}>{cms.features}</Text>
+              <View style={styles.codeBox}>
+                <Text style={styles.codeText}>{cms.apiFormat}</Text>
+              </View>
+              <Text style={styles.text}>{cms.config}</Text>
             </View>
-            <Text style={styles.text}>{cms.config}</Text>
-          </View>
-        ))}
+          ))}
+        </View>
 
-        <Text style={styles.sectionTitle}>通用配置步骤</Text>
-        <View style={styles.stepsCard}>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>通用配置步骤</Text>
           {STEPS.map((step, i) => (
-            <View key={i} style={styles.stepRow}>
+            <View key={i} style={[styles.stepRow, i > 0 && { marginTop: 12 }]}>
               <View style={styles.stepBadge}>
                 <Text style={styles.stepBadgeText}>{i + 1}</Text>
               </View>

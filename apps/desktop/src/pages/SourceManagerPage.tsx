@@ -15,8 +15,6 @@ import {
   ChevronRight,
   Plus,
   ClipboardList,
-  ScrollText,
-  Trash,
   Search,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -32,7 +30,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAppStore } from '../useAppStore';
 import { useConfirm } from '@/components/ConfirmProvider';
 import { useToast } from '@/components/Layout';
@@ -50,8 +47,6 @@ export default function SourceManagerPage() {
   const {
     videoSources,
     collectTasks,
-    collectionLogs,
-    clearCollectionLogs,
     loadVideoSources,
     loadRunningCollectTasks,
     collectSourceLatest,
@@ -80,7 +75,6 @@ export default function SourceManagerPage() {
   const [addForm, setAddForm] = useState({ code: '', name: '', baseUrl: '', rateLimit: '5' });
 
   const [isLoading, setIsLoading] = useState(true);
-  const [showLogPanel, setShowLogPanel] = useState(false);
   const [showKeywordDialog, setShowKeywordDialog] = useState(false);
   const [keywordInput, setKeywordInput] = useState('');
   const [selectedPreviewIds, setSelectedPreviewIds] = useState<Set<string>>(new Set());
@@ -144,13 +138,6 @@ export default function SourceManagerPage() {
     if (!task) return 0;
     if (task.totalPages === 0) return 0;
     return Math.round((task.currentPage / task.totalPages) * 100);
-  };
-
-  const getRecentErrorForSource = (sourceCode: string) => {
-    const errorLogs = collectionLogs.filter(
-      log => log.sourceCode === sourceCode && log.level === 'error'
-    );
-    return errorLogs.length > 0 ? errorLogs[errorLogs.length - 1] : null;
   };
 
   const handleCheck = async (source: VideoSource) => {
@@ -736,24 +723,19 @@ export default function SourceManagerPage() {
                     </div>
                   )}
 
-                  {/* 显示该视频源的最近错误 */}
+                  {/* 显示该视频源的最近失败错误 */}
                   {!collecting && (() => {
-                    const recentError = getRecentErrorForSource(source.code);
                     const sourceTasks = collectTasks.filter(
-                      (t: CollectTask) => t.sourceCode === source.code && (t.status === 'FAILED' || t.status === 'COMPLETED')
+                      (t: CollectTask) => t.sourceCode === source.code && t.status === 'FAILED'
                     );
-                    const latestTask = sourceTasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-                    const failedTask = latestTask?.status === 'FAILED' ? latestTask : null;
-                    if (latestTask?.status === 'COMPLETED') return null;
-                    if (!recentError && !failedTask) return null;
-                    const errorMsg = recentError?.message || failedTask?.errorMessage || '';
-                    if (!errorMsg) return null;
+                    const failedTask = sourceTasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+                    if (!failedTask?.errorMessage) return null;
                     return (
                       <div className="px-4 pb-3 pt-0">
                         <div className="pt-3 text-xs text-red-500 bg-red-500/5 rounded p-2">
                           <div className="font-medium mb-1">最近错误:</div>
-                          <div className="break-all">{errorMsg}</div>
-                          {failedTask?.errorType && (
+                          <div className="break-all">{failedTask.errorMessage}</div>
+                          {failedTask.errorType && (
                             <Badge variant="destructive" className="text-[10px] mt-1">
                               {failedTask.errorType}
                             </Badge>
@@ -1081,91 +1063,6 @@ export default function SourceManagerPage() {
         </DialogContent>
       </Dialog>
 
-      {/* 实时日志面板 */}
-      <div className="relative">
-        <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
-        <div
-          className="flex items-center justify-between w-full px-6 py-3 hover:bg-secondary/50 transition-colors cursor-pointer relative"
-          onClick={() => setShowLogPanel(!showLogPanel)}
-          role="button"
-          tabIndex={0}
-        >
-          <div className="flex items-center gap-2">
-            <ScrollText className="size-4 text-muted-foreground" />
-            <span className="font-medium text-sm">采集日志</span>
-            {collectionLogs.length > 0 && (
-              <Badge variant="secondary" className="text-xs">
-                {collectionLogs.filter(l => l.level === 'error').length} 个错误
-              </Badge>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {collectionLogs.length > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-xs"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  clearCollectionLogs();
-                }}
-              >
-                <Trash className="size-3 mr-1" /> 清空
-              </Button>
-            )}
-            {showLogPanel ? (
-              <ChevronDown className="size-4 text-muted-foreground" />
-            ) : (
-              <ChevronUp className="size-4 text-muted-foreground" />
-            )}
-          </div>
-        </div>
-        
-        {showLogPanel && (
-          <div className="px-6 pb-4">
-            <ScrollArea className="h-[200px]">
-              {collectionLogs.length === 0 ? (
-                <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                  暂无日志，开始采集后将显示实时日志
-                </div>
-              ) : (
-                <div className="space-y-1 font-mono text-xs">
-                  {[...collectionLogs].reverse().map((log) => (
-                    <div
-                      key={log.id}
-                      className={`p-2 rounded ${
-                        log.level === 'error' 
-                          ? 'bg-red-500/10 text-red-500' 
-                          : log.level === 'warn'
-                          ? 'bg-yellow-500/10 text-yellow-500'
-                          : 'bg-muted/50'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground">
-                          {new Date(log.timestamp).toLocaleTimeString()}
-                        </span>
-                        {log.sourceName && (
-                          <Badge variant="outline" className="text-[10px]">
-                            {log.sourceName}
-                          </Badge>
-                        )}
-                        <Badge 
-                          variant={log.level === 'error' ? 'destructive' : 'secondary'} 
-                          className="text-[10px]"
-                        >
-                          {log.level}
-                        </Badge>
-                      </div>
-                      <div className="mt-1 break-all">{log.message}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </ScrollArea>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

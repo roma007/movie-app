@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
-import { ArrowLeft } from 'lucide-react-native';
+import { ArrowLeft, RefreshCw, Trash2 } from 'lucide-react-native';
 import { useAppStore } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
@@ -37,15 +37,15 @@ export default function TaskListScreen({ navigation }: Props) {
   function getStatusStyle(status: string) {
     switch (status) {
       case 'PENDING':
-        return { label: '等待中', color: colors.mutedForeground, bg: hexToRgba(colors.mutedForeground, 0.15) };
+        return { label: '等待中', color: colors.mutedForeground };
       case 'RUNNING':
-        return { label: '运行中', color: colors.text, bg: hexToRgba(colors.mutedForeground, 0.15) };
+        return { label: '运行中', color: colors.text };
       case 'COMPLETED':
-        return { label: '已完成', color: colors.success, bg: 'rgba(34,197,94,0.1)' };
+        return { label: '已完成', color: colors.success };
       case 'FAILED':
-        return { label: '失败', color: colors.error, bg: 'rgba(239,68,68,0.1)' };
+        return { label: '失败', color: colors.error };
       default:
-        return { label: status, color: colors.mutedForeground, bg: hexToRgba(colors.mutedForeground, 0.15) };
+        return { label: status, color: colors.mutedForeground };
     }
   }
 
@@ -80,11 +80,11 @@ export default function TaskListScreen({ navigation }: Props) {
     }
   };
 
-  const handleClearOld = () => {
-    Alert.alert('清理旧任务', '确定要删除7天前的任务记录吗？', [
+  const handleClearAll = () => {
+    Alert.alert('清理所有任务', '确定要删除所有任务记录吗？', [
       { text: '取消', style: 'cancel' },
       { text: '确定', style: 'destructive', onPress: async () => {
-        await deleteOldTasks(7);
+        await deleteOldTasks(999999);
         await loadCollectTasks();
       }},
     ]);
@@ -95,31 +95,27 @@ export default function TaskListScreen({ navigation }: Props) {
     header: { paddingTop: 50, paddingHorizontal: 15, paddingBottom: 15, backgroundColor: colors.surfaceElevated },
     headerRow: { flexDirection: 'row', alignItems: 'center' },
     title: { flex: 1, fontSize: s(18), fontWeight: 'bold', color: colors.text, textAlign: 'center' },
-    placeholder: { width: 40 },
+    headerActions: { flexDirection: 'row', gap: 8 },
     statsRow: { flexDirection: 'row', paddingHorizontal: 15, gap: 10, marginBottom: 10, marginTop: 15 },
     statCard: { flex: 1, backgroundColor: cardBg, borderRadius: radius.md, padding: 14 },
     statNumber: { fontSize: s(24), fontWeight: 'bold' },
     statLabel: { fontSize: s(12), color: colors.mutedForeground, marginTop: 4 },
-    listActions: { flexDirection: 'row', gap: 10, paddingHorizontal: 15, marginBottom: 15 },
     empty: { color: colors.mutedForeground, textAlign: 'center', marginTop: 60, fontSize: s(16) },
     taskList: { paddingHorizontal: 15, gap: 10, paddingBottom: 30 },
     taskCard: { backgroundColor: cardBg, borderRadius: radius.lg, padding: 15 },
-    taskHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-    taskInfo: { flex: 1 },
-    taskSource: { fontSize: s(16), fontWeight: '600', color: colors.text, marginBottom: 2 },
+    taskHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+    taskSource: { fontSize: s(16), fontWeight: '600', color: colors.text },
     taskType: { fontSize: s(12), color: colors.mutedForeground },
-    statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.sm },
+    statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.sm, borderWidth: StyleSheet.hairlineWidth },
     statusText: { fontSize: s(12), fontWeight: '500' },
     taskProgress: { marginBottom: 10 },
     progressBar: { height: 4, backgroundColor: colors.trackBg, borderRadius: radius.progress, overflow: 'hidden', marginBottom: 4 },
     progressFill: { height: '100%', backgroundColor: colors.mutedForeground, borderRadius: radius.progress },
     progressText: { fontSize: s(11), color: colors.disabledForeground, textAlign: 'right' },
-    taskMeta: { flexDirection: 'row', gap: 12, marginBottom: 4 },
+    taskMeta: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     taskStat: { fontSize: s(12), color: colors.mutedForeground },
     taskDate: { fontSize: s(11), color: colors.disabledForeground, marginLeft: 'auto' },
-    taskError: { fontSize: s(12), color: colors.error, marginBottom: 8, backgroundColor: 'rgba(239,68,68,0.05)', padding: 8, borderRadius: radius.sm },
-    errorTypeBadge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.sm, marginBottom: 4 },
-    errorTypeText: { fontSize: s(11), fontWeight: '500' },
+    taskRight: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 'auto' },
   }), [colors, cardBg, surfaceBg, s]);
 
   return (
@@ -131,7 +127,14 @@ export default function TaskListScreen({ navigation }: Props) {
             <ArrowLeft size={20} color={colors.text} />
           </Button>
           <Text style={styles.title}>任务列表</Text>
-          <View style={styles.placeholder} />
+          <View style={styles.headerActions}>
+            <Button variant="secondary" size="sm" onPress={handleClearAll}>
+              <Trash2 size={16} color={colors.text} />
+            </Button>
+            <Button variant="primary" size="sm" onPress={() => { setIsLoading(true); loadCollectTasks().finally(() => setIsLoading(false)); }}>
+              <RefreshCw size={16} color={colors.text} />
+            </Button>
+          </View>
         </View>
       </View>
 
@@ -150,15 +153,6 @@ export default function TaskListScreen({ navigation }: Props) {
         </View>
       </View>
 
-      <View style={styles.listActions}>
-        <Button variant="secondary" size="sm" onPress={() => { setIsLoading(true); loadCollectTasks().finally(() => setIsLoading(false)); }}>
-          刷新
-        </Button>
-        <Button variant="secondary" size="sm" onPress={handleClearOld}>
-          清理7天前
-        </Button>
-      </View>
-
       {isLoading ? (
         <ActivityIndicator size="large" color={colors.mutedForeground} style={{ marginTop: 40 }} />
       ) : collectTasks.length === 0 ? (
@@ -171,14 +165,9 @@ export default function TaskListScreen({ navigation }: Props) {
             return (
               <View key={task.taskId || task.id} style={styles.taskCard}>
                 <View style={styles.taskHeader}>
-                  <View style={styles.taskInfo}>
-                    <Text style={styles.taskSource}>{task.sourceName || task.sourceCode}</Text>
-                    <Text style={styles.taskType}>{getTypeLabel(task.type)}</Text>
-                  </View>
-                  <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
-                    {task.status === 'RUNNING' && <ActivityIndicator size={10} color={statusStyle.color} style={{ marginRight: 4 }} />}
-                    <Text style={[styles.statusText, { color: statusStyle.color }]}>{statusStyle.label}</Text>
-                  </View>
+                  <Text style={styles.taskSource}>{task.sourceName || task.sourceCode}</Text>
+                  <Text style={styles.taskType}>{getTypeLabel(task.type)}</Text>
+                  <Text style={styles.taskDate}>{new Date(task.createdAt).toLocaleString()}</Text>
                 </View>
 
                 {(task.status === 'RUNNING' || task.status === 'PENDING') && (
@@ -199,26 +188,16 @@ export default function TaskListScreen({ navigation }: Props) {
                       <Text style={[styles.taskStat, { color: colors.textSecondary }]}>长剧: {task.longDramaCount || 0}</Text>
                     </>
                   ) : null}
-                  <Text style={styles.taskDate}>{new Date(task.createdAt).toLocaleString()}</Text>
-                </View>
-
-                {task.errorMessage && (
-                  <View>
-                    {task.errorType && (() => {
-                      const errorTypeInfo = getErrorTypeLabel(task.errorType);
-                      return errorTypeInfo.label ? (
-                        <View style={[styles.errorTypeBadge, { backgroundColor: errorTypeInfo.color + '30' }]}>
-                          <Text style={[styles.errorTypeText, { color: errorTypeInfo.color }]}>{errorTypeInfo.label}</Text>
-                        </View>
-                      ) : null;
-                    })()}
-                    <Text style={styles.taskError} numberOfLines={2}>{task.errorMessage}</Text>
+                  <View style={styles.taskRight}>
+                    <View style={[styles.statusBadge, { borderColor: statusStyle.color }]}>
+                      {task.status === 'RUNNING' && <ActivityIndicator size={10} color={statusStyle.color} style={{ marginRight: 4 }} />}
+                      <Text style={[styles.statusText, { color: statusStyle.color }]}>{statusStyle.label}</Text>
+                    </View>
+                    <Button variant="secondary" size="sm" onPress={() => handleDelete(task)}>
+                      删除
+                    </Button>
                   </View>
-                )}
-
-                <Button variant="destructive" size="sm" onPress={() => handleDelete(task)}>
-                  删除
-                </Button>
+                </View>
               </View>
             );
           })}

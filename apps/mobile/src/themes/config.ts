@@ -36,7 +36,6 @@ export const themes: Record<ThemeId, ThemeConfig> = {
       buttonSecondaryBg: '#a0a0a0',
       buttonSecondaryText: '#ffffff',
       buttonDestructiveBg: 'rgba(239, 68, 68, 0.15)',
-      buttonDestructiveText: '#ef4444',
     },
   },
   light: {
@@ -74,7 +73,6 @@ export const themes: Record<ThemeId, ThemeConfig> = {
       buttonSecondaryBg: '#333333',
       buttonSecondaryText: '#000000',
       buttonDestructiveBg: 'rgba(239, 68, 68, 0.1)',
-      buttonDestructiveText: '#ffffff',
     },
   },
 };

@@ -1,4 +1,4 @@
-import { useEffect, useState, KeyboardEvent } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback, KeyboardEvent } from 'react';
 import { useAppStore } from '../useAppStore';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -7,6 +7,13 @@ import { Label } from '@/components/ui/label';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, RotateCcw, X } from 'lucide-react';
 import { useBackgroundStore } from '../themes/backgroundStore';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 
 const DEFAULT_BLACKLIST: string[] = [
   '足球', '篮球', '排球', '网球', '羽毛球', '乒乓球', '橄榄球', '棒球',
@@ -24,7 +31,6 @@ export default function CollectConfigPage() {
   const { collectConfig, loadCollectConfig, updateCollectConfig } = useAppStore();
   const [localConfig, setLocalConfig] = useState({
     minYear: 2025,
-    rateLimitPerSecond: 2,
     retryTimes: 3,
     pageSize: 20,
     maxPages: 10,
@@ -35,6 +41,9 @@ export default function CollectConfigPage() {
   const [blacklist, setBlacklist] = useState<string[]>([]);
   const [keywordInput, setKeywordInput] = useState('');
   const [saved, setSaved] = useState(false);
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
+  const savedConfigRef = useRef('');
 
   useEffect(() => {
     loadCollectConfig();
@@ -42,9 +51,18 @@ export default function CollectConfigPage() {
 
   useEffect(() => {
     if (collectConfig) {
+      savedConfigRef.current = JSON.stringify({
+        minYear: collectConfig.minYear,
+        retryTimes: collectConfig.retryTimes,
+        pageSize: collectConfig.pageSize,
+        maxPages: collectConfig.maxPages,
+        incrementalMaxPages: collectConfig.incrementalMaxPages,
+        maxIncrementalHours: collectConfig.maxIncrementalHours,
+        concurrency: collectConfig.concurrency,
+        blacklistKeywords: collectConfig.blacklistKeywords,
+      });
       setLocalConfig({
         minYear: collectConfig.minYear,
-        rateLimitPerSecond: collectConfig.rateLimitPerSecond,
         retryTimes: collectConfig.retryTimes,
         pageSize: collectConfig.pageSize,
         maxPages: collectConfig.maxPages,
@@ -55,6 +73,31 @@ export default function CollectConfigPage() {
       setBlacklist([...collectConfig.blacklistKeywords]);
     }
   }, [collectConfig]);
+
+  const hasChanges = useMemo(() => {
+    if (!collectConfig || !savedConfigRef.current) return false;
+    const current = JSON.stringify({
+      minYear: localConfig.minYear,
+      retryTimes: localConfig.retryTimes,
+      pageSize: localConfig.pageSize,
+      maxPages: localConfig.maxPages,
+      incrementalMaxPages: localConfig.incrementalMaxPages,
+      maxIncrementalHours: Math.max(0, localConfig.maxIncrementalHours),
+      concurrency: localConfig.concurrency,
+      blacklistKeywords: blacklist,
+    });
+    return current !== savedConfigRef.current;
+  }, [localConfig, blacklist, collectConfig]);
+
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (hasChanges) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [hasChanges]);
 
   const addKeyword = () => {
     const kw = keywordInput.trim();
@@ -84,6 +127,16 @@ export default function CollectConfigPage() {
       maxIncrementalHours: Math.max(0, localConfig.maxIncrementalHours),
       blacklistKeywords: blacklist,
     });
+    savedConfigRef.current = JSON.stringify({
+      minYear: localConfig.minYear,
+      retryTimes: localConfig.retryTimes,
+      pageSize: localConfig.pageSize,
+      maxPages: localConfig.maxPages,
+      incrementalMaxPages: localConfig.incrementalMaxPages,
+      maxIncrementalHours: Math.max(0, localConfig.maxIncrementalHours),
+      concurrency: localConfig.concurrency,
+      blacklistKeywords: blacklist,
+    });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -99,7 +152,6 @@ export default function CollectConfigPage() {
   const handleReset = () => {
     setLocalConfig({
       minYear: 2025,
-      rateLimitPerSecond: 2,
       retryTimes: 3,
       pageSize: 20,
       maxPages: 100,
@@ -110,16 +162,45 @@ export default function CollectConfigPage() {
     setBlacklist([...DEFAULT_BLACKLIST]);
   };
 
+  const handleBack = useCallback(() => {
+    if (hasChanges) {
+      setPendingNavigation(() => () => navigate('/settings'));
+      setShowUnsavedDialog(true);
+    } else {
+      navigate('/settings');
+    }
+  }, [hasChanges, navigate]);
+
+  const handleDialogClose = async (action: 'save' | 'discard' | 'cancel') => {
+    if (action === 'save') {
+      await handleSave();
+      pendingNavigation?.();
+    } else if (action === 'discard') {
+      pendingNavigation?.();
+    }
+    setShowUnsavedDialog(false);
+    setPendingNavigation(null);
+  };
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
         <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
         <div className="flex items-center gap-4">
-          <Button variant="ghost" onClick={() => navigate('/settings')} className="hover:text-text">
+          <Button variant="ghost" onClick={handleBack} className="hover:text-text">
             <ArrowLeft className="size-4 mr-2" />
             返回
           </Button>
           <h1 className="text-2xl font-bold">采集配置</h1>
+          <div className="flex-1" />
+          <Button variant="outline" size="sm" onClick={handleReset}>
+            <RotateCcw className="size-3.5 mr-1.5" />
+            重置默认
+          </Button>
+          <Button size="sm" onClick={handleSave}>
+            <Save className="size-4 mr-2" />
+            {saved ? '已保存' : '保存配置'}
+          </Button>
         </div>
       </div>
 
@@ -166,20 +247,6 @@ export default function CollectConfigPage() {
               className="bg-secondary"
             />
             <p className="text-xs text-muted-foreground">0=不限，断点续采时 h 的最大值（全量采集不受影响）</p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="rateLimit">请求速率限制</Label>
-            <Input
-              id="rateLimit"
-              type="number"
-              min="1"
-              max="50"
-              value={localConfig.rateLimitPerSecond}
-              onChange={(e) => setLocalConfig({ ...localConfig, rateLimitPerSecond: Math.min(50, Math.max(1, parseInt(e.target.value) || 2)) })}
-              className="bg-secondary"
-            />
-            <p className="text-xs text-muted-foreground">每秒最多发送多少个请求</p>
           </div>
 
           <div className="space-y-2">
@@ -274,20 +341,21 @@ export default function CollectConfigPage() {
             </button>
           ))}
         </div>
-
-        <div className="flex justify-between items-center pt-2">
-          <Button variant="ghost" onClick={handleReset} className="text-xs">
-            <RotateCcw className="size-3.5 mr-1.5" />
-            重置默认
-          </Button>
-          <Button
-            onClick={handleSave}
-          >
-            <Save className="size-4 mr-2" />
-            {saved ? '已保存' : '保存配置'}
-          </Button>
-        </div>
       </Card>
+
+      <Dialog open={showUnsavedDialog} onOpenChange={(open) => { if (!open) handleDialogClose('cancel'); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>提示</DialogTitle>
+            <p className="text-sm text-muted-foreground">有未保存的配置，是否保存？</p>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => handleDialogClose('cancel')}>取消</Button>
+            <Button variant="destructive" onClick={() => handleDialogClose('discard')}>不保存</Button>
+            <Button onClick={() => handleDialogClose('save')}>保存</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

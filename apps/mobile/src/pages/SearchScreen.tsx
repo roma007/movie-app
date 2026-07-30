@@ -9,6 +9,7 @@ import { radius } from '../themes/radiusTokens';
 import BlurredBackground from '../components/BlurredBackground';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+import { ArrowLeft } from 'lucide-react-native';
 
 interface Props {
   navigation: any;
@@ -26,7 +27,6 @@ export default function SearchScreen({ navigation, route }: Props) {
   const [searchHistory, setSearchHistory] = useState<{ keyword: string; count: number }[]>([]);
   const [hotSearches, setHotSearches] = useState<{ keyword: string; count: number }[]>([]);
   const { mediaList, searchMedia } = useAppStore();
-  const hasKeywordParam = !!route?.params?.keyword;
 
   useEffect(() => {
     const provider = getProvider();
@@ -134,17 +134,15 @@ export default function SearchScreen({ navigation, route }: Props) {
     <BlurredBackground imageUrl={bgImageUrl}>
     <View style={styles.container}>
       <View style={styles.searchBar}>
-        {hasKeywordParam && (
-          <Button variant="icon" size="sm" onPress={() => {
-            if (route?.params?.fromDetail) {
-              navigation.navigate('Detail', { id: route.params.fromDetail });
-            } else {
-              navigation.goBack();
-            }
-          }}>
-            <Text style={{ fontSize: s(20), color: colors.text }}>←</Text>
-          </Button>
-        )}
+        <Button variant="icon" size="sm" onPress={() => {
+          if (route?.params?.fromDetail) {
+            navigation.navigate('Detail', { id: route.params.fromDetail });
+          } else {
+            navigation.goBack();
+          }
+        }}>
+          <ArrowLeft size={20} color={colors.text} />
+        </Button>
         <Input
           size="lg"
           style={{ flex: 1 }}

@@ -12,22 +12,13 @@ import { radius } from '../themes/radiusTokens';
 import BlurredBackground from '../components/BlurredBackground';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { Check, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react-native';
+import { ArrowLeft, Check, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react-native';
 
 interface Props {
   navigation: any;
 }
 
 const RATE_BARS = [2, 4, 6, 8, 10];
-
-function formatLogTime(timestamp: string): string {
-  try {
-    const d = new Date(timestamp);
-    return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
-  } catch {
-    return timestamp;
-  }
-}
 
 function formatTime(timestamp: string): string {
   try {
@@ -49,7 +40,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
     updateSourceRateLimit,
     checkVideoSource, collectSourceLatest, collectSourceAll,
     collectTasks, loadRunningCollectTasks,
-    collectionLogs, clearCollectionLogs,
     previewResults, previewLoading,
     searchKeywordPreview, saveSelectedPreviewItems, clearPreviewResults,
     batchImportSources, validateImportSources,
@@ -65,52 +55,38 @@ export default function SourceManagerScreen({ navigation }: Props) {
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1 },
     scrollContainer: { flex: 1 },
-    header: { padding: 20, paddingTop: 60 },
-    title: { fontSize: sf(24), fontWeight: 'bold', color: colors.text },
-    list: { paddingHorizontal: 15, gap: 12 },
-    sourceCard: { backgroundColor: cardBg, borderRadius: radius.lg, padding: 15 },
-    sourceHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-    sourceMain: { flex: 1 },
-    sourceName: { fontSize: sf(17), fontWeight: '600', color: colors.text, marginBottom: 4 },
-    sourceCode: { fontSize: sf(12), color: colors.disabledForeground },
-    sourceUrl: { fontSize: sf(13), color: colors.mutedForeground, marginBottom: 10 },
-    rateRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+    header: { paddingTop: 50, paddingHorizontal: 15, paddingBottom: 15, backgroundColor: colors.surfaceElevated },
+    headerRow: { flexDirection: 'row', alignItems: 'center' },
+    navBack: { padding: 8, marginRight: 8 },
+    title: { flex: 1, fontSize: sf(18), fontWeight: 'bold', color: colors.text, textAlign: 'center' },
+    navPlaceholder: { width: 40 },
+    list: { paddingHorizontal: 15, paddingBottom: 30, gap: 12 },
+    sourceCard: { backgroundColor: cardBg, borderRadius: radius.lg, padding: 12 },
+    sourceHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+    sourceMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, marginRight: 8 },
+    sourceName: { fontSize: sf(16), fontWeight: '600', color: colors.text },
+    sourceUrl: { fontSize: sf(12), color: colors.mutedForeground, marginBottom: 8 },
+    rateRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+    ratePrefix: { fontSize: sf(12), color: colors.mutedForeground },
     rateButton: { padding: 4 },
     rateButtonText: { color: colors.textSecondary, fontSize: sf(14) },
     rateBars: { flexDirection: 'row', gap: 3 },
     rateBar: { width: 8, height: 16, borderRadius: radius.progress },
     rateLabel: { fontSize: sf(14), color: colors.textSecondary, width: 24, textAlign: 'center' },
-    healthLabel: { fontSize: sf(12), marginBottom: 4 },
-    lastCollectText: { fontSize: sf(11), color: colors.disabledForeground, marginBottom: 10 },
-    sourceFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    actions: { flexDirection: 'row', gap: 8 },
-    actionButton: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.sm },
-    actionButtonDisabled: { opacity: 0.4 },
-    sourceActions: { flexDirection: 'row', gap: 8, marginTop: 12, paddingTop: 12 },
+    healthBadge: { fontSize: sf(10), paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm, borderWidth: StyleSheet.hairlineWidth, marginLeft: 8 },
+    lastCollectText: { fontSize: sf(11), color: colors.disabledForeground },
+    sourceSwitchLabel: { fontSize: sf(11), color: colors.mutedForeground, marginRight: 4 },
+    sourceActions: { flexDirection: 'row', gap: 6 },
     sourceActionBtn: { flex: 1, paddingVertical: 10, borderRadius: radius.md, minHeight: 40 },
     progressContainer: { marginTop: 10 },
     progressBar: { height: 4, backgroundColor: colors.trackBg, borderRadius: radius.progress, overflow: 'hidden' },
     progressFill: { height: '100%', backgroundColor: colors.mutedForeground, borderRadius: radius.progress },
     progressText: { fontSize: sf(11), color: colors.mutedForeground, marginTop: 4, textAlign: 'center' },
-    addButton: { margin: 15, paddingVertical: 16, borderRadius: radius.lg },
-    bottomActions: { flexDirection: 'row', gap: 10, marginHorizontal: 15, marginBottom: 30 },
-    logToggle: { flex: 1, paddingVertical: 12, borderRadius: radius.md },
-    keywordBtn: { flex: 1, paddingVertical: 12, borderRadius: radius.md },
-    logPanel: { marginHorizontal: 15, marginBottom: 20, backgroundColor: surfaceElevatedBg, borderRadius: radius.md, padding: 12, maxHeight: 300 },
-    logPanelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-    logPanelTitle: { fontSize: sf(14), color: colors.mutedForeground, fontWeight: '500' },
-    clearLogBtn: { fontSize: sf(13), color: colors.textSecondary },
-    logEmpty: { color: colors.disabledForeground, fontSize: sf(13), textAlign: 'center', paddingVertical: 20 },
-    logItem: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 4 },
-    logTime: { fontSize: sf(11), color: colors.disabledForeground, marginRight: 4, fontFamily: 'monospace' },
-    logLevel: { fontSize: sf(11), fontWeight: 'bold', marginRight: 4, fontFamily: 'monospace' },
-    logLevelError: { color: colors.error },
-    logLevelWarn: { color: colors.warning },
-    logLevelInfo: { color: colors.textSecondary },
-    logSource: { fontSize: sf(11), color: colors.mutedForeground, marginRight: 4 },
-    logMessage: { fontSize: sf(11), color: colors.textSecondary, flex: 1 },
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-    modalContent: { width: '100%', backgroundColor: cardBg, borderRadius: radius.xl, padding: 24, gap: 16 },
+    actionCard: { marginHorizontal: 15, marginTop: 12, marginBottom: 12, backgroundColor: cardBg, borderRadius: radius.lg, padding: 12 },
+    actionRow: { flexDirection: 'row', gap: 8 },
+    actionBtn: { flex: 1, paddingVertical: 10 },
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+    modalContent: { width: '100%', backgroundColor: colors.background, borderRadius: radius.xl, padding: 24, gap: 16 },
     modalTitle: { fontSize: sf(20), fontWeight: 'bold', color: colors.text, textAlign: 'center' },
     inputRow: { flexDirection: 'row', gap: 12 },
     modalButtons: { flexDirection: 'row', gap: 12, marginTop: 8 },
@@ -189,7 +165,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
   const [form, setForm] = useState({ code: '', name: '', baseUrl: '', rateLimit: '5' });
 
   const [checkingSource, setCheckingSource] = useState<string | null>(null);
-  const [showLogPanel, setShowLogPanel] = useState(false);
 
   const [keywordModalVisible, setKeywordModalVisible] = useState(false);
   const [keywordInput, setKeywordInput] = useState('');
@@ -435,7 +410,35 @@ export default function SourceManagerScreen({ navigation }: Props) {
       <Toast />
       <ScrollView style={styles.scrollContainer}>
         <View style={styles.header}>
-          <Text style={styles.title}>视频源管理</Text>
+          <View style={styles.headerRow}>
+            <Button variant="icon" size="sm" style={styles.navBack} onPress={() => navigation.goBack()}>
+              <ArrowLeft size={20} color={colors.text} />
+            </Button>
+            <Text style={styles.title}>视频源管理</Text>
+            <View style={styles.navPlaceholder} />
+          </View>
+        </View>
+
+        <View style={styles.actionCard}>
+          <View style={styles.actionRow}>
+            <Button variant="primary" size="md" style={styles.actionBtn} onPress={() => setModalVisible(true)}>
+              手动添加
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              style={styles.actionBtn}
+              onPress={() => {
+                setAiModalVisible(true);
+                handleAiReset();
+              }}
+            >
+              AI 导入
+            </Button>
+            <Button variant="secondary" size="md" style={styles.actionBtn} onPress={() => setKeywordModalVisible(true)}>
+              搜索采集
+            </Button>
+          </View>
         </View>
 
         <View style={styles.list}>
@@ -449,9 +452,12 @@ export default function SourceManagerScreen({ navigation }: Props) {
               <View key={source.id} style={styles.sourceCard}>
                 <View style={styles.sourceHeader}>
                   <View style={styles.sourceMain}>
-                    <Text style={styles.sourceName}>{source.name}</Text>
-                    <Text style={styles.sourceCode}>{source.code}</Text>
+                    <Text style={styles.sourceName} numberOfLines={1}>{source.name}</Text>
+                    <Text style={styles.lastCollectText}>
+                      上次采集: {source.lastCollectedAt ? formatTime(source.lastCollectedAt) : '从未'}
+                    </Text>
                   </View>
+                  <Text style={styles.sourceSwitchLabel}>{source.isEnabled ? '启用' : '禁用'}</Text>
                   <Switch
                     value={source.isEnabled}
                     onValueChange={(value) => toggleSourceEnabled(source.id, value)}
@@ -459,9 +465,10 @@ export default function SourceManagerScreen({ navigation }: Props) {
                     thumbColor={source.isEnabled ? colors.swiftThumb : colors.disabledForeground}
                   />
                 </View>
-                <Text style={styles.sourceUrl}>{source.baseUrl}</Text>
+                <Text style={styles.sourceUrl} numberOfLines={1}>{source.baseUrl}</Text>
 
                 <View style={styles.rateRow}>
+                  <Text style={styles.ratePrefix}>速率：</Text>
                   <Button
                     variant="icon"
                     size="sm"
@@ -487,25 +494,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
                   >
                     <Text style={styles.rateButtonText}>▲</Text>
                   </Button>
-                </View>
-
-                <Text style={[styles.healthLabel, { color: health.color }]}>{health.label}</Text>
-
-                <Text style={styles.lastCollectText}>
-                  上次采集: {source.lastCollectedAt ? formatTime(source.lastCollectedAt) : '从未'}
-                </Text>
-
-                <View style={styles.sourceFooter}>
-                  <View style={styles.actions}>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      style={styles.actionButton}
-                      onPress={() => handleDelete(source.id, source.name)}
-                    >
-                      删除
-                    </Button>
-                  </View>
+                  <Text style={[styles.healthBadge, { color: health.color, borderColor: health.color }]} numberOfLines={1}>{health.label}</Text>
                 </View>
 
                 <View style={styles.sourceActions}>
@@ -537,6 +526,14 @@ export default function SourceManagerScreen({ navigation }: Props) {
                   >
                     全量采集
                   </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    style={styles.sourceActionBtn}
+                    onPress={() => handleDelete(source.id, source.name)}
+                  >
+                    删除
+                  </Button>
                 </View>
 
                 {collecting && (
@@ -551,62 +548,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
             );
           })}
         </View>
-
-        <Button variant="primary" size="lg" fullWidth style={styles.addButton} onPress={() => setModalVisible(true)}>
-          手动添加
-        </Button>
-
-        <Button
-          variant="primary"
-          size="lg"
-          fullWidth
-          style={StyleSheet.flatten([styles.addButton, { marginTop: 0 }])}
-          onPress={() => {
-            setAiModalVisible(true);
-            handleAiReset();
-          }}
-        >
-          AI 导入
-        </Button>
-
-        <View style={styles.bottomActions}>
-          <Button variant="secondary" size="sm" style={styles.logToggle} onPress={() => setShowLogPanel(p => !p)}>
-            {showLogPanel ? '收起采集日志' : `查看采集日志 (${collectionLogs.length})`}
-          </Button>
-          <Button variant="secondary" size="sm" style={styles.keywordBtn} onPress={() => setKeywordModalVisible(true)}>
-            关键词搜索采集
-          </Button>
-        </View>
-
-        {showLogPanel && (
-          <View style={styles.logPanel}>
-            <View style={styles.logPanelHeader}>
-              <Text style={styles.logPanelTitle}>采集日志</Text>
-              <Button variant="link" size="sm" onPress={clearCollectionLogs}>
-                清空
-              </Button>
-            </View>
-            {collectionLogs.length === 0 ? (
-              <Text style={styles.logEmpty}>暂无日志</Text>
-            ) : (
-              [...collectionLogs].reverse().map((log, idx) => (
-                <View key={idx} style={styles.logItem}>
-                  <Text style={styles.logTime}>{formatLogTime(log.timestamp)}</Text>
-                  <Text style={[
-                    styles.logLevel,
-                    log.level === 'error' ? styles.logLevelError :
-                    log.level === 'warn' ? styles.logLevelWarn :
-                    styles.logLevelInfo,
-                  ]}>
-                    [{log.level.toUpperCase()}]
-                  </Text>
-                  {log.sourceName && <Text style={styles.logSource}>[{log.sourceName}]</Text>}
-                  <Text style={styles.logMessage} numberOfLines={2}>{log.message}</Text>
-                </View>
-              ))
-            )}
-          </View>
-        )}
       </ScrollView>
 
       <Modal

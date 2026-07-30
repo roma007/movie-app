@@ -28,14 +28,14 @@ export default function UsageGuideModal() {
   const styles = useMemo(() => StyleSheet.create({
     overlay: {
       flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.7)',
+      backgroundColor: 'rgba(0,0,0,0.8)',
       justifyContent: 'center',
       alignItems: 'center',
       padding: 30,
     },
     container: {
       width: '100%',
-      backgroundColor: cardBg,
+      backgroundColor: colors.background,
       borderRadius: radius.xl,
       padding: 24,
     },

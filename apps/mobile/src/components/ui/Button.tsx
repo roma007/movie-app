@@ -66,9 +66,9 @@ export function Button({
       case 'destructive':
         return {
           container: {
-            backgroundColor: hexToRgba(colors.buttonDestructiveText, cardOpacity / 100 * 0.15),
+            backgroundColor: hexToRgba(colors.error, cardOpacity / 100 * 0.15),
           },
-          text: { color: colors.buttonDestructiveText },
+          text: { color: colors.error },
         };
       case 'ghost':
         return {

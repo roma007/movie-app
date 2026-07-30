@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIn
 import { useAppStore } from '../useAppStore';
 import { getProvider } from '../init';
 import { VideoDurationService } from '@movie-app/core';
-import { Heart } from 'lucide-react-native';
+import { Heart, ArrowLeft } from 'lucide-react-native';
 import type { Episode, PlaySource, VideoSource } from '@movie-app/core';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
@@ -43,7 +43,11 @@ export default function DetailScreen({ route, navigation }: Props) {
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1 },
     loadingContainer: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
-    header: { flexDirection: 'row', padding: 20, paddingTop: 60 },
+    navBar: { flexDirection: 'row', alignItems: 'center', paddingTop: 50, paddingHorizontal: 15, paddingBottom: 10 },
+    navBack: { padding: 8 },
+    navTitle: { flex: 1, fontSize: s(18), fontWeight: 'bold', color: colors.text, textAlign: 'center' },
+    navPlaceholder: { width: 40 },
+    header: { flexDirection: 'row', padding: 20, paddingTop: 10 },
     poster: { width: 120, height: 170, borderRadius: radius.md, backgroundColor: cardBg },
     info: { flex: 1, marginLeft: 15, justifyContent: 'center' },
     titleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 },
@@ -202,6 +206,14 @@ export default function DetailScreen({ route, navigation }: Props) {
   return (
     <BlurredBackground imageUrl={currentMedia.posterUrl}>
     <ScrollView style={styles.container}>
+      <View style={styles.navBar}>
+        <Button variant="icon" size="sm" style={styles.navBack} onPress={() => navigation.goBack()}>
+          <ArrowLeft size={20} color={colors.text} />
+        </Button>
+        <Text style={styles.navTitle} numberOfLines={1}>{currentMedia.title}</Text>
+        <View style={styles.navPlaceholder} />
+      </View>
+
       <View style={styles.header}>
         {currentMedia.posterUrl && (
           <Image source={{ uri: currentMedia.posterUrl }} style={styles.poster} />
@@ -247,7 +259,7 @@ export default function DetailScreen({ route, navigation }: Props) {
           <Text style={styles.sectionTitle}>导演</Text>
           <View style={styles.nameRow}>
             {currentMedia.directors.map((d: string, i: number) => (
-              <TouchableOpacity key={d} onPress={() => navigation.navigate('Tabs', { screen: '搜索', params: { keyword: d, fromDetail: id } })}>
+              <TouchableOpacity key={d} onPress={() => navigation.navigate('搜索', { keyword: d, fromDetail: id })}>
                 <Text style={styles.nameLink}>
                   {d}{i < currentMedia.directors.length - 1 ? ' / ' : ''}
                 </Text>
@@ -262,7 +274,7 @@ export default function DetailScreen({ route, navigation }: Props) {
           <Text style={styles.sectionTitle}>演员</Text>
           <View style={styles.nameRow}>
             {currentMedia.actors.map((a: string, i: number) => (
-              <TouchableOpacity key={a} onPress={() => navigation.navigate('Tabs', { screen: '搜索', params: { keyword: a, fromDetail: id } })}>
+              <TouchableOpacity key={a} onPress={() => navigation.navigate('搜索', { keyword: a, fromDetail: id })}>
                 <Text style={styles.nameLink}>
                   {a}{i < currentMedia.actors.length - 1 ? ' / ' : ''}
                 </Text>

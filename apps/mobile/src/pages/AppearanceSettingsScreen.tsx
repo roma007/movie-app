@@ -55,7 +55,7 @@ export default function AppearanceSettingsScreen({ navigation }: Props) {
     title: { flex: 1, fontSize: s(18), fontWeight: 'bold', color: colors.text, textAlign: 'center' },
     placeholder: { width: 40 },
     content: { padding: 15 },
-    sectionTitle: { fontSize: s(14), color: colors.mutedForeground, paddingHorizontal: 0, paddingTop: 5, paddingBottom: 12 },
+    cardTitle: { fontSize: s(15), fontWeight: '600', color: colors.text, paddingHorizontal: 15, paddingTop: 15, paddingBottom: 10 },
     card: {
       backgroundColor: cardBg,
       borderRadius: radius.lg,
@@ -152,8 +152,8 @@ export default function AppearanceSettingsScreen({ navigation }: Props) {
         </View>
 
         <View style={styles.content}>
-          <Text style={styles.sectionTitle}>颜色模式</Text>
           <View style={styles.card}>
+            <Text style={styles.cardTitle}>颜色模式</Text>
             {COLOR_MODE_OPTIONS.map((opt, idx) => {
               const active = colorMode === opt.mode;
               const isLast = idx === COLOR_MODE_OPTIONS.length - 1;
@@ -181,8 +181,8 @@ export default function AppearanceSettingsScreen({ navigation }: Props) {
             })}
           </View>
 
-          <Text style={styles.sectionTitle}>视觉与透明度</Text>
           <View style={styles.card}>
+            <Text style={styles.cardTitle}>视觉与透明度</Text>
             <View style={styles.compactSliderLabelRow}>
               <Text style={styles.compactSliderLabel}>磨砂强度</Text>
               <Text style={styles.compactSliderValue}>{blurIntensity}</Text>
@@ -255,10 +255,9 @@ export default function AppearanceSettingsScreen({ navigation }: Props) {
             </View>
           </View>
 
-          <Text style={styles.sectionTitle}>字体</Text>
           <View style={styles.card}>
+            <Text style={styles.cardTitle}>字体大小</Text>
             <View style={styles.compactFontRow}>
-              <Text style={styles.compactFontLabel}>字体大小</Text>
               <View style={styles.compactFontButtons}>
                 {FONT_SIZE_PRESETS.map((preset) => (
                   <Button

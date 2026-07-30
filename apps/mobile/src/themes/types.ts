@@ -28,7 +28,6 @@ export interface ThemeColors {
   buttonSecondaryBg: string;
   buttonSecondaryText: string;
   buttonDestructiveBg: string;
-  buttonDestructiveText: string;
   trackBg: string;
   swiftTrack: string;
   swiftActiveTrack: string;
