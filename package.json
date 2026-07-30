@@ -1,6 +1,6 @@
 {
   "name": "movie-app-monorepo",
-  "version": "1.0.28",
+  "version": "1.0.29",
   "private": true,
   "scripts": {
     "mobile": "pnpm --filter @movie-app/mobile start",
@@ -9,7 +9,9 @@
     "desktop:dev": "pnpm --filter @movie-app/desktop tauri:dev",
     "desktop:build": "pnpm --filter @movie-app/desktop tauri:build",
     "typecheck": "pnpm -r typecheck",
-    "prepare": "husky"
+    "prepare": "husky",
+    "push": "bash -c 'git add . && git commit -m \"$1\" && git push github master && git push origin master' --",
+    "release": "bash -c 'git add . && git commit -m \"$1\" && git push github master && git push origin master && tag=v$(node -p \"require(\\\"./package.json\\\").version\") && git tag $tag && git push github $tag && git push origin $tag' --"
   },
   "devDependencies": {
     "husky": "^9.1.7",
