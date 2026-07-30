@@ -47,24 +47,35 @@ jobs:
         with:
           workspaces: "./apps/desktop/src-tauri -> target"
 
-      - name: Install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-
       - name: Install frontend dependencies
         run: pnpm install
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm --filter @movie-app/desktop tauri build --target ${{ matrix.target }}
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
         with:
-          projectPath: apps/desktop
-          tagName: v__VERSION__
-          releaseName: "Movie App v__VERSION__"
-          releaseBody: "See the assets below to download and install."
-          releaseDraft: false
+          name: Movie-App-${{ matrix.target }}
+          path: apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/
+          if-no-files-found: warn
+
+  create-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/
+          name: Movie App ${{ github.ref_name }}
+          body: "See the assets below to download and install."
+          draft: false
           prerelease: false
-          args: --target ${{ matrix.target }}
