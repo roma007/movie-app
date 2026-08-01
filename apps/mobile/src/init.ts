@@ -41,6 +41,16 @@ export async function initApp(): Promise<void> {
     } catch (err) {
       console.error('[INIT] 清理僵尸任务失败:', err);
     }
+
+    // 启动自动增量采集调度器（移动端定时器在后台会被挂起，额外依赖 AppState 回前台触发）
+    try {
+      await _store.getState().startAutoCollect();
+      _store.getState().maybeRunAutoCollect('startup').catch((err) => {
+        console.error('[INIT] 启动自动采集失败:', err);
+      });
+    } catch (err) {
+      console.error('[INIT] 启动自动增量采集调度器失败:', err);
+    }
   })();
   return _initPromise;
 }

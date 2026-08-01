@@ -205,6 +205,22 @@ export async function initApp(onProgress?: (step: string) => void): Promise<void
       }
       report(`Step 4b: 清理完成（${staleCount} 个僵尸任务）`);
 
+      report('Step 4c: 启动自动增量采集调度器...');
+      try {
+        await _store.getState().startAutoCollect();
+        // 延迟触发启动采集，等待网络与界面稳定
+        setTimeout(() => {
+          _store?.getState().maybeRunAutoCollect('startup').catch(err => {
+            console.error('[AutoCollect] 启动自动采集失败:', err);
+          });
+        }, 5000);
+        report('Step 4c: 自动增量采集调度器已启动');
+      } catch (err) {
+        const errMsg = `启动自动增量采集失败: ${err instanceof Error ? err.message : String(err)}`;
+        console.error(errMsg);
+        await logToDb(errMsg, 'error');
+      }
+
       const elapsed = Date.now() - startTime;
       report(`=== initApp 完成 (${elapsed}ms) ===`);
       await logToDb(`initApp completed (${elapsed}ms)`);

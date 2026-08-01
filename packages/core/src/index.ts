@@ -37,6 +37,7 @@ export { CMSAdapter } from './services/cmsAdapter';
 export { CollectorService } from './services/collectorService';
 export { backfillSeriesGroup } from './services/backfillService';
 export { SystemConfigService, type CollectConfig, type ShortDramaConfig } from './services/systemConfigService';
+export { AutoCollectScheduler } from './services/autoCollectScheduler';
 export { VideoDurationService, setVideoFetchFn, getVideoFetchFn } from './services/videoDurationService';
 export { SourceImportService } from './services/sourceImportService';
 

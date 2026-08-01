@@ -18,6 +18,10 @@ export interface CollectConfig {
   incrementalMaxPages: number;
   maxIncrementalHours: number;
   concurrency: number;
+  autoEnabled: boolean;
+  autoIntervalHours: number;
+  autoOnStartup: boolean;
+  autoLastRunAt: string | null;
 }
 
 export interface PlaybackConfig {
@@ -76,6 +80,10 @@ const DEFAULT_COLLECT_CONFIG: CollectConfig = {
   incrementalMaxPages: 100,
   maxIncrementalHours: 720,
   concurrency: 6,
+  autoEnabled: false,
+  autoIntervalHours: 24,
+  autoOnStartup: false,
+  autoLastRunAt: null,
 };
 
 const CONFIG_REMARKS: Record<string, string> = {
@@ -88,6 +96,10 @@ const CONFIG_REMARKS: Record<string, string> = {
   'collect.incrementalMaxPages': '增量采集最大页数',
   'collect.maxIncrementalHours': '增量最大追溯时间（小时）',
   'collect.concurrency': '并发处理数量',
+  'collect.autoEnabled': '自动增量采集开关',
+  'collect.autoIntervalHours': '自动增量采集间隔（小时）',
+  'collect.autoOnStartup': '启动时自动增量采集',
+  'collect.autoLastRunAt': '上次自动增量采集时间',
 };
 
 export class SystemConfigService {
@@ -175,6 +187,10 @@ export class SystemConfigService {
       incrementalMaxPages: await this.getNumber('collect.incrementalMaxPages', DEFAULT_COLLECT_CONFIG.incrementalMaxPages),
       maxIncrementalHours: await this.getNumber('collect.maxIncrementalHours', DEFAULT_COLLECT_CONFIG.maxIncrementalHours),
       concurrency: await this.getNumber('collect.concurrency', DEFAULT_COLLECT_CONFIG.concurrency),
+      autoEnabled: (await this.getNumber('collect.autoEnabled', DEFAULT_COLLECT_CONFIG.autoEnabled ? 1 : 0)) === 1,
+      autoIntervalHours: await this.getNumber('collect.autoIntervalHours', DEFAULT_COLLECT_CONFIG.autoIntervalHours),
+      autoOnStartup: (await this.getNumber('collect.autoOnStartup', DEFAULT_COLLECT_CONFIG.autoOnStartup ? 1 : 0)) === 1,
+      autoLastRunAt: await this.getString('collect.autoLastRunAt', DEFAULT_COLLECT_CONFIG.autoLastRunAt || '') || null,
     };
   }
 
@@ -183,6 +199,10 @@ export class SystemConfigService {
       const fullKey = `collect.${key}`;
       if (key === 'blacklistKeywords') {
         await this.setJSON(fullKey, value);
+      } else if (key === 'autoEnabled' || key === 'autoOnStartup') {
+        await this.setNumber(fullKey, value ? 1 : 0);
+      } else if (key === 'autoLastRunAt') {
+        await this.setString(fullKey, value ? String(value) : '');
       } else {
         await this.setNumber(fullKey, value as number);
       }

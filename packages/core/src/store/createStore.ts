@@ -43,6 +43,8 @@ export interface AppState {
     error?: string;
   }> | null;
 
+  collectTrigger: 'manual' | 'auto' | null;
+
   loadMediaList: (params?: any) => Promise<void>;
   getGenresByType: (type?: string) => Promise<string[]>;
   getSubTypesByType: (type?: string, includeHidden?: boolean) => Promise<string[]>;
@@ -89,12 +91,16 @@ export interface AppState {
   updateShortDramaConfig: (config: Partial<ShortDramaConfig>) => Promise<void>;
   getDefaultShortDramaConfig: () => ShortDramaConfig;
 
-  collectLatest: () => Promise<void>;
+  collectLatest: (trigger?: 'manual' | 'auto') => Promise<void>;
   collectByKeyword: (keyword: string) => Promise<number>;
   collectAll: () => Promise<{ totalCollected: number; totalPages: number }>;
   checkVideoSource: (id: string) => Promise<{ healthy: boolean; responseTime: number }>;
   collectSourceLatest: (sourceCode: string) => Promise<{ success: boolean; taskId: string; collected: number; error?: string }>;
   collectSourceAll: (sourceCode: string) => Promise<{ success: boolean; taskId: string; collected: number; pages: number; error?: string }>;
+
+  startAutoCollect: () => Promise<void>;
+  stopAutoCollect: () => void;
+  maybeRunAutoCollect: (reason: 'startup' | 'interval' | 'resume') => Promise<boolean>;
 
   loadCollectTasks: () => Promise<void>;
   loadRunningCollectTasks: () => Promise<CollectTask[]>;
@@ -153,6 +159,7 @@ hasShortDrama: (type?: string) => Promise<boolean>;
 import { SystemConfigService } from '../services/systemConfigService';
 import { CollectorService } from '../services/collectorService';
 import { SourceImportService } from '../services/sourceImportService';
+import { AutoCollectScheduler } from '../services/autoCollectScheduler';
 
 /**
  * Zustand store 工厂函数（依赖注入 DatabaseProvider）。
@@ -162,6 +169,7 @@ export function createAppStore(db: DatabaseProvider) {
   const configService = new SystemConfigService(db);
   const collectorService = new CollectorService(db);
   const sourceImportService = new SourceImportService(db);
+  let autoCollectScheduler: AutoCollectScheduler | null = null;
 
   const store = create<AppState>((set, get) => ({
     mediaList: [],
@@ -187,6 +195,7 @@ export function createAppStore(db: DatabaseProvider) {
     reprobeMediaList: [],
     runningReprobeTask: null,
     collectSourceProgress: null,
+    collectTrigger: null,
     collectionLogs: [],
     previewResults: [],
     previewLoading: false,
@@ -486,6 +495,8 @@ export function createAppStore(db: DatabaseProvider) {
       try {
         await configService.setCollectConfig(config);
         await get().loadCollectConfig();
+        // 配置变更后重新挂载自动采集调度器（开关/间隔变化即时生效）
+        await get().startAutoCollect();
       } catch (err: any) {
         set({ error: err.message });
       }
@@ -513,10 +524,14 @@ export function createAppStore(db: DatabaseProvider) {
       return SystemConfigService.getDefaultShortDramaConfig();
     },
 
-    collectLatest: async () => {
-      set({ isCollecting: true, error: null, collectSourceProgress: null });
+    collectLatest: async (trigger: 'manual' | 'auto' = 'manual') => {
+      set({ isCollecting: true, error: null, collectSourceProgress: null, collectTrigger: trigger });
       try {
         const sources = await db.getEnabledVideoSources();
+        if (sources.length === 0) {
+          console.log('[STORE] collectLatest: 无启用视频源，跳过增量采集');
+          return;
+        }
         set({
           collectSourceProgress: sources.map((s) => ({
             sourceName: s.name,
@@ -548,8 +563,28 @@ export function createAppStore(db: DatabaseProvider) {
       } catch (err: any) {
         set({ error: err.message });
       } finally {
-        set({ isCollecting: false, collectSourceProgress: null });
+        set({ isCollecting: false, collectSourceProgress: null, collectTrigger: null });
       }
+    },
+
+    startAutoCollect: async () => {
+      autoCollectScheduler?.stop();
+      autoCollectScheduler = new AutoCollectScheduler(
+        configService,
+        db,
+        () => get().collectLatest('auto'),
+        () => get().isCollecting
+      );
+      await autoCollectScheduler.start();
+    },
+
+    stopAutoCollect: () => {
+      autoCollectScheduler?.stop();
+    },
+
+    maybeRunAutoCollect: async (reason: 'startup' | 'interval' | 'resume') => {
+      if (!autoCollectScheduler) return false;
+      return autoCollectScheduler.maybeRun(reason);
     },
 
     collectByKeyword: async (keyword: string) => {

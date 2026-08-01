@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Text, StyleSheet, View, ActivityIndicator, useColorScheme, Appearance } from 'react-native';
+import { Text, StyleSheet, View, ActivityIndicator, useColorScheme, Appearance, AppState } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { initApp } from './src/init';
+import { initApp, getStore } from './src/init';
 import { useThemeStore } from './src/themes/store';
 import { useThemeColors } from './src/themes/useThemeColors';
 import HomeScreen from './src/pages/HomeScreen';
@@ -105,6 +105,17 @@ export default function App() {
         setReady(true);
       });
   }, []);
+
+  useEffect(() => {
+    // 移动端后台定时器会被挂起，回前台时补一次自动增量采集检查
+    if (!ready) return;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        getStore().getState().maybeRunAutoCollect('resume').catch(() => {});
+      }
+    });
+    return () => sub.remove();
+  }, [ready]);
 
   if (!ready) {
     return (

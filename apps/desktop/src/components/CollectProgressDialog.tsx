@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 const AUTO_COLLAPSE_MS = 5000;
 
 export function CollectProgressDialog() {
-  const { collectSourceProgress } = useAppStore();
+  const { collectSourceProgress, collectTrigger } = useAppStore();
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const prevVisibleRef = useRef<boolean>(false);
@@ -15,14 +15,19 @@ export function CollectProgressDialog() {
   const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
-    const visible = !!collectSourceProgress;
+    const visible = !!collectSourceProgress && collectSourceProgress.length > 0;
     if (visible && !prevVisibleRef.current) {
       setDismissed(false);
-      setExpanded(true);
-      startCollapseTimer();
+      if (collectTrigger === 'auto') {
+        // 自动采集默认收缩为小药丸，不自动展开
+        setExpanded(false);
+      } else {
+        setExpanded(true);
+        startCollapseTimer();
+      }
     }
     prevVisibleRef.current = visible;
-  }, [collectSourceProgress]);
+  }, [collectSourceProgress, collectTrigger]);
 
   useEffect(() => {
     return () => {
@@ -59,7 +64,7 @@ export function CollectProgressDialog() {
     setDismissed(true);
   };
 
-  if (!collectSourceProgress || dismissed) return null;
+  if (!collectSourceProgress || collectSourceProgress.length === 0 || dismissed) return null;
 
   const allDone = collectSourceProgress.every(
     (s) => s.status === 'done' || s.status === 'failed'

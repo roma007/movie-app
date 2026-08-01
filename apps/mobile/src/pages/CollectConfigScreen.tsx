@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Alert, TouchableOpacity, Switch } from 'react-native';
 import { useAppStore } from '../useAppStore';
 import { ArrowLeft, Save, RotateCcw, X } from 'lucide-react-native';
 import { useThemeColors } from '../themes/useThemeColors';
@@ -38,7 +38,11 @@ export default function CollectConfigScreen({ navigation }: Props) {
     incrementalMaxPages: '100',
     maxIncrementalHours: '720',
     concurrency: '1',
+    autoEnabled: false,
+    autoIntervalHours: '24',
+    autoOnStartup: false,
   });
+  const [autoLastRunAt, setAutoLastRunAt] = useState<string | null>(null);
   const [blacklist, setBlacklist] = useState<string[]>([]);
   const [keywordInput, setKeywordInput] = useState('');
   const savedConfigRef = useRef('');
@@ -58,6 +62,9 @@ export default function CollectConfigScreen({ navigation }: Props) {
         maxIncrementalHours: collectConfig.maxIncrementalHours,
         concurrency: collectConfig.concurrency,
         blacklistKeywords: collectConfig.blacklistKeywords,
+        autoEnabled: collectConfig.autoEnabled,
+        autoIntervalHours: collectConfig.autoIntervalHours,
+        autoOnStartup: collectConfig.autoOnStartup,
       });
       setLocalConfig({
         minYear: String(collectConfig.minYear),
@@ -67,7 +74,11 @@ export default function CollectConfigScreen({ navigation }: Props) {
         incrementalMaxPages: String(collectConfig.incrementalMaxPages),
         maxIncrementalHours: String(collectConfig.maxIncrementalHours),
         concurrency: String(collectConfig.concurrency),
+        autoEnabled: collectConfig.autoEnabled,
+        autoIntervalHours: String(collectConfig.autoIntervalHours),
+        autoOnStartup: collectConfig.autoOnStartup,
       });
+      setAutoLastRunAt(collectConfig.autoLastRunAt);
       setBlacklist([...collectConfig.blacklistKeywords]);
     }
   }, [collectConfig]);
@@ -83,6 +94,9 @@ export default function CollectConfigScreen({ navigation }: Props) {
       maxIncrementalHours: parseInt(localConfig.maxIncrementalHours) || 720,
       concurrency: parseInt(localConfig.concurrency) || 1,
       blacklistKeywords: blacklist,
+      autoEnabled: localConfig.autoEnabled,
+      autoIntervalHours: parseInt(localConfig.autoIntervalHours) || 24,
+      autoOnStartup: localConfig.autoOnStartup,
     });
     return current !== savedConfigRef.current;
   }, [localConfig, blacklist, collectConfig]);
@@ -111,6 +125,9 @@ export default function CollectConfigScreen({ navigation }: Props) {
       incrementalMaxPages: Math.min(200, Math.max(1, parseInt(localConfig.incrementalMaxPages) || 100)),
       maxIncrementalHours: Math.max(0, parseInt(localConfig.maxIncrementalHours) || 720),
       concurrency: Math.min(20, Math.max(1, parseInt(localConfig.concurrency) || 1)),
+      autoEnabled: localConfig.autoEnabled,
+      autoIntervalHours: Math.min(8760, Math.max(1, parseInt(localConfig.autoIntervalHours) || 24)),
+      autoOnStartup: localConfig.autoOnStartup,
     });
 
     savedConfigRef.current = JSON.stringify({
@@ -122,6 +139,9 @@ export default function CollectConfigScreen({ navigation }: Props) {
       maxIncrementalHours: parseInt(localConfig.maxIncrementalHours) || 720,
       concurrency: parseInt(localConfig.concurrency) || 1,
       blacklistKeywords: blacklist,
+      autoEnabled: localConfig.autoEnabled,
+      autoIntervalHours: Math.min(8760, Math.max(1, parseInt(localConfig.autoIntervalHours) || 24)),
+      autoOnStartup: localConfig.autoOnStartup,
     });
 
     Alert.alert('成功', '配置已保存');
@@ -136,6 +156,9 @@ export default function CollectConfigScreen({ navigation }: Props) {
       incrementalMaxPages: '100',
       maxIncrementalHours: '720',
       concurrency: '6',
+      autoEnabled: false,
+      autoIntervalHours: '24',
+      autoOnStartup: false,
     });
     setBlacklist([...DEFAULT_BLACKLIST]);
   };
@@ -166,6 +189,9 @@ export default function CollectConfigScreen({ navigation }: Props) {
                 incrementalMaxPages: Math.min(200, Math.max(1, parseInt(localConfig.incrementalMaxPages) || 100)),
                 maxIncrementalHours: Math.max(0, parseInt(localConfig.maxIncrementalHours) || 720),
                 concurrency: Math.min(20, Math.max(1, parseInt(localConfig.concurrency) || 1)),
+                autoEnabled: localConfig.autoEnabled,
+                autoIntervalHours: Math.min(8760, Math.max(1, parseInt(localConfig.autoIntervalHours) || 24)),
+                autoOnStartup: localConfig.autoOnStartup,
               });
               navigation.dispatch(e.data.action);
             },
@@ -225,6 +251,29 @@ export default function CollectConfigScreen({ navigation }: Props) {
     },
     tagText: { fontSize: s(12), color: colors.text },
     tagRemove: { padding: 2 },
+    switchRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 15,
+      paddingVertical: 10,
+    },
+    switchInfo: { flex: 1, paddingRight: 12 },
+    switchTitle: { fontSize: s(14), fontWeight: '500', color: colors.text },
+    switchDesc: { fontSize: s(12), color: colors.mutedForeground, marginTop: 3 },
+    lastRunBox: {
+      paddingHorizontal: 15,
+      paddingVertical: 6,
+    },
+    lastRunText: {
+      fontSize: s(12),
+      color: colors.mutedForeground,
+      backgroundColor: surfaceBg,
+      borderRadius: radius.sm,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      overflow: 'hidden',
+    },
   }), [colors, cardBg, surfaceBg, s]);
 
   return (
@@ -324,6 +373,57 @@ export default function CollectConfigScreen({ navigation }: Props) {
                 onChangeText={(text) => setLocalConfig({ ...localConfig, concurrency: text })}
               />
             </View>
+          </View>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>自动增量采集</Text>
+          <View style={styles.switchRow}>
+            <View style={styles.switchInfo}>
+              <Text style={styles.switchTitle}>启用自动采集</Text>
+              <Text style={styles.switchDesc}>定时自动执行增量采集，与手动采集互斥，无启用源时自动跳过</Text>
+            </View>
+            <Switch
+              value={localConfig.autoEnabled}
+              onValueChange={(checked) => setLocalConfig({ ...localConfig, autoEnabled: checked })}
+              trackColor={{ false: colors.swiftTrack, true: colors.swiftActiveTrack }}
+              thumbColor={colors.swiftThumb}
+            />
+          </View>
+
+          <View style={[styles.switchRow, { opacity: localConfig.autoEnabled ? 1 : 0.4 }]}>
+            <View style={styles.switchInfo}>
+              <Text style={styles.switchTitle}>采集间隔（小时）</Text>
+              <Text style={styles.switchDesc}>距上次自动采集达到该间隔后触发</Text>
+            </View>
+            <Input
+              size="sm"
+              style={{ width: 90 }}
+              keyboardType="numeric"
+              editable={localConfig.autoEnabled}
+              value={localConfig.autoIntervalHours}
+              onChangeText={(text) => setLocalConfig({ ...localConfig, autoIntervalHours: text })}
+            />
+          </View>
+
+          <View style={styles.switchRow}>
+            <View style={styles.switchInfo}>
+              <Text style={styles.switchTitle}>启动时立即采集</Text>
+              <Text style={styles.switchDesc}>应用启动后自动执行一次增量采集</Text>
+            </View>
+            <Switch
+              value={localConfig.autoOnStartup}
+              onValueChange={(checked) => setLocalConfig({ ...localConfig, autoOnStartup: checked })}
+              disabled={!localConfig.autoEnabled}
+              trackColor={{ false: colors.swiftTrack, true: colors.swiftActiveTrack }}
+              thumbColor={colors.swiftThumb}
+            />
+          </View>
+
+          <View style={styles.lastRunBox}>
+            <Text style={styles.lastRunText}>
+              上次自动采集：{autoLastRunAt ? new Date(autoLastRunAt).toLocaleString() : '从未执行'}
+            </Text>
           </View>
         </View>
 

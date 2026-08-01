@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, RotateCcw, X, Ban } from 'lucide-react';
+import { ArrowLeft, Save, RotateCcw, X, Ban, RefreshCw } from 'lucide-react';
 import { useBackgroundStore } from '../themes/backgroundStore';
 import {
   Dialog,
@@ -14,6 +14,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { Switch } from '@/components/ui/switch';
 
 const DEFAULT_BLACKLIST: string[] = [
   '足球', '篮球', '排球', '网球', '羽毛球', '乒乓球', '橄榄球', '棒球',
@@ -37,7 +38,11 @@ export default function CollectConfigPage() {
     incrementalMaxPages: 100,
     maxIncrementalHours: 720,
     concurrency: 1,
+    autoEnabled: false,
+    autoIntervalHours: 24,
+    autoOnStartup: false,
   });
+  const [autoLastRunAt, setAutoLastRunAt] = useState<string | null>(null);
   const [blacklist, setBlacklist] = useState<string[]>([]);
   const [keywordInput, setKeywordInput] = useState('');
   const [saved, setSaved] = useState(false);
@@ -60,6 +65,9 @@ export default function CollectConfigPage() {
         maxIncrementalHours: collectConfig.maxIncrementalHours,
         concurrency: collectConfig.concurrency,
         blacklistKeywords: collectConfig.blacklistKeywords,
+        autoEnabled: collectConfig.autoEnabled,
+        autoIntervalHours: collectConfig.autoIntervalHours,
+        autoOnStartup: collectConfig.autoOnStartup,
       });
       setLocalConfig({
         minYear: collectConfig.minYear,
@@ -69,7 +77,11 @@ export default function CollectConfigPage() {
         incrementalMaxPages: collectConfig.incrementalMaxPages,
         maxIncrementalHours: collectConfig.maxIncrementalHours,
         concurrency: collectConfig.concurrency,
+        autoEnabled: collectConfig.autoEnabled,
+        autoIntervalHours: collectConfig.autoIntervalHours,
+        autoOnStartup: collectConfig.autoOnStartup,
       });
+      setAutoLastRunAt(collectConfig.autoLastRunAt);
       setBlacklist([...collectConfig.blacklistKeywords]);
     }
   }, [collectConfig]);
@@ -85,6 +97,9 @@ export default function CollectConfigPage() {
       maxIncrementalHours: Math.max(0, localConfig.maxIncrementalHours),
       concurrency: localConfig.concurrency,
       blacklistKeywords: blacklist,
+      autoEnabled: localConfig.autoEnabled,
+      autoIntervalHours: localConfig.autoIntervalHours,
+      autoOnStartup: localConfig.autoOnStartup,
     });
     return current !== savedConfigRef.current;
   }, [localConfig, blacklist, collectConfig]);
@@ -136,6 +151,9 @@ export default function CollectConfigPage() {
       maxIncrementalHours: Math.max(0, localConfig.maxIncrementalHours),
       concurrency: localConfig.concurrency,
       blacklistKeywords: blacklist,
+      autoEnabled: localConfig.autoEnabled,
+      autoIntervalHours: localConfig.autoIntervalHours,
+      autoOnStartup: localConfig.autoOnStartup,
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -158,6 +176,9 @@ export default function CollectConfigPage() {
       incrementalMaxPages: 100,
       maxIncrementalHours: 720,
       concurrency: 6,
+      autoEnabled: false,
+      autoIntervalHours: 24,
+      autoOnStartup: false,
     });
     setBlacklist([...DEFAULT_BLACKLIST]);
   };
@@ -294,6 +315,64 @@ export default function CollectConfigPage() {
             />
             <p className="text-xs text-muted-foreground">采集失败时的重试次数</p>
           </div>
+        </div>
+      </Card>
+
+      <Card className="p-6 mt-4 space-y-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <RefreshCw className="size-4 text-muted-foreground" />
+            <h2 className="text-lg font-semibold">自动增量采集</h2>
+          </div>
+          <p className="text-sm text-muted-foreground mt-1">
+            定时自动执行增量采集，进度弹窗默认收缩显示。与手动采集互斥，有启用视频源时才执行。
+          </p>
+        </div>
+
+        <div className="flex items-center justify-between gap-6 py-2">
+          <div>
+            <div className="text-sm font-medium">启用自动采集</div>
+            <div className="text-xs text-muted-foreground mt-1">关闭后定时与启动触发均不执行</div>
+          </div>
+          <Switch
+            checked={localConfig.autoEnabled}
+            onCheckedChange={(checked) => setLocalConfig({ ...localConfig, autoEnabled: checked })}
+          />
+        </div>
+
+        <div className={`grid grid-cols-2 gap-6 transition-opacity ${localConfig.autoEnabled ? '' : 'opacity-50 pointer-events-none'}`}>
+          <div className="space-y-2">
+            <Label htmlFor="autoIntervalHours">采集间隔（小时）</Label>
+            <Input
+              id="autoIntervalHours"
+              type="number"
+              min="1"
+              max="8760"
+              value={localConfig.autoIntervalHours}
+              onChange={(e) => setLocalConfig({ ...localConfig, autoIntervalHours: Math.min(8760, Math.max(1, parseInt(e.target.value) || 24)) })}
+            />
+            <p className="text-xs text-muted-foreground">距上次自动采集达到该间隔后触发</p>
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-sm font-medium">上次自动采集时间</div>
+            <div className="h-9 px-3 py-2 text-sm text-muted-foreground bg-muted/40 rounded-md border border-transparent">
+              {autoLastRunAt ? new Date(autoLastRunAt).toLocaleString() : '从未执行'}
+            </div>
+            <p className="text-xs text-muted-foreground">用于跨启动判断间隔与断点追溯</p>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-6 py-2">
+          <div>
+            <div className="text-sm font-medium">启动时立即采集</div>
+            <div className="text-xs text-muted-foreground mt-1">应用启动后延迟数秒自动执行一次增量采集</div>
+          </div>
+          <Switch
+            checked={localConfig.autoOnStartup}
+            onCheckedChange={(checked) => setLocalConfig({ ...localConfig, autoOnStartup: checked })}
+            disabled={!localConfig.autoEnabled}
+          />
         </div>
       </Card>
 
