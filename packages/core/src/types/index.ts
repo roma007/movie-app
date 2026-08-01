@@ -167,6 +167,7 @@ export interface CollectTask {
 }
 
 export interface CollectPreviewItem {
+  previewId: string;
   fingerprint: string;
   title: string;
   year: number;

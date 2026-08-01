@@ -1,7 +1,7 @@
 import { CMSAdapter } from './cmsAdapter';
 import { normalizer, DEFAULT_MIN_YEAR } from '../utils/normalizer';
 import { mapType, isBlacklisted, refineTypeByEpisodes, isVersionTitle, needsShortDramaCheck } from '../utils/typeMapper';
-import { SOURCE_ID_TO_NAME_MAP, PLAY_SOURCE_TYPE_MAP } from '../utils/constants';
+import { SOURCE_ID_TO_NAME_MAP, PLAY_SOURCE_TYPE_MAP, isPlayableMediaUrl } from '../utils/constants';
 import type { DatabaseProvider } from '../db/provider';
 import type { CMSMediaItem, Media, Episode, PlaySource, CollectTask, TaskStatus, TaskErrorType, CollectionLog, CollectPreviewItem } from '../types';
 import { SystemConfigService } from './systemConfigService';
@@ -79,7 +79,8 @@ function parsePlayInfo(
       if (idx > 0) {
         const title = line.substring(0, idx).trim();
         const url = line.substring(idx + 1).trim();
-        if (url) {
+        // 只保留可直接播放的媒体地址，过滤掉 HTML 分享页等非媒体 URL
+        if (url && isPlayableMediaUrl(url)) {
           epList.push({ title, url });
         }
       }
@@ -195,11 +196,13 @@ export class CollectorService {
 
       let hidden = existing?.hidden ?? false;
       if (!existing && genres.length > 0) {
-        const hiddenSubtype = await this.db.selectOne<{ sub_type: string }>(
-          `SELECT json_extract(genre, '$[0]') as sub_type FROM media WHERE hidden = 1 AND json_extract(genre, '$[0]') = ? LIMIT 1`,
-          [genres[0]]
-        );
-        if (hiddenSubtype) hidden = true;
+        const hiddenGenres = await this.db.getHiddenGenres();
+        if (hiddenGenres.some(hg => {
+          const needle = hg.toLowerCase();
+          return genres.some(g => g.toLowerCase().includes(needle));
+        })) {
+          hidden = true;
+        }
       }
 
       let isShortDrama = false;
@@ -630,7 +633,6 @@ export class CollectorService {
     const config = await configService.getCollectConfig();
 
     const results: Media[] = [];
-    const seenFingerprints = new Set<string>();
 
     for (const source of sources) {
       try {
@@ -649,8 +651,7 @@ export class CollectorService {
             }
             const item = detailResponse.list[0];
             const media = await this.processItem(item, source.id, source.name, config.blacklistKeywords, config.minYear);
-            if (media && !seenFingerprints.has(media.fingerprint)) {
-              seenFingerprints.add(media.fingerprint);
+            if (media) {
               results.push(media);
             }
           } catch (err) {
@@ -677,7 +678,6 @@ export class CollectorService {
     const config = await configService.getCollectConfig();
 
     const results: CollectPreviewItem[] = [];
-    const seenFingerprints = new Set<string>();
 
     for (let si = 0; si < sources.length; si++) {
       const source = sources[si];
@@ -718,10 +718,8 @@ export class CollectorService {
             const seasonNumber = normalizer.extractSeasonNumber(title) || 1;
             const fingerprint = await normalizer.generateFingerprint(title, year, mediaType, seasonNumber);
 
-            if (seenFingerprints.has(fingerprint)) continue;
-            seenFingerprints.add(fingerprint);
-
             const previewItem: CollectPreviewItem = {
+              previewId: `${source.id}:${fingerprint}`,
               fingerprint,
               title,
               year,

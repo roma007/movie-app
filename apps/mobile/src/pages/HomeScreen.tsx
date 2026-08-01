@@ -12,7 +12,6 @@ import { Input } from '../components/ui/Input';
 import UsageGuideModal from '../components/UsageGuideModal';
 import CategoryHeader from '../components/CategoryHeader';
 import BlurredBackground from '../components/BlurredBackground';
-import CollectProgressDialog from '../components/CollectProgressDialog';
 import type { Media, Episode, UserUsageType } from '@movie-app/core';
 import { radius } from '../themes/radiusTokens';
 import { Sparkles, Film, Tv, Clock, Heart, CheckSquare, Square } from 'lucide-react-native';
@@ -124,7 +123,7 @@ export default function HomeScreen() {
   }, [quickKeyword, searchKeywordPreview, relaxBlacklist, relaxYear]);
 
   const handleQuickCollect = useCallback(async () => {
-    const items = previewResults.filter((p) => selectedPreviewIds.size === 0 || selectedPreviewIds.has(p.fingerprint));
+    const items = previewResults.filter((p) => selectedPreviewIds.size === 0 || selectedPreviewIds.has(p.previewId));
     if (items.length === 0) {
       Alert.alert('提示', '请至少选择一个视频');
       return;
@@ -150,11 +149,11 @@ export default function HomeScreen() {
     }
   }, [collectLatest, provider, userUsageTypes]);
 
-  const toggleMobilePreviewItem = (fingerprint: string) => {
+  const toggleMobilePreviewItem = (previewId: string) => {
     setSelectedPreviewIds((prev) => {
       const next = new Set(prev);
-      if (next.has(fingerprint)) next.delete(fingerprint);
-      else next.add(fingerprint);
+      if (next.has(previewId)) next.delete(previewId);
+      else next.add(previewId);
       return next;
     });
   };
@@ -208,12 +207,12 @@ export default function HomeScreen() {
         <View style={styles.previewList}>
           {previewResults.map((item) => (
             <TouchableOpacity
-              key={item.fingerprint}
+              key={item.previewId}
               style={styles.previewItem}
-              onPress={() => toggleMobilePreviewItem(item.fingerprint)}
+              onPress={() => toggleMobilePreviewItem(item.previewId)}
             >
               <Text style={styles.previewCheck}>
-                {selectedPreviewIds.size === 0 || selectedPreviewIds.has(item.fingerprint) ? <CheckSquare size={16} color={colors.text} /> : <Square size={16} color={colors.mutedForeground} />}
+                {selectedPreviewIds.size === 0 || selectedPreviewIds.has(item.previewId) ? <CheckSquare size={16} color={colors.text} /> : <Square size={16} color={colors.mutedForeground} />}
               </Text>
               {item.posterUrl && (
                 <Image source={{ uri: item.posterUrl }} style={styles.previewPoster} />
@@ -574,7 +573,6 @@ export default function HomeScreen() {
         {renderFavoritesCard()}
       </ScrollView>
       {videoSources.length > 0 && <UsageGuideModal />}
-      <CollectProgressDialog />
     </View>
     </BlurredBackground>
   );

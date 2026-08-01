@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Dimensions, LayoutAnimation, UIManager, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppStore } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
@@ -15,30 +16,52 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
+const AUTO_COLLAPSE_MS = 5000;
+
 export default function CollectProgressDialog() {
   const collectSourceProgress = useAppStore((s) => s.collectSourceProgress);
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const s = useScaledFontSize();
   const cardOpacity = useThemeStore((s) => s.cardOpacity);
   const cardBg = hexToRgba(colors.card, cardOpacity / 100);
   const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100 * 0.6);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevVisibleRef = useRef(false);
   const [dismissed, setDismissed] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const [contentWidth, setContentWidth] = useState(260);
 
+  const startCollapseTimer = () => {
+    if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current);
+    collapseTimerRef.current = setTimeout(() => {
+      setExpanded(false);
+      collapseTimerRef.current = null;
+    }, AUTO_COLLAPSE_MS);
+  };
+
   useEffect(() => {
-    setDismissed(false);
-    setExpanded(false);
+    const visible = !!collectSourceProgress;
+    if (visible && !prevVisibleRef.current) {
+      setDismissed(false);
+      setExpanded(true);
+      startCollapseTimer();
+    }
+    prevVisibleRef.current = visible;
+  }, [collectSourceProgress]);
+
+  useEffect(() => {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
+      if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current);
     };
-  }, [collectSourceProgress]);
+  }, []);
 
   const styles = useMemo(() => StyleSheet.create({
     overlay: {
       position: 'absolute',
-      top: 50,
+      bottom: insets.bottom + 16,
       left: 12,
       zIndex: 999,
       elevation: 10,
@@ -128,7 +151,7 @@ export default function CollectProgressDialog() {
     footerText: {
       fontSize: s(11),
     },
-  }), [colors, cardBg, surfaceBg, s]);
+  }), [colors, cardBg, surfaceBg, s, insets]);
 
   if (!collectSourceProgress || dismissed) return null;
 
@@ -137,6 +160,10 @@ export default function CollectProgressDialog() {
   );
 
   if (allDone && !timerRef.current) {
+    if (collapseTimerRef.current) {
+      clearTimeout(collapseTimerRef.current);
+      collapseTimerRef.current = null;
+    }
     timerRef.current = setTimeout(() => {
       setDismissed(true);
       timerRef.current = null;
@@ -149,13 +176,25 @@ export default function CollectProgressDialog() {
   const runningCount = collectSourceProgress.filter((s) => s.status === 'running').length;
   const maxWidth = SCREEN_WIDTH * 0.78;
 
-  const toggleExpand = (next: boolean) => {
+  const handleExpand = () => {
     LayoutAnimation.configureNext(LayoutAnimation.create(
       250,
       LayoutAnimation.Types.easeInEaseOut,
       LayoutAnimation.Properties.opacity,
     ));
-    setExpanded(next);
+    setExpanded(true);
+    startCollapseTimer();
+  };
+
+  const handleCollapse = () => {
+    if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current);
+    collapseTimerRef.current = null;
+    LayoutAnimation.configureNext(LayoutAnimation.create(
+      250,
+      LayoutAnimation.Types.easeInEaseOut,
+      LayoutAnimation.Properties.opacity,
+    ));
+    setExpanded(false);
   };
 
   if (!expanded) {
@@ -165,7 +204,7 @@ export default function CollectProgressDialog() {
           variant="secondary"
           size="sm"
           style={StyleSheet.flatten([styles.pill, { backgroundColor: cardBg }])}
-          onPress={() => toggleExpand(true)}
+          onPress={() => handleExpand()}
           leftIcon={allDone ? <Check size={14} color={colors.success} /> : <ActivityIndicator size="small" color={colors.mutedForeground} />}
         >
           <Text style={[styles.pillText, { color: colors.text }]} numberOfLines={1}>
@@ -193,7 +232,7 @@ export default function CollectProgressDialog() {
               variant="icon"
               size="sm"
               style={styles.headerBtn}
-              onPress={() => toggleExpand(false)}
+              onPress={() => handleCollapse()}
             >
               <Minus size={18} color={colors.mutedForeground} />
             </Button>
@@ -204,6 +243,8 @@ export default function CollectProgressDialog() {
               onPress={() => {
                 if (timerRef.current) clearTimeout(timerRef.current);
                 timerRef.current = null;
+                if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current);
+                collapseTimerRef.current = null;
                 LayoutAnimation.configureNext(LayoutAnimation.create(
                   200, LayoutAnimation.Types.easeOut, LayoutAnimation.Properties.opacity,
                 ));

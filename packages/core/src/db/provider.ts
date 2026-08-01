@@ -68,8 +68,10 @@ export interface DatabaseProvider {
   getMediaCountBySourceIdMap(): Promise<Map<string, number>>;
   deleteMediaCompletely(mediaId: string): Promise<void>;
   deleteMediaWithoutPlaySource(): Promise<number>;
+  deleteNonMediaPlaySources(): Promise<number>;
   hideMediaByGenres(genres: string[]): Promise<{ hidden: number }>;
   unhideMediaByGenres(genres: string[]): Promise<{ unhidden: number }>;
+  getHiddenGenres(): Promise<string[]>;
   getHiddenMediaCount(): Promise<number>;
 
   // —— PlaySource DAO ——

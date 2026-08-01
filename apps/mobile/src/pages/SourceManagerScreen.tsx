@@ -303,13 +303,13 @@ export default function SourceManagerScreen({ navigation }: Props) {
     }
   };
 
-  const handleTogglePreviewItem = (fingerprint: string) => {
+  const handleTogglePreviewItem = (previewId: string) => {
     setSelectedPreviewIds(prev => {
       const next = new Set(prev);
-      if (next.has(fingerprint)) {
-        next.delete(fingerprint);
+      if (next.has(previewId)) {
+        next.delete(previewId);
       } else {
-        next.add(fingerprint);
+        next.add(previewId);
       }
       return next;
     });
@@ -319,7 +319,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
     if (selectedPreviewIds.size === previewResults.length) {
       setSelectedPreviewIds(new Set());
     } else {
-      setSelectedPreviewIds(new Set(previewResults.map(r => r.fingerprint)));
+      setSelectedPreviewIds(new Set(previewResults.map(r => r.previewId)));
     }
   };
 
@@ -328,7 +328,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
       showToast('请先选择要保存的视频', 'info');
       return;
     }
-    const selectedItems = previewResults.filter(r => selectedPreviewIds.has(r.fingerprint));
+    const selectedItems = previewResults.filter(r => selectedPreviewIds.has(r.previewId));
     setIsSaving(true);
     try {
       const count = await saveSelectedPreviewItems(selectedItems, {
@@ -666,12 +666,12 @@ export default function SourceManagerScreen({ navigation }: Props) {
                 </View>
                 <ScrollView style={styles.previewList}>
                   {previewResults.map((item: CollectPreviewItem) => {
-                    const selected = selectedPreviewIds.has(item.fingerprint);
+                    const selected = selectedPreviewIds.has(item.previewId);
                     return (
                       <TouchableOpacity
-                        key={item.fingerprint}
+                        key={item.previewId}
                         style={[styles.previewItem, selected && styles.previewItemSelected]}
-                        onPress={() => handleTogglePreviewItem(item.fingerprint)}
+                        onPress={() => handleTogglePreviewItem(item.previewId)}
                       >
                         <View style={styles.previewCheckbox}>
                           {selected && <Check size={14} color={colors.text} />}

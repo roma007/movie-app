@@ -24,3 +24,10 @@ apps/desktop/src-tauri/gen/
 
 # OS
 Thumbs.db
+
+# 工具文档（不入库）
+.trae/
+BUTTON_COLORS.md
+MOBILE_DESKTOP_DIFF.md
+主题字色对齐方案.md
+主题字色差异清单.md

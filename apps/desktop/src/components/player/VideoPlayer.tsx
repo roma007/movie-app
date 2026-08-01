@@ -13,6 +13,8 @@ import {
 import HLS from 'hls.js';
 import type { PlaySource } from '@movie-app/core';
 import { TauriLoader } from './TauriLoader';
+import { prefetchManager } from './PrefetchManager';
+import { invokePrewarm } from './pooledFetch';
 import { ZH_TRANSLATIONS } from './zhTranslations';
 import { ColorControls } from './ColorControls';
 import { NextEpisodeOverlay } from './NextEpisodeOverlay';
@@ -130,6 +132,16 @@ export function VideoPlayer({
     overlayDismissedRef.current = false;
   }, [currentIndex]);
 
+  useEffect(() => {
+    prefetchManager.reset();
+    return () => prefetchManager.reset();
+  }, [currentIndex]);
+
+  useEffect(() => {
+    const src = activeSources[currentIndex];
+    if (src?.url) void invokePrewarm(src.url);
+  }, [currentIndex, activeSources]);
+
   const nextEpisodeRef = useRef(nextEpisodeProp);
   const outroThresholdMinutesRef = useRef(outroThresholdMinutesProp);
   const showNextEpisodeOverlayRef = useRef(showNextEpisodeOverlayProp);
@@ -216,6 +228,8 @@ export function VideoPlayer({
         enableWorker: false,
         debug: false,
         maxBufferSize: maxBufferSize * 1000 * 1000,
+        maxBufferLength: 60,
+        maxMaxBufferLength: 300,
         maxBufferHole: 0.5,
         startFragPrefetch: true,
         testBandwidth: false,
@@ -224,6 +238,60 @@ export function VideoPlayer({
         abrEwmaDefaultEstimate: 1000000,
         abrBandWidthFactor: 0.95,
         abrBandWidthUpFactor: 0.7,
+        fragLoadPolicy: {
+          default: {
+            maxTimeToFirstByteMs: 20000,
+            maxLoadTimeMs: 120000,
+            timeoutRetry: {
+              maxNumRetry: 5,
+              retryDelayMs: 1000,
+              maxRetryDelayMs: 10000,
+              backoff: 'exponential',
+            },
+            errorRetry: {
+              maxNumRetry: 5,
+              retryDelayMs: 1000,
+              maxRetryDelayMs: 10000,
+              backoff: 'exponential',
+            },
+          },
+        },
+        manifestLoadPolicy: {
+          default: {
+            maxTimeToFirstByteMs: 10000,
+            maxLoadTimeMs: 30000,
+            timeoutRetry: {
+              maxNumRetry: 3,
+              retryDelayMs: 1000,
+              maxRetryDelayMs: 8000,
+              backoff: 'exponential',
+            },
+            errorRetry: {
+              maxNumRetry: 3,
+              retryDelayMs: 1000,
+              maxRetryDelayMs: 8000,
+              backoff: 'exponential',
+            },
+          },
+        },
+        playlistLoadPolicy: {
+          default: {
+            maxTimeToFirstByteMs: 10000,
+            maxLoadTimeMs: 30000,
+            timeoutRetry: {
+              maxNumRetry: 3,
+              retryDelayMs: 1000,
+              maxRetryDelayMs: 8000,
+              backoff: 'exponential',
+            },
+            errorRetry: {
+              maxNumRetry: 3,
+              retryDelayMs: 1000,
+              maxRetryDelayMs: 8000,
+              backoff: 'exponential',
+            },
+          },
+        },
       };
       console.log('[VideoPlayer] HLS provider ready, TauriLoader injected');
     },

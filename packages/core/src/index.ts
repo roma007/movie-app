@@ -17,6 +17,8 @@ export {
   defaultSources,
   BLACKLIST_KEYWORDS,
   MIN_YEAR,
+  MEDIA_FILE_EXTENSIONS,
+  isPlayableMediaUrl,
   AI_SOURCE_PROMPT,
   AI_SOURCE_IMPORT_SAMPLE,
   type DefaultSourceConfig,

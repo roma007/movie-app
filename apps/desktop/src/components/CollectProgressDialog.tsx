@@ -1,19 +1,63 @@
 import { useEffect, useState, useRef } from 'react';
 import { useAppStore } from '../useAppStore';
 import { Button } from '@/components/ui/button';
-import { X, Loader2, CheckCircle2, XCircle } from 'lucide-react';
+import { X, Minus, Loader2, CheckCircle2, XCircle, Check } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+const AUTO_COLLAPSE_MS = 5000;
 
 export function CollectProgressDialog() {
   const { collectSourceProgress } = useAppStore();
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const prevVisibleRef = useRef<boolean>(false);
   const [dismissed, setDismissed] = useState(false);
+  const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
-    setDismissed(false);
+    const visible = !!collectSourceProgress;
+    if (visible && !prevVisibleRef.current) {
+      setDismissed(false);
+      setExpanded(true);
+      startCollapseTimer();
+    }
+    prevVisibleRef.current = visible;
+  }, [collectSourceProgress]);
+
+  useEffect(() => {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
+      if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current);
     };
-  }, [collectSourceProgress]);
+  }, []);
+
+  const startCollapseTimer = () => {
+    if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current);
+    collapseTimerRef.current = setTimeout(() => {
+      setExpanded(false);
+      collapseTimerRef.current = undefined;
+    }, AUTO_COLLAPSE_MS);
+  };
+
+  const handleExpand = () => {
+    setExpanded(true);
+    startCollapseTimer();
+  };
+
+  const handleCollapse = () => {
+    if (collapseTimerRef.current) {
+      clearTimeout(collapseTimerRef.current);
+      collapseTimerRef.current = undefined;
+    }
+    setExpanded(false);
+  };
+
+  const handleDismiss = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = undefined;
+    handleCollapse();
+    setDismissed(true);
+  };
 
   if (!collectSourceProgress || dismissed) return null;
 
@@ -22,6 +66,10 @@ export function CollectProgressDialog() {
   );
 
   if (allDone && !timerRef.current) {
+    if (collapseTimerRef.current) {
+      clearTimeout(collapseTimerRef.current);
+      collapseTimerRef.current = undefined;
+    }
     timerRef.current = setTimeout(() => {
       setDismissed(true);
       timerRef.current = undefined;
@@ -32,37 +80,67 @@ export function CollectProgressDialog() {
   const doneCount = collectSourceProgress.filter((s) => s.status === 'done').length;
   const failedCount = collectSourceProgress.filter((s) => s.status === 'failed').length;
 
+  if (!expanded) {
+    return (
+      <div className="fixed bottom-4 left-4 z-50">
+        <Button
+          variant="secondary"
+          size="sm"
+          className="rounded-full shadow-lg"
+          onClick={handleExpand}
+        >
+          {allDone ? (
+            <Check className="size-3.5 text-success" />
+          ) : (
+            <Loader2 className="size-3.5 animate-spin" />
+          )}
+          <span>{allDone ? '采集完成' : `采集中 ${doneCount + failedCount}/${collectSourceProgress.length}`}</span>
+          {totalCollected > 0 && (
+            <span className="text-xs text-muted-foreground">{totalCollected}部</span>
+          )}
+        </Button>
+      </div>
+    );
+  }
+
   return (
-    <div className="fixed top-4 left-4 z-50 w-80 max-h-[70vh] rounded-lg bg-card shadow-lg overflow-hidden">
+    <div className="fixed bottom-4 left-4 z-50 w-80 max-h-[70vh] rounded-lg bg-card shadow-lg overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3">
         <h3 className="text-sm font-semibold">
           {allDone ? '采集完成' : '增量采集中...'}
         </h3>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6"
-          onClick={() => {
-            if (timerRef.current) clearTimeout(timerRef.current);
-            timerRef.current = undefined;
-            setDismissed(true);
-          }}
-        >
-          <X className="size-3.5" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6"
+            onClick={handleCollapse}
+          >
+            <Minus className="size-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6"
+            onClick={handleDismiss}
+          >
+            <X className="size-3.5" />
+          </Button>
+        </div>
       </div>
 
       <div className="overflow-y-auto max-h-[calc(70vh-48px)] p-2 space-y-1">
         {collectSourceProgress.map((s, i) => (
           <div
             key={i}
-            className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm ${
+            className={cn(
+              'flex items-center gap-2 rounded-md px-3 py-2 text-sm',
               s.status === 'failed'
                 ? 'bg-error/5'
                 : s.status === 'done'
                   ? 'bg-success/5'
                   : 'bg-accent/30'
-            }`}
+            )}
           >
             {s.status === 'running' ? (
               <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />

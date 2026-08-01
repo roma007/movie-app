@@ -5,6 +5,7 @@ import {
   COUNT_VIDEO_SOURCE_SQL,
   defaultSources,
   splitSqlStatements,
+  MEDIA_FILE_EXTENSIONS,
   rowToMedia,
   rowToEpisode,
   rowToPlaySource,
@@ -237,6 +238,25 @@ export class TauriSqlProvider implements DatabaseProvider {
     );`);
 
     await this.fixGenreData();
+    await this.backfillHiddenGenres();
+  }
+
+  /**
+   * 一次性回填隐藏子类型清单：仅当 hidden_genre 为空时，从当前已隐藏媒体
+   * 的 genre 中提取子类型写入，保证老版本用户已隐藏的子类型在新逻辑下继续生效。
+   */
+  private async backfillHiddenGenres(): Promise<void> {
+    const countRows = await this.db!.select<{ count: number }[]>(
+      'SELECT COUNT(*) as count FROM hidden_genre'
+    );
+    if ((countRows[0]?.count || 0) > 0) return;
+    await this.db!.execute(`
+      INSERT OR IGNORE INTO hidden_genre (sub_type, created_at)
+      SELECT DISTINCT json_each.value, ?
+      FROM media, json_each(media.genre)
+      WHERE media.hidden = 1 AND json_valid(media.genre)
+        AND json_each.value IS NOT NULL AND json_each.value != ''
+    `, [new Date().toISOString()]);
   }
 
   private async fixGenreData(): Promise<void> {
@@ -629,7 +649,7 @@ export class TauriSqlProvider implements DatabaseProvider {
       params.push(type);
     }
     const rows = await this.db!.select<{ area: string }[]>(
-      `SELECT DISTINCT area FROM media ${whereClause} ORDER BY area`,
+      `SELECT area FROM media ${whereClause} GROUP BY area ORDER BY COUNT(*) DESC, area`,
       params
     );
     return rows.map(row => row.area);
@@ -822,6 +842,28 @@ export class TauriSqlProvider implements DatabaseProvider {
     return deleted;
   }
 
+  async deleteNonMediaPlaySources(): Promise<number> {
+    const extConditions = MEDIA_FILE_EXTENSIONS.map(ext => `url NOT LIKE '%.${ext}%'`).join(' AND ');
+    const beforeRows = await this.db!.select<{ count: number }[]>('SELECT COUNT(*) as count FROM play_source');
+    const beforeCount = beforeRows[0]?.count || 0;
+    if (beforeCount === 0) return 0;
+
+    await this.db!.execute(`DELETE FROM play_source WHERE ${extConditions}`);
+
+    await this.db!.execute(`DELETE FROM episode WHERE NOT EXISTS (SELECT 1 FROM play_source WHERE play_source.episode_id = episode.id)`);
+
+    const deletedMedia = await this.deleteMediaWithoutPlaySource();
+    if (deletedMedia > 0) {
+      console.log(`[deleteNonMediaPlaySources] 顺带删除了 ${deletedMedia} 个无播放源的媒体`);
+    }
+
+    const afterRows = await this.db!.select<{ count: number }[]>('SELECT COUNT(*) as count FROM play_source');
+    const afterCount = afterRows[0]?.count || 0;
+    const deleted = beforeCount - afterCount;
+    console.log(`[deleteNonMediaPlaySources] play_source: ${beforeCount} -> ${afterCount}, deleted ${deleted}`);
+    return deleted;
+  }
+
   async hideMediaByGenres(genres: string[]): Promise<{ hidden: number }> {
     if (genres.length === 0) return { hidden: 0 };
     const conditions = genres.map(() => 'genre LIKE ?');
@@ -830,6 +872,13 @@ export class TauriSqlProvider implements DatabaseProvider {
       `UPDATE media SET hidden = 1 WHERE ${conditions.join(' OR ')}`,
       params
     );
+    const now = new Date().toISOString();
+    for (const genre of genres) {
+      await this.db!.execute(
+        'INSERT OR IGNORE INTO hidden_genre (sub_type, created_at) VALUES (?, ?)',
+        [genre, now]
+      );
+    }
     const rows = await this.db!.select<{ count: number }[]>(
       `SELECT COUNT(*) as count FROM media WHERE hidden = 1 AND ${conditions.join(' OR ')}`,
       params
@@ -845,11 +894,21 @@ export class TauriSqlProvider implements DatabaseProvider {
       `UPDATE media SET hidden = 0 WHERE ${conditions.join(' OR ')}`,
       params
     );
+    for (const genre of genres) {
+      await this.db!.execute('DELETE FROM hidden_genre WHERE sub_type = ?', [genre]);
+    }
     const rows = await this.db!.select<{ count: number }[]>(
       `SELECT COUNT(*) as count FROM media WHERE hidden = 0 AND ${conditions.join(' OR ')}`,
       params
     );
     return { unhidden: rows[0]?.count || 0 };
+  }
+
+  async getHiddenGenres(): Promise<string[]> {
+    const rows = await this.db!.select<{ sub_type: string }[]>(
+      'SELECT sub_type FROM hidden_genre ORDER BY sub_type'
+    );
+    return rows.map(row => row.sub_type);
   }
 
   async getHiddenMediaCount(): Promise<number> {

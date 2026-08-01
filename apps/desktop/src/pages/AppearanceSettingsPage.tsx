@@ -1,9 +1,12 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Layers, Video, Type } from 'lucide-react';
+import { ArrowLeft, Layers, Video, Type, Maximize2 } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
 import { useThemeStore } from '../themes/store';
 import { useFontSizeStore } from '../themes/fontSizeStore';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import type { ColorMode } from '../themes/types';
 
 const CHECK_COLOR = '#22c55e';
@@ -31,6 +34,27 @@ export default function AppearanceSettingsPage() {
     setMaxBufferSize,
   } = useThemeStore();
   const { currentFontSize, fontSizes, setFontSize } = useFontSizeStore();
+  const [rememberWindowSize, setRememberWindowSize] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const state = await invoke<{ remember: boolean }>('get_window_state');
+        if (!cancelled) setRememberWindowSize(state.remember);
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleToggleRememberWindow = async (next: boolean) => {
+    setRememberWindowSize(next);
+    try {
+      await invoke('set_window_remember', { remember: next });
+    } catch {}
+  };
 
   const sliderClasses =
     'w-full h-1.5 rounded-full appearance-none cursor-pointer bg-[var(--color-secondary)] accent-muted-foreground ' +
@@ -206,6 +230,25 @@ export default function AppearanceSettingsPage() {
               {size.label}
             </Button>
           ))}
+        </div>
+      </Card>
+
+      <div className="mb-3 text-sm text-muted-foreground">窗口</div>
+      <Card className="p-5 mb-8">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <Maximize2 className="size-4 text-muted-foreground shrink-0" />
+            <div className="min-w-0">
+              <div className="font-medium">记住窗口大小和位置</div>
+              <div className="text-sm text-muted-foreground mt-1">
+                关闭后每次启动将以默认窗口大小（1200×800）打开
+              </div>
+            </div>
+          </div>
+          <Switch
+            checked={rememberWindowSize}
+            onCheckedChange={handleToggleRememberWindow}
+          />
         </div>
       </Card>
     </div>

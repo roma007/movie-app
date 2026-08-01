@@ -444,7 +444,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                     >
                       全部
                     </Button>
-                    {areas.slice(0, 20).map((a) => (
+                    {areas.map((a) => (
                       <Button
                         key={a}
                         variant={activeArea === a ? 'default' : 'outline'}

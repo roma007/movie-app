@@ -154,11 +154,11 @@ export async function initApp(onProgress?: (step: string) => void): Promise<void
       report('Step 1: HTTP Client 配置完成');
 
       try {
-        const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http');
-        setVideoFetchFn(tauriFetch as typeof fetch);
-        report('Step 1b: Video fetch (Tauri) 配置完成');
+        const { pooledVideoFetch } = await import('./components/player/pooledFetch');
+        setVideoFetchFn(pooledVideoFetch as typeof fetch);
+        report('Step 1b: Video fetch (pooled) 配置完成');
       } catch {
-        report('Step 1b: Tauri fetch 不可用，使用 native fetch');
+        report('Step 1b: pooled fetch 不可用，使用 native fetch');
       }
       
       report('Step 2: 创建 TauriSqlProvider...');
@@ -169,6 +169,20 @@ export async function initApp(onProgress?: (step: string) => void): Promise<void
       await _provider.init();
       report('Step 3: TauriSqlProvider 初始化完成');
       await logToDb('Initialized TauriSqlProvider');
+
+      report('Step 3c: 清理非媒体播放地址...');
+      try {
+        const removed = await _provider.deleteNonMediaPlaySources();
+        if (removed > 0) {
+          await logToDb(`清理了 ${removed} 条非媒体播放地址`);
+        }
+        report(`Step 3c: 清理完成（删除 ${removed} 条）`);
+      } catch (err) {
+        const errMsg = `清理非媒体播放地址失败: ${err instanceof Error ? err.message : String(err)}`;
+        console.error(errMsg);
+        await logToDb(errMsg, 'error');
+      }
+
       try {
         const updated = await backfillSeriesGroup(_provider);
         if (updated > 0) await logToDb(`Backfilled series_group for ${updated} media`);

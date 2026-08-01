@@ -176,6 +176,11 @@ export const SCHEMA_SQL = `
     details TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS hidden_genre (
+    sub_type TEXT PRIMARY KEY,
+    created_at TEXT
+  );
+
   CREATE INDEX IF NOT EXISTS idx_collection_log_ts ON collection_log(timestamp);
   CREATE INDEX IF NOT EXISTS idx_collection_log_task ON collection_log(task_id);
 

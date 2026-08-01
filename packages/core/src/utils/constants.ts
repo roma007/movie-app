@@ -58,6 +58,17 @@ export const BLACKLIST_KEYWORDS = [
 
 export const MIN_YEAR = 2025;
 
+export const MEDIA_FILE_EXTENSIONS = [
+  'm3u8', 'mp4', 'flv', 'ts', 'webm', 'mkv', 'm4v', 'mov',
+  'mp3', 'aac', 'm4a', 'ogg', 'wav', 'wmv', 'avi', 'rmvb',
+];
+
+export function isPlayableMediaUrl(url: string): boolean {
+  if (!url) return false;
+  const re = new RegExp(`\\.(?:${MEDIA_FILE_EXTENSIONS.join('|')})(?:[?#]|$)`, 'i');
+  return re.test(url);
+}
+
 export const SOURCE_ID_TO_NAME_MAP: Record<string, string> = {
   'source_mdzuzi': '魔都资源',
   'source_baiduyunziyuan': '百度云资源',

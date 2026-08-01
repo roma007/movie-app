@@ -28,6 +28,7 @@ import VarietyScreen from './src/pages/VarietyScreen';
 import AnimeScreen from './src/pages/AnimeScreen';
 import DocumentaryScreen from './src/pages/DocumentaryScreen';
 import Sidebar from './src/components/Sidebar';
+import CollectProgressDialog from './src/components/CollectProgressDialog';
 
 const Stack = createNativeStackNavigator();
 
@@ -65,6 +66,7 @@ function RootNavigator() {
         <Stack.Screen name="TestCollect" component={TestCollectScreen} />
       </Stack.Navigator>
       <Sidebar />
+      <CollectProgressDialog />
     </>
   );
 }

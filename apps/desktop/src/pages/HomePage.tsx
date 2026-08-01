@@ -10,7 +10,6 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Card } from '@/components/ui/card';
 import { Search, X, Heart, Clock, ChevronRight as ChevronRightIcon, Film, Tv, Sparkles, Download, Plus, Database, Loader2 } from 'lucide-react';
-import { CollectProgressDialog } from '@/components/CollectProgressDialog';
 import { useToast } from '@/components/Layout';
 
 const USAGE_LABELS: Record<UserUsageType, string> = {
@@ -174,7 +173,7 @@ export default function HomePage() {
       return;
     }
     setIsSaving(true);
-    const items = previewResults.filter((p) => selectedPreviewIds.has(p.fingerprint));
+    const items = previewResults.filter((p) => selectedPreviewIds.has(p.previewId));
     const count = await saveSelectedPreviewItems(items, getOverrides());
     setIsSaving(false);
     if (count > 0) {
@@ -205,11 +204,11 @@ export default function HomePage() {
     }
   }, [collectLatest, provider, toast, userUsageTypes, videoSources.length, openAiImport]);
 
-  const togglePreviewItem = (fingerprint: string) => {
+  const togglePreviewItem = (previewId: string) => {
     setSelectedPreviewIds((prev) => {
       const next = new Set(prev);
-      if (next.has(fingerprint)) next.delete(fingerprint);
-      else next.add(fingerprint);
+      if (next.has(previewId)) next.delete(previewId);
+      else next.add(previewId);
       return next;
     });
   };
@@ -263,14 +262,14 @@ export default function HomePage() {
         <div className="space-y-2 max-h-64 overflow-y-auto bg-[var(--color-surface-alpha)] rounded-lg p-2">
           {previewResults.map((item) => (
             <label
-              key={item.fingerprint}
+              key={item.previewId}
               className="flex items-center gap-3 p-2 rounded hover:bg-secondary/50 cursor-pointer"
             >
               <input
                 type="checkbox"
-                checked={selectedPreviewIds.has(item.fingerprint)}
-                onChange={() => togglePreviewItem(item.fingerprint)}
-                className="accent-primary"
+                checked={selectedPreviewIds.has(item.previewId)}
+                onChange={() => togglePreviewItem(item.previewId)}
+                className="size-5 accent-primary cursor-pointer"
               />
               {item.posterUrl && (
                 <img src={item.posterUrl} alt="" className="size-10 object-cover rounded" />
@@ -404,8 +403,6 @@ export default function HomePage() {
 
   return (
     <div className="p-6 space-y-5 max-w-7xl mx-auto">
-      <CollectProgressDialog />
-
       <div className="flex gap-2 items-center">
         <div className="relative flex-1">
           <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-1 text-xs text-muted-foreground pointer-events-none">

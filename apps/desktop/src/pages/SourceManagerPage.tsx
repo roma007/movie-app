@@ -183,11 +183,11 @@ export default function SourceManagerPage() {
     await searchKeywordPreview(kw, Object.keys(overrides).length > 0 ? overrides : undefined);
   };
 
-  const handleTogglePreview = (fingerprint: string) => {
+  const handleTogglePreview = (previewId: string) => {
     setSelectedPreviewIds(prev => {
       const next = new Set(prev);
-      if (next.has(fingerprint)) next.delete(fingerprint);
-      else next.add(fingerprint);
+      if (next.has(previewId)) next.delete(previewId);
+      else next.add(previewId);
       return next;
     });
   };
@@ -196,12 +196,12 @@ export default function SourceManagerPage() {
     if (selectedPreviewIds.size === previewResults.length) {
       setSelectedPreviewIds(new Set());
     } else {
-      setSelectedPreviewIds(new Set(previewResults.map(r => r.fingerprint)));
+      setSelectedPreviewIds(new Set(previewResults.map(r => r.previewId)));
     }
   };
 
   const handleSavePreview = async () => {
-    const selected = previewResults.filter(r => selectedPreviewIds.has(r.fingerprint));
+    const selected = previewResults.filter(r => selectedPreviewIds.has(r.previewId));
     if (selected.length === 0) return;
     setIsSaving(true);
     try {
@@ -829,10 +829,10 @@ export default function SourceManagerPage() {
                 </div>
                 <div className="space-y-1.5 mt-2">
                   {previewResults.map((item) => {
-                    const isSelected = selectedPreviewIds.has(item.fingerprint);
+                    const isSelected = selectedPreviewIds.has(item.previewId);
                     return (
                       <label
-                        key={item.fingerprint}
+                        key={item.previewId}
                         className={`flex items-start gap-3 p-2.5 rounded-md border cursor-pointer transition-colors ${
                           isSelected ? 'border-muted-foreground bg-muted-foreground/20' : 'hover:bg-hover'
                         }`}
@@ -840,8 +840,8 @@ export default function SourceManagerPage() {
                         <input
                           type="checkbox"
                           checked={isSelected}
-                          onChange={() => handleTogglePreview(item.fingerprint)}
-                          className="mt-2 size-4 accent-primary"
+                          onChange={() => handleTogglePreview(item.previewId)}
+                          className="mt-2 size-5 accent-primary cursor-pointer"
                         />
                         <div className="w-10 h-14 shrink-0 rounded overflow-hidden bg-secondary">
                           {item.posterUrl && (

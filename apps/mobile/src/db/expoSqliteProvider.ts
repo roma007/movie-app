@@ -6,6 +6,7 @@ import {
   COUNT_VIDEO_SOURCE_SQL,
   defaultSources,
   splitSqlStatements,
+  MEDIA_FILE_EXTENSIONS,
   rowToMedia,
   rowToEpisode,
   rowToPlaySource,
@@ -147,6 +148,19 @@ const MIGRATIONS: Migration[] = [
     version: 17,
     description: 'fix_genres_with_comma_in_first_element',
     sql: `SELECT 1;`,
+  },
+  {
+    version: 18,
+    description: 'create_hidden_genre_table',
+    sql: `CREATE TABLE IF NOT EXISTS hidden_genre (
+            sub_type TEXT PRIMARY KEY,
+            created_at TEXT
+          );
+          INSERT OR IGNORE INTO hidden_genre (sub_type, created_at)
+          SELECT DISTINCT json_each.value, datetime('now')
+          FROM media, json_each(media.genre)
+          WHERE media.hidden = 1 AND json_valid(media.genre)
+            AND json_each.value IS NOT NULL AND json_each.value != '';`,
   },
 ];
 
@@ -559,7 +573,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
       params.push(type);
     }
     const rows = await this.db!.getAllAsync<{ area: string }>(
-      `SELECT DISTINCT area FROM media ${whereClause} ORDER BY area`,
+      `SELECT area FROM media ${whereClause} GROUP BY area ORDER BY COUNT(*) DESC, area`,
       params
     );
     return rows.map(row => row.area);
@@ -742,6 +756,26 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     return beforeCount - afterCount;
   }
 
+  async deleteNonMediaPlaySources(): Promise<number> {
+    const extConditions = MEDIA_FILE_EXTENSIONS.map(ext => `url NOT LIKE '%.${ext}%'`).join(' AND ');
+    const beforeRows = await this.db!.getAllAsync<{ count: number }>('SELECT COUNT(*) as count FROM play_source');
+    const beforeCount = beforeRows[0]?.count || 0;
+    if (beforeCount === 0) return 0;
+
+    await this.db!.runAsync(`DELETE FROM play_source WHERE ${extConditions}`);
+
+    await this.db!.runAsync(`DELETE FROM episode WHERE NOT EXISTS (SELECT 1 FROM play_source WHERE play_source.episode_id = episode.id)`);
+
+    const deletedMedia = await this.deleteMediaWithoutPlaySource();
+    if (deletedMedia > 0) {
+      console.log(`[deleteNonMediaPlaySources] 顺带删除了 ${deletedMedia} 个无播放源的媒体`);
+    }
+
+    const afterRows = await this.db!.getAllAsync<{ count: number }>('SELECT COUNT(*) as count FROM play_source');
+    const afterCount = afterRows[0]?.count || 0;
+    return beforeCount - afterCount;
+  }
+
   async hideMediaByGenres(genres: string[]): Promise<{ hidden: number }> {
     if (genres.length === 0) return { hidden: 0 };
     const conditions = genres.map(() => 'genre LIKE ?');
@@ -750,6 +784,13 @@ export class ExpoSqliteProvider implements DatabaseProvider {
       `UPDATE media SET hidden = 1 WHERE ${conditions.join(' OR ')}`,
       params
     );
+    const now = new Date().toISOString();
+    for (const genre of genres) {
+      await this.db!.runAsync(
+        'INSERT OR IGNORE INTO hidden_genre (sub_type, created_at) VALUES (?, ?)',
+        [genre, now]
+      );
+    }
     const result = await this.db!.getFirstAsync<{ count: number }>(
       `SELECT COUNT(*) as count FROM media WHERE hidden = 1 AND ${conditions.join(' OR ')}`,
       params
@@ -765,11 +806,21 @@ export class ExpoSqliteProvider implements DatabaseProvider {
       `UPDATE media SET hidden = 0 WHERE ${conditions.join(' OR ')}`,
       params
     );
+    for (const genre of genres) {
+      await this.db!.runAsync('DELETE FROM hidden_genre WHERE sub_type = ?', [genre]);
+    }
     const result = await this.db!.getFirstAsync<{ count: number }>(
       `SELECT COUNT(*) as count FROM media WHERE hidden = 0 AND ${conditions.join(' OR ')}`,
       params
     );
     return { unhidden: result?.count || 0 };
+  }
+
+  async getHiddenGenres(): Promise<string[]> {
+    const rows = await this.db!.getAllAsync<{ sub_type: string }>(
+      'SELECT sub_type FROM hidden_genre ORDER BY sub_type'
+    );
+    return rows.map(row => row.sub_type);
   }
 
   async getHiddenMediaCount(): Promise<number> {

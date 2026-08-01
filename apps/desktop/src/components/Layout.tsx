@@ -1,6 +1,7 @@
 import { NavLink, Link, Outlet } from 'react-router-dom';
 import { UsageGuideDialog } from './UsageGuideDialog';
 import { AiSourceImportDialog } from './AiSourceImportDialog';
+import { CollectProgressDialog } from './CollectProgressDialog';
 import { BackgroundLayer } from './BackgroundLayer';
 import { useImportDialogStore } from '../themes/importDialogStore';
 import {
@@ -91,7 +92,7 @@ function ToastProvider({ children }: { children: ReactNode }) {
 }
 
 export function Layout() {
-  const [appVersion, setAppVersion] = useState('1.0.30');
+  const [appVersion, setAppVersion] = useState('1.0.32');
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [showUsageGuide, setShowUsageGuide] = useState(false);
   const aiImportOpen = useImportDialogStore((s) => s.aiImportOpen);
@@ -147,6 +148,7 @@ export function Layout() {
         open={aiImportOpen}
         onOpenChange={handleImportClosed}
       />
+      <CollectProgressDialog />
       <div className="flex h-full">
         <aside className="w-56 shrink-0 flex flex-col bg-[var(--color-sidebar-alpha)] backdrop-blur-md">
           <div className="flex items-center gap-2 px-5 h-14">
