@@ -12,7 +12,7 @@ import { Input } from '../components/ui/Input';
 import UsageGuideModal from '../components/UsageGuideModal';
 import CategoryHeader from '../components/CategoryHeader';
 import BlurredBackground from '../components/BlurredBackground';
-import type { Media, Episode, UserUsageType } from '@movie-app/core';
+import type { Media, Episode, UserUsageType, WatchHistory } from '@movie-app/core';
 import { radius } from '../themes/radiusTokens';
 import { Sparkles, Film, Tv, Clock, Heart, CheckSquare, Square } from 'lucide-react-native';
 
@@ -36,6 +36,9 @@ export default function HomeScreen() {
   const [favMediaList, setFavMediaList] = useState<Media[]>([]);
   const [historyMediaList, setHistoryMediaList] = useState<Media[]>([]);
   const [episodeMap, setEpisodeMap] = useState<Record<string, Episode>>({});
+  const [watchedHistoryMap, setWatchedHistoryMap] = useState<Record<string, WatchHistory[]>>({});
+  const [episodeTotalMap, setEpisodeTotalMap] = useState<Record<string, number>>({});
+  const [sourceTotalMap, setSourceTotalMap] = useState<Record<string, Record<string, number>>>({});
   const [latestMedia, setLatestMedia] = useState<Media[]>([]);
   const [quickKeyword, setQuickKeyword] = useState('');
   const [selectedPreviewIds, setSelectedPreviewIds] = useState<Set<string>>(new Set([]));
@@ -99,21 +102,40 @@ export default function HomeScreen() {
   }, [watchHistory, provider]);
 
   useEffect(() => {
-    if (watchHistory.length === 0) { setEpisodeMap({}); return; }
+    const tvList = historyMediaList.filter((m) => m.type === 'TV' || m.type === 'VARIETY');
+    if (tvList.length === 0) { setWatchedHistoryMap({}); setEpisodeTotalMap({}); setSourceTotalMap({}); setEpisodeMap({}); return; }
     let cancelled = false;
-    const episodeIds = watchHistory.map(h => h.episodeId).filter(Boolean) as string[];
-    if (episodeIds.length === 0) { setEpisodeMap({}); return; }
     Promise.all(
-      episodeIds.map(id => provider.getEpisodeById(id).catch(() => null))
-    ).then(list => {
-      if (!cancelled) {
-        const map: Record<string, Episode> = {};
-        list.filter(Boolean).forEach(ep => { if (ep) map[ep.id] = ep; });
-        setEpisodeMap(map);
-      }
+      tvList.map(async (m) => {
+        const history = await provider.getAllWatchHistoryByMediaId(m.id).catch(() => [] as WatchHistory[]);
+        let total: number | undefined;
+        const sourceCounts: Record<string, number> = {};
+        const eps = await provider.getEpisodesByMediaId(m.id).catch(() => [] as Episode[]);
+        const seenBySource: Record<string, Set<string>> = {};
+        for (const e of eps) {
+          if (!e.sourceId) continue;
+          (seenBySource[e.sourceId] ??= new Set()).add(`${e.seasonNumber}:${e.episodeNumber}`);
+        }
+        for (const [sid, set] of Object.entries(seenBySource)) sourceCounts[sid] = set.size;
+        if (m.totalEpisodes == null && m.currentEpisodes == null) {
+          total = new Set(eps.map((e) => `${e.seasonNumber}:${e.episodeNumber}`)).size;
+        }
+        return { id: m.id, history, total, sourceCounts } as const;
+      })
+    ).then(async (list) => {
+      if (cancelled) return;
+      setWatchedHistoryMap(Object.fromEntries(list.map((i) => [i.id, i.history])));
+      setEpisodeTotalMap(Object.fromEntries(list.filter((i) => i.total != null).map((i) => [i.id, i.total as number])));
+      setSourceTotalMap(Object.fromEntries(list.map((i) => [i.id, i.sourceCounts])));
+      const allEpIds = [...new Set(list.flatMap((i) => i.history.map((wh) => wh.episodeId).filter(Boolean)))] as string[];
+      const epEntries = await Promise.all(allEpIds.map((id) => provider.getEpisodeById(id).catch(() => null)));
+      if (cancelled) return;
+      const map: Record<string, Episode> = {};
+      epEntries.forEach((ep) => { if (ep) map[ep.id] = ep; });
+      setEpisodeMap(map);
     });
     return () => { cancelled = true; };
-  }, [watchHistory, provider]);
+  }, [historyMediaList, provider]);
 
   const handleQuickPreview = useCallback(async () => {
     const kw = quickKeyword.trim();
@@ -282,7 +304,31 @@ export default function HomeScreen() {
           tvWatchHistory.slice(0, 5).map((h) => {
             const media = historyMediaList.find((m) => m.id === h.mediaId);
             if (!media) return null;
-            const progressPct = h.duration > 0 ? Math.min(Math.round((h.progress / h.duration) * 100), 100) : 0;
+            const history = watchedHistoryMap[media.id] ?? [];
+            const isWatched = (wh: WatchHistory) => wh.episodeId && (wh.progress > 60 || (wh.duration > 0 && wh.progress / wh.duration >= 0.1));
+            let recentSourceId: string | null = null;
+            for (const wh of history) {
+              if (wh.episodeId) {
+                const e = episodeMap[wh.episodeId];
+                if (e?.sourceId) { recentSourceId = e.sourceId; break; }
+              }
+            }
+            const sourceCount = recentSourceId ? (sourceTotalMap[media.id]?.[recentSourceId] ?? 0) : 0;
+            const distinctKey = (wh: WatchHistory) => {
+              const e = wh.episodeId ? episodeMap[wh.episodeId] : null;
+              return e ? `${e.seasonNumber}:${e.episodeNumber}` : `ep:${wh.episodeId}`;
+            };
+            const watchedRows = history.filter(isWatched);
+            const watchedCount = sourceCount > 0
+              ? new Set(watchedRows.filter((wh) => {
+                  const e = wh.episodeId ? episodeMap[wh.episodeId] : null;
+                  return e?.sourceId === recentSourceId;
+                }).map(distinctKey)).size
+              : new Set(watchedRows.map(distinctKey)).size;
+            const totalCount = sourceCount > 0 ? sourceCount : (media.totalEpisodes ?? media.currentEpisodes ?? episodeTotalMap[media.id] ?? 0);
+            const progressPct = totalCount > 0
+              ? Math.min(Math.round((watchedCount / totalCount) * 100), 100)
+              : (h.duration > 0 ? Math.min(Math.round((h.progress / h.duration) * 100), 100) : 0);
             const ep = h.episodeId ? episodeMap[h.episodeId] : null;
             const epLabel = ep ? (ep.title || `第${ep.episodeNumber}集`) : null;
             return (

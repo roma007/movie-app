@@ -1,15 +1,11 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { getProvider } from '../init';
 import { useAppStore } from '../useAppStore';
 import { useBackgroundStore } from '../themes/backgroundStore';
-import { VideoPlayer } from '@/components/player/VideoPlayer';
+import { usePlayerStore } from '../stores/playerStore';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Card } from '@/components/ui/card';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
-import { SystemConfigService } from '@movie-app/core';
-import type { Episode, Media, PlaySource, VideoSource } from '@movie-app/core';
 
 const typeLabel: Record<string, string> = {
   MOVIE: '电影',
@@ -23,19 +19,40 @@ export default function PlayPage() {
   const { episodeId } = useParams<{ episodeId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  const { saveWatchProgress, episodes, episodesLoading, seasons, episodeSources, seriesMedia, loadSeasons, loadEpisodes, loadEpisodeSources, loadSeriesMedia } = useAppStore();
-  const [episode, setEpisode] = useState<Episode | null>(null);
-  const [media, setMedia] = useState<Media | null>(null);
-  const [sources, setSources] = useState<PlaySource[]>([]);
-  const [activeSource, setActiveSource] = useState<PlaySource | null>(null);
-  const [initialCurrentTime, setInitialCurrentTime] = useState(0);
-  const [watchedEpisodes, setWatchedEpisodes] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
-  const [currentSeason, setCurrentSeason] = useState(1);
-  const [outroThresholdMinutes, setOutroThresholdMinutes] = useState(10);
-  const [showNextEpisodeOverlay, setShowNextEpisodeOverlay] = useState(true);
+
+  const { episodes, episodesLoading, seasons, episodeSources, seriesMedia, loadSeasons, loadEpisodes, loadEpisodeSources, loadSeriesMedia } = useAppStore();
+
+  const session = usePlayerStore((s) => s.session);
+  const openPlayback = usePlayerStore((s) => s.openPlayback);
+  const switchCmsSource = usePlayerStore((s) => s.switchCmsSource);
+  const handleSourceChange = usePlayerStore((s) => s.handleSourceChange);
+  const setSlotRect = usePlayerStore((s) => s.setSlotRect);
+  const updateNextEpisode = usePlayerStore((s) => s.updateNextEpisode);
+
   const setBgImage = useBackgroundStore((s) => s.setBgImage);
   const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
+
+  const activeSession = session && session.episodeId === episodeId ? session : null;
+  const ready = !!activeSession && !activeSession.loading;
+  const isLoading = !activeSession || activeSession.loading;
+  const media = activeSession?.media ?? null;
+  const episode = activeSession?.episode ?? null;
+  const sources = activeSession?.sources ?? [];
+  const activeSource = sources.find((s) => s.id === activeSession?.playSourceId) ?? null;
+  const selectedSourceId = activeSession?.selectedSourceId ?? null;
+
+  const [currentSeason, setCurrentSeason] = useState(1);
+  const [displayedSourceId, setDisplayedSourceId] = useState<string | null>(null);
+  const [slotReady, setSlotReady] = useState(false);
+  const playerSlotRef = useRef<HTMLDivElement | null>(null);
+
+  const urlSourceIdRef = useRef<string | null>(null);
+  if (!urlSourceIdRef.current) {
+    urlSourceIdRef.current = new URLSearchParams(location.search).get('sourceId');
+  }
+
+  const openingRef = useRef<string | null>(null);
+  const prevMediaIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const bgUrl = media?.posterUrl ?? null;
@@ -43,163 +60,51 @@ export default function PlayPage() {
     return () => clearBgImage();
   }, [media, setBgImage, clearBgImage]);
 
-  const sourceParams = new URLSearchParams(location.search);
-  const urlSourceId = sourceParams.get('sourceId');
-  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
-  const [currentEpisodeId, setCurrentEpisodeId] = useState(episodeId);
-  const initialLoadDone = useRef(false);
-
   useEffect(() => {
-    if (!currentEpisodeId) return;
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setInitialCurrentTime(0);
-      setWatchedEpisodes(new Set());
-      const provider = getProvider();
-      const ep = await provider.getEpisodeById(currentEpisodeId);
-      if (cancelled) return;
-      setEpisode(ep);
-      if (ep) {
-        const [m, ps] = await Promise.all([
-          provider.getMediaById(ep.mediaId),
-          provider.getPlaySourcesByEpisodeId(ep.id),
-        ]);
-        if (cancelled) return;
-        setMedia(m);
-        setSources(ps);
-
-        if (!initialLoadDone.current) {
-          const effectiveSourceId = urlSourceId || ep.sourceId || null;
-          if (effectiveSourceId) {
-            setSelectedSourceId(effectiveSourceId);
-            const matchingSource = ps.find(s => s.sourceId === effectiveSourceId && s.isActive !== false) || ps.find(s => s.sourceId === effectiveSourceId) || ps.find(s => s.isActive !== false) || ps[0] || null;
-            setActiveSource(matchingSource);
-          } else {
-            const firstActive = ps.find(s => s.isActive !== false) || ps[0] || null;
-            setSelectedSourceId(firstActive?.sourceId || null);
-            setActiveSource(firstActive);
-          }
-          initialLoadDone.current = true;
-        }
-
-        if (m) {
-          const configService = new SystemConfigService(provider);
-          const [saved, allHistory, playbackConfig] = await Promise.all([
-            provider.getWatchHistoryByMediaId(m.id),
-            provider.getAllWatchHistoryByMediaId(m.id),
-            configService.getPlaybackConfig(),
-          ]);
-          setOutroThresholdMinutes(playbackConfig.outroThresholdMinutes);
-          setShowNextEpisodeOverlay(playbackConfig.showNextEpisodeOverlay);
-          const watched = new Set<string>();
-          for (const h of allHistory) {
-            if (h.episodeId && h.episodeId !== m.id && (h.progress > 60 || (h.duration > 0 && h.progress / h.duration >= 0.1))) {
-              watched.add(h.episodeId);
-            }
-          }
-          setWatchedEpisodes(watched);
-
-          if (saved && saved.progress > 0) {
-            const matchEpisode = !saved.episodeId || saved.episodeId === ep.id;
-            const nearEnd = saved.duration > 0 && saved.progress >= saved.duration - 5;
-            if (matchEpisode && !nearEnd) {
-              setInitialCurrentTime(saved.progress);
-            }
-          }
-        }
+    if (!episodeId) return;
+    if (activeSession) {
+      const urlSid = urlSourceIdRef.current;
+      if (urlSid && urlSid !== activeSession.selectedSourceId) {
+        switchCmsSource(urlSid);
       }
-      setLoading(false);
-    })();
-    return () => { cancelled = true; };
-  }, [currentEpisodeId]);
-
-  const [lastSaveTime, setLastSaveTime] = useState(0);
+      return;
+    }
+    if (openingRef.current === episodeId) return;
+    openingRef.current = episodeId;
+    void openPlayback(episodeId, { sourceId: urlSourceIdRef.current }).finally(() => {
+      if (openingRef.current === episodeId) openingRef.current = null;
+    });
+  }, [episodeId, activeSession, openPlayback, switchCmsSource]);
 
   useEffect(() => {
-    if (episodeSources.length === 0 || !selectedSourceId) return;
-    if (!episodeSources.find(s => s.id === selectedSourceId)) {
-      const id = episodeSources[0].id;
-      setSelectedSourceId(id);
-      const matchingSource = sources.find(s => s.sourceId === id && s.isActive !== false) || sources.find(s => s.sourceId === id);
-      if (matchingSource) setActiveSource(matchingSource);
+    if (ready && media?.id && prevMediaIdRef.current !== media.id) {
+      prevMediaIdRef.current = media.id;
+      setCurrentSeason(media.seriesSeason ?? 1);
     }
-  }, [episodeSources]);
-
-  const handleTimeUpdate = (currentTime: number, duration: number) => {
-    if (media && duration > 0) {
-      const now = Date.now();
-      if (now - lastSaveTime >= 10000 || Math.floor(currentTime) >= duration - 2) {
-        saveWatchProgress(media.id, currentEpisodeId || null, Math.floor(currentTime), Math.floor(duration));
-        setLastSaveTime(now);
-      }
-    }
-  };
-
-  const handleSourceFail = async (sourceId: string) => {
-    const provider = getProvider();
-    await provider.reportPlaySourceFail(sourceId);
-  };
-
-  const handleSourceChange = (source: PlaySource) => {
-    setActiveSource(source);
-    setSelectedSourceId(source.sourceId);
-  };
-
-  const handleSwitchCmsSource = (sourceId: string) => {
-    setSelectedSourceId(sourceId);
-    const matchingSource = sources.find(s => s.sourceId === sourceId && s.isActive !== false) || sources.find(s => s.sourceId === sourceId);
-    if (matchingSource) {
-      setActiveSource(matchingSource);
-    }
-  };
-
-  const availableCmsSources = useMemo(() => {
-    return episodeSources.map(s => ({ id: s.id, name: s.name }));
-  }, [episodeSources]);
-
-  const filteredSources = sources;
-
-  const [displayedSourceId, setDisplayedSourceId] = useState(selectedSourceId);
-  useEffect(() => {
-    if (!episodesLoading) {
-      setDisplayedSourceId(selectedSourceId);
-    }
-  }, [episodesLoading, selectedSourceId]);
-
-  const filteredEpisodes = useMemo(() => {
-    if (!displayedSourceId) return episodes;
-    return episodes.filter(ep => ep.sourceId === displayedSourceId);
-  }, [episodes, displayedSourceId]);
-
-  const nextEpisode = useMemo(() => {
-    if (!episode || filteredEpisodes.length === 0 || media?.type === 'MOVIE') return null;
-    const idx = filteredEpisodes.findIndex((ep: Episode) => ep.id === episode.id);
-    if (idx < 0 || idx >= filteredEpisodes.length - 1) return null;
-    return filteredEpisodes[idx + 1] as Episode;
-  }, [episode, filteredEpisodes, media?.type]);
-
-  const handleNextEpisode = () => {
-    if (nextEpisode) {
-      setCurrentEpisodeId(nextEpisode.id);
-    }
-  };
+  }, [ready, media?.id]);
 
   useEffect(() => {
-    if (!media?.id) return;
+    if (!ready || !media?.id) return;
     loadSeasons(media.id);
     loadSeriesMedia(media.id);
-  }, [media?.id]);
+  }, [ready, media?.id]);
 
   useEffect(() => {
-    if (!media?.id || currentSeason === 0) return;
+    if (!ready || !media?.id || currentSeason === 0) return;
     loadEpisodeSources(media.id, currentSeason);
-  }, [media?.id, currentSeason]);
+  }, [ready, media?.id, currentSeason]);
 
   useEffect(() => {
-    if (!media?.id || currentSeason === 0 || !selectedSourceId) return;
+    if (!ready || !media?.id || currentSeason === 0 || !selectedSourceId) return;
     loadEpisodes(media.id, currentSeason, selectedSourceId);
-  }, [media?.id, currentSeason, selectedSourceId]);
+  }, [ready, media?.id, currentSeason, selectedSourceId]);
+
+  useEffect(() => {
+    if (!ready || !media?.id || currentSeason === 0 || episodeSources.length === 0) return;
+    if (!selectedSourceId || !episodeSources.find((s) => s.id === selectedSourceId)) {
+      switchCmsSource(episodeSources[0].id);
+    }
+  }, [ready, media?.id, currentSeason, episodeSources, selectedSourceId, switchCmsSource]);
 
   useEffect(() => {
     if (seasons.length > 0 && !seasons.includes(currentSeason)) {
@@ -207,13 +112,63 @@ export default function PlayPage() {
     }
   }, [seasons]);
 
-  const seasonToMediaMap = new Map<number, string>();
-  seriesMedia.forEach(m => {
-    if (m.seriesSeason) seasonToMediaMap.set(m.seriesSeason, m.id);
-  });
-  const seasonsFromSeries = seriesMedia.map(m => m.seriesSeason ?? 1).sort((a, b) => a - b);
+  useEffect(() => {
+    if (!episodesLoading) setDisplayedSourceId(selectedSourceId);
+  }, [episodesLoading, selectedSourceId]);
+
+  useEffect(() => {
+    updateNextEpisode();
+  }, [episodes, selectedSourceId, activeSession?.episodeId, activeSession?.media?.type, updateNextEpisode]);
+
+  useEffect(() => {
+    if (isLoading) return;
+    const el = playerSlotRef.current;
+    if (!el) return;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      setSlotRect({ left: r.left, top: r.top, width: r.width, height: r.height });
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    const main = document.getElementById('main-content');
+    main?.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      ro.disconnect();
+      main?.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, [slotReady, isLoading, setSlotRect]);
+
+  useEffect(() => {
+    return () => setSlotRect(null);
+  }, [setSlotRect]);
+
+  const filteredEpisodes = useMemo(() => {
+    if (!displayedSourceId) return episodes;
+    return episodes.filter((ep: any) => ep.sourceId === displayedSourceId);
+  }, [episodes, displayedSourceId]);
+
+  const availableCmsSources = useMemo(() => {
+    return episodeSources.map((s) => ({ id: s.id, name: s.name }));
+  }, [episodeSources]);
+
+  const watchedEpisodes = useMemo(() => new Set(activeSession?.watchedEpisodes ?? []), [activeSession?.watchedEpisodes]);
+
+  const seasonToMediaMap = useMemo(() => {
+    const map = new Map<number, string>();
+    seriesMedia.forEach((m) => {
+      if (m.seriesSeason) map.set(m.seriesSeason, m.id);
+    });
+    return map;
+  }, [seriesMedia]);
+
+  const seasonsFromSeries = useMemo(
+    () => seriesMedia.map((m) => m.seriesSeason ?? 1).sort((a, b) => a - b),
+    [seriesMedia],
+  );
   const displaySeasons = seasonsFromSeries.length > 0 ? seasonsFromSeries : seasons;
-  const currentMediaSeason = media?.seriesSeason ?? 1;
 
   const handleSeasonClick = (s: number) => {
     const targetId = seasonToMediaMap.get(s);
@@ -221,11 +176,11 @@ export default function PlayPage() {
       navigate(`/media/${targetId}`, { replace: true });
     } else {
       setCurrentSeason(s);
-      setSelectedSourceId(null);
+      setDisplayedSourceId(null);
     }
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="p-6 space-y-4 max-w-7xl mx-auto">
         <Skeleton className="w-full aspect-video rounded-lg animate-pulse-skeleton" />
@@ -233,11 +188,10 @@ export default function PlayPage() {
     );
   }
 
-  if (!episode || filteredSources.length === 0) {
+  if (!episode || sources.length === 0) {
     return (
       <div className="p-6 max-w-7xl mx-auto">
         <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
-          <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
           <div className="flex items-center gap-4">
             <Button variant="ghost" onClick={() => navigate(-1)} className="hover:text-text shrink-0">
               <ArrowLeft className="size-4 mr-2" /> 返回
@@ -252,7 +206,6 @@ export default function PlayPage() {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
-        <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
         <div className="flex items-center gap-4">
           <Button variant="ghost" onClick={() => navigate(-1)} className="hover:text-text shrink-0">
             <ArrowLeft className="size-4 mr-2" /> 返回
@@ -273,17 +226,12 @@ export default function PlayPage() {
       <div className="flex flex-col gap-6 mt-5">
         <div className="flex gap-6">
           <div className="flex-1 min-w-0">
-            <VideoPlayer
-              sources={filteredSources}
-              initialSourceId={activeSource?.id}
-              initialCurrentTime={initialCurrentTime}
-              nextEpisode={nextEpisode}
-              outroThresholdMinutes={outroThresholdMinutes}
-              showNextEpisodeOverlay={showNextEpisodeOverlay}
-              onTimeUpdate={handleTimeUpdate}
-              onNextEpisode={handleNextEpisode}
-              onSourceChange={handleSourceChange}
-              onSourceFail={handleSourceFail}
+            <div
+              ref={(node) => {
+                playerSlotRef.current = node;
+                setSlotReady(!!node);
+              }}
+              className="relative w-full aspect-video rounded-lg overflow-hidden bg-black"
             />
           </div>
 
@@ -302,17 +250,17 @@ export default function PlayPage() {
 
             <div className="space-y-2">
               <div className="text-sm text-muted-foreground">
-                {filteredSources.length > 0 ? '播放线路' : '暂无播放线路'}
+                {sources.length > 0 ? '播放线路' : '暂无播放线路'}
               </div>
               <div className="flex gap-2 flex-wrap">
                 {(() => {
                   const sourceKeyMap = new Map<string, number>();
-                  filteredSources.forEach(s => {
+                  sources.forEach((s) => {
                     const key = `${s.sourceName || ''}_${s.quality || ''}`;
                     sourceKeyMap.set(key, (sourceKeyMap.get(key) || 0) + 1);
                   });
                   const keyIndexMap = new Map<string, number>();
-                  return filteredSources.map((s, i) => {
+                  return sources.map((s, i) => {
                     const key = `${s.sourceName || ''}_${s.quality || ''}`;
                     const count = sourceKeyMap.get(key) || 1;
                     const idx = (keyIndexMap.get(key) || 0) + 1;
@@ -370,7 +318,7 @@ export default function PlayPage() {
                     {availableCmsSources.map((cms) => (
                       <button
                         key={cms.id}
-                        onClick={() => handleSwitchCmsSource(cms.id)}
+                        onClick={() => switchCmsSource(cms.id)}
                         className={`w-full text-left px-3 py-2.5 transition-colors rounded-lg ${
                           selectedSourceId === cms.id
                             ? 'bg-muted-foreground/20 text-text'
@@ -384,17 +332,21 @@ export default function PlayPage() {
                 )}
 
                 <div className="flex-1 min-w-0 p-4">
-                  <div className="grid grid-cols-[repeat(auto-fill,minmax(80px,1fr))] gap-2">
+                  <div className="flex flex-wrap gap-1.5">
                     {filteredEpisodes.map((ep: any) => (
-                      <Button
-                      key={ep.id}
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setCurrentEpisodeId(ep.id)}
-                      className={`${ep.id === currentEpisodeId ? 'bg-muted-foreground/20 text-text' : ''} ${ep.id !== currentEpisodeId && watchedEpisodes.has(ep.id) ? 'opacity-50' : ''}`}
-                    >
+                      <button
+                        key={ep.id}
+                        type="button"
+                        onClick={() => {
+                          if (ep.id !== activeSession?.episodeId) {
+                            navigate(`/play/${ep.id}`, { replace: true });
+                          }
+                        }}
+                        title="点击播放"
+                        className={`relative px-3 py-1.5 rounded text-xs font-medium transition-all duration-200 bg-[var(--color-card-alpha)] text-text-secondary cursor-pointer hover:text-text hover:bg-[var(--color-hover-alpha)]${ep.id === activeSession?.episodeId ? ' bg-muted-foreground/20 text-text' : ''}${ep.id !== activeSession?.episodeId && watchedEpisodes.has(ep.id) ? ' opacity-50' : ''}`}
+                      >
                         {ep.title || `第${ep.episodeNumber}集`}
-                      </Button>
+                      </button>
                     ))}
                   </div>
                 </div>

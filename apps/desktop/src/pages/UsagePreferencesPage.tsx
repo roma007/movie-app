@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { ArrowLeft, Clock } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { ArrowLeft, Clock, Home } from 'lucide-react';
 import { useAppStore } from '../useAppStore';
 import { getProvider } from '../init';
 import { SystemConfigService } from '@movie-app/core';
@@ -63,7 +64,6 @@ export default function UsagePreferencesPage() {
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
-        <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
         <div className="flex items-center gap-4">
           <Button variant="ghost" onClick={() => navigate('/settings')} className="hover:text-text">
             <ArrowLeft className="size-4 mr-2" />
@@ -74,7 +74,10 @@ export default function UsagePreferencesPage() {
       </div>
 
       <Card className="p-4 mt-6">
-        <span className="font-medium mb-3 block">首页偏好（可多选）</span>
+        <div className="flex items-center gap-3 mb-3">
+          <Home className="size-4 text-muted-foreground" />
+          <span className="font-medium">首页偏好（可多选）</span>
+        </div>
         <div className="grid grid-cols-3 gap-3">
           {USAGE_OPTIONS.map((opt) => {
             const isActive = userUsageTypes.includes(opt.type);
@@ -107,18 +110,7 @@ export default function UsagePreferencesPage() {
             <Clock className="size-4 text-muted-foreground" />
             <span className="font-medium">片尾下一集提示</span>
           </div>
-          <button
-            onClick={handleTogglePlayback}
-            className={`relative w-10 h-5 rounded-full transition-colors ${
-              playbackEnabled ? 'bg-muted-foreground' : 'bg-muted-foreground/30'
-            }`}
-          >
-            <div
-              className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
-                playbackEnabled ? 'translate-x-5' : 'translate-x-0.5'
-              }`}
-            />
-          </button>
+          <Switch checked={playbackEnabled} onCheckedChange={handleTogglePlayback} />
         </div>
 
         {playbackEnabled && (

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Layers, Video, Type, Maximize2 } from 'lucide-react';
+import { ArrowLeft, Layers, Video, Type, Maximize2, Palette } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useThemeStore } from '../themes/store';
 import { useFontSizeStore } from '../themes/fontSizeStore';
@@ -11,8 +11,8 @@ import type { ColorMode } from '../themes/types';
 
 const CHECK_COLOR = '#22c55e';
 
-const OPTIONS: { mode: ColorMode; label: string; desc?: string }[] = [
-  { mode: 'system', label: '跟随系统', desc: '开启后，应用将跟随系统切换您偏好的颜色模式。' },
+const OPTIONS: { mode: ColorMode; label: string }[] = [
+  { mode: 'system', label: '跟随系统' },
   { mode: 'dark', label: '深色模式' },
   { mode: 'light', label: '浅色模式' },
 ];
@@ -67,7 +67,6 @@ export default function AppearanceSettingsPage() {
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
-        <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
         <div className="flex items-center gap-4">
           <Button variant="ghost" onClick={() => navigate('/settings')} className="hover:text-text">
             <ArrowLeft className="size-4 mr-2" />
@@ -77,8 +76,11 @@ export default function AppearanceSettingsPage() {
         </div>
       </div>
 
-      <div className="mt-6 mb-3 text-sm text-muted-foreground">颜色模式</div>
       <Card className="overflow-hidden mb-8">
+        <div className="flex items-center gap-3 px-5 pt-5 pb-2">
+          <Palette className="size-4 text-muted-foreground" />
+          <span className="font-medium">颜色模式</span>
+        </div>
         {OPTIONS.map((opt) => {
           const active = colorMode === opt.mode;
           return (
@@ -89,9 +91,6 @@ export default function AppearanceSettingsPage() {
             >
               <div className="flex-1 min-w-0 pr-4">
                 <div className="text-base font-medium text-text">{opt.label}</div>
-                {opt.desc ? (
-                  <div className="text-sm text-muted-foreground mt-1 leading-snug">{opt.desc}</div>
-                ) : null}
               </div>
               <div className="flex-shrink-0">
                 {active ? (
@@ -117,7 +116,6 @@ export default function AppearanceSettingsPage() {
         })}
       </Card>
 
-      <div className="mb-3 text-sm text-muted-foreground">视觉效果</div>
       <Card className="p-5 mb-8">
         <div className="flex items-center gap-3 mb-4">
           <Layers className="size-4 text-muted-foreground" />
@@ -188,7 +186,6 @@ export default function AppearanceSettingsPage() {
         </div>
       </Card>
 
-      <div className="mb-3 text-sm text-muted-foreground">播放缓冲</div>
       <Card className="p-5 mb-8">
         <div className="flex items-center gap-3 mb-3">
           <Video className="size-4 text-muted-foreground" />
@@ -212,7 +209,6 @@ export default function AppearanceSettingsPage() {
         </div>
       </Card>
 
-      <div className="mb-3 text-sm text-muted-foreground">字体大小</div>
       <Card className="p-5 mb-8">
         <div className="flex items-center gap-3 mb-3">
           <Type className="size-4 text-muted-foreground" />
@@ -233,7 +229,6 @@ export default function AppearanceSettingsPage() {
         </div>
       </Card>
 
-      <div className="mb-3 text-sm text-muted-foreground">窗口</div>
       <Card className="p-5 mb-8">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">

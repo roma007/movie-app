@@ -3,6 +3,7 @@ import { UsageGuideDialog } from './UsageGuideDialog';
 import { AiSourceImportDialog } from './AiSourceImportDialog';
 import { CollectProgressDialog } from './CollectProgressDialog';
 import { BackgroundLayer } from './BackgroundLayer';
+import { PlayerHost } from './player/PlayerHost';
 import { useImportDialogStore } from '../themes/importDialogStore';
 import {
   Home,
@@ -92,7 +93,7 @@ function ToastProvider({ children }: { children: ReactNode }) {
 }
 
 export function Layout() {
-  const [appVersion, setAppVersion] = useState('1.0.34');
+  const [appVersion, setAppVersion] = useState('1.0.35');
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [showUsageGuide, setShowUsageGuide] = useState(false);
   const aiImportOpen = useImportDialogStore((s) => s.aiImportOpen);
@@ -149,6 +150,7 @@ export function Layout() {
         onOpenChange={handleImportClosed}
       />
       <CollectProgressDialog />
+      <PlayerHost />
       <div className="flex h-full">
         <aside className="w-56 shrink-0 flex flex-col bg-[var(--color-sidebar-alpha)] backdrop-blur-md">
           <div className="flex items-center gap-2 px-5 h-14">
@@ -190,7 +192,6 @@ export function Layout() {
                 <span className="text-muted-foreground">|</span>
                 <span>版权声明</span>
               </div>
-              <div>Copyright ©2020-2026 All Rights Reserved moduzy.vip</div>
             </div>
           </footer>
         </div>

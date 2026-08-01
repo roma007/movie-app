@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Trash2, Radar, Loader2, CheckCircle2, AlertCircle, Film, Tv, Video, Disc, FileText, Database, EyeOff, X, Save, RotateCcw, Plus } from 'lucide-react';
+import { ArrowLeft, Trash2, Radar, Loader2, CheckCircle2, AlertCircle, Film, Tv, Video, Disc, FileText, Database, EyeOff, X, Save, RotateCcw, Plus, BarChart3, SlidersHorizontal, RefreshCw, Unlink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -455,7 +455,6 @@ export default function VideoManagementPage() {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
-        <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
         <div className="flex items-center gap-4">
           <Button variant="ghost" onClick={() => navigate('/settings')} className="hover:text-text">
             <ArrowLeft className="size-4 mr-2" />
@@ -470,7 +469,10 @@ export default function VideoManagementPage() {
 
       <div className="mt-5">
         <Card className="p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4">数据统计</h2>
+          <div className="flex items-center gap-3 mb-4">
+            <BarChart3 className="size-4 text-muted-foreground" />
+            <h2 className="text-lg font-semibold">数据统计</h2>
+          </div>
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -503,7 +505,10 @@ export default function VideoManagementPage() {
 
         <div className="grid grid-cols-2 gap-6 mb-6">
           <Card className="p-6">
-            <h2 className="text-lg font-semibold mb-4">删除所有视频</h2>
+            <div className="flex items-center gap-3 mb-4">
+              <Trash2 className="size-4 text-muted-foreground" />
+              <h2 className="text-lg font-semibold">删除所有视频</h2>
+            </div>
             <p className="text-sm text-muted-foreground mb-4">
               删除所有视频数据，包括播放源、剧集、收藏和观看历史。此操作无法撤销。
             </p>
@@ -519,7 +524,10 @@ export default function VideoManagementPage() {
           </Card>
 
           <Card className="p-6">
-            <h2 className="text-lg font-semibold mb-4">删除无播放源视频</h2>
+            <div className="flex items-center gap-3 mb-4">
+              <Unlink className="size-4 text-muted-foreground" />
+              <h2 className="text-lg font-semibold">删除无播放源视频</h2>
+            </div>
             <p className="text-sm text-muted-foreground mb-4">
               删除所有没有播放源的视频。此操作无法撤销。
             </p>
@@ -535,7 +543,10 @@ export default function VideoManagementPage() {
         </div>
 
         <Card className="p-6 mb-6 border-l-4 border-l-destructive">
-          <h2 className="text-lg font-semibold mb-4 text-destructive">按子类型删除视频</h2>
+          <div className="flex items-center gap-3 mb-4">
+            <Trash2 className="size-4 text-destructive" />
+            <h2 className="text-lg font-semibold text-destructive">按子类型删除视频</h2>
+          </div>
           <p className="text-sm text-muted-foreground mb-4">
             先选择大类，再选择该大类下的子类型进行删除。此操作不可恢复。
           </p>
@@ -612,7 +623,10 @@ export default function VideoManagementPage() {
         </Card>
 
         <Card className="p-6 mb-6 border-l-4 border-l-amber-500">
-          <h2 className="text-lg font-semibold mb-4 text-amber-600">按子类型隐藏视频</h2>
+          <div className="flex items-center gap-3 mb-4">
+            <EyeOff className="size-4 text-amber-500" />
+            <h2 className="text-lg font-semibold text-amber-600">按子类型隐藏视频</h2>
+          </div>
           <p className="text-sm text-muted-foreground mb-4">
             点击子类型立即切换隐藏状态，无需确认。左栏点击可隐藏，右栏点击可取消隐藏。
           </p>
@@ -679,7 +693,10 @@ export default function VideoManagementPage() {
         </Card>
 
         <Card className="p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4">长短剧判断配置</h2>
+          <div className="flex items-center gap-3 mb-4">
+            <SlidersHorizontal className="size-4 text-muted-foreground" />
+            <h2 className="text-lg font-semibold">长短剧判断配置</h2>
+          </div>
           <p className="text-sm text-muted-foreground mb-4">
             配置三层判断逻辑的参数。修改配置后需重新探测才能生效。
           </p>
@@ -707,7 +724,7 @@ export default function VideoManagementPage() {
                     onChange={(e) => setPatternInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addPattern(); } }}
                     placeholder="输入模板，如 {N}分钟，按回车添加"
-                    className="flex-1 bg-secondary text-xs"
+                    className="flex-1 text-xs"
                   />
                   <Button onClick={addPattern} variant="default" size="sm">
                     <Plus className="size-3 mr-1" />添加
@@ -725,7 +742,6 @@ export default function VideoManagementPage() {
                     max="120"
                     value={localConfig.durationThresholdMinutes}
                     onChange={(e) => setLocalConfig({ ...localConfig, durationThresholdMinutes: Math.max(1, parseInt(e.target.value) || 30) })}
-                    className="bg-secondary"
                   />
                 </div>
                 <div className="space-y-2">
@@ -737,7 +753,6 @@ export default function VideoManagementPage() {
                     max="20"
                     value={localConfig.probeEpisodeCount}
                     onChange={(e) => setLocalConfig({ ...localConfig, probeEpisodeCount: Math.max(1, parseInt(e.target.value) || 8) })}
-                    className="bg-secondary"
                   />
                 </div>
               </div>
@@ -763,7 +778,7 @@ export default function VideoManagementPage() {
                     onChange={(e) => setKeywordInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(); } }}
                     placeholder="输入关键词后按回车添加"
-                    className="flex-1 bg-secondary"
+                    className="flex-1"
                   />
                   <Button onClick={addKeyword} variant="default" size="sm">
                     <Plus className="size-3 mr-1" />添加
@@ -786,7 +801,10 @@ export default function VideoManagementPage() {
         </Card>
 
         <Card className="p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4">全量重新探测长短剧</h2>
+          <div className="flex items-center gap-3 mb-4">
+            <RefreshCw className="size-4 text-muted-foreground" />
+            <h2 className="text-lg font-semibold">全量重新探测长短剧</h2>
+          </div>
           <p className="text-sm text-muted-foreground mb-4">
             清除所有电视剧的已有判断结果，全量重新执行三层判断逻辑。
             已有单集时长数据的电视剧将直接复用，无需重新探测视频流。任务在后台运行，可以跳转到其他页面。
@@ -871,7 +889,10 @@ export default function VideoManagementPage() {
         </Card>
 
         <Card className="p-6">
-          <h2 className="text-lg font-semibold mb-4">批量重新探测长短剧</h2>
+          <div className="flex items-center gap-3 mb-4">
+            <Radar className="size-4 text-muted-foreground" />
+            <h2 className="text-lg font-semibold">批量重新探测长短剧</h2>
+          </div>
           <p className="text-sm text-muted-foreground mb-4">
             对所有经过三级降级判断后仍为兜底状态（FALLBACK）或未判断的电视剧进行重新探测。
             此操作将实际探测视频流时长，准确判断长短剧分类。任务在后台运行，可以跳转到其他页面。

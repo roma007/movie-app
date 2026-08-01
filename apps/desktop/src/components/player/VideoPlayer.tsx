@@ -3,6 +3,7 @@ import {
   MediaPlayer,
   MediaProvider,
   isHLSProvider,
+  type MediaPlayerInstance,
   type MediaProviderAdapter,
   type MediaProviderChangeEvent,
 } from '@vidstack/react';
@@ -26,6 +27,8 @@ interface VideoPlayerProps {
   sources: PlaySource[];
   initialSourceId?: string;
   initialCurrentTime?: number;
+  playerRef?: React.Ref<MediaPlayerInstance>;
+  keyTarget?: 'document' | 'player';
   nextEpisode?: { id: string; title?: string | null; episodeNumber: number } | null;
   outroThresholdMinutes?: number;
   showNextEpisodeOverlay?: boolean;
@@ -40,6 +43,8 @@ export function VideoPlayer({
   sources,
   initialSourceId,
   initialCurrentTime,
+  playerRef,
+  keyTarget = 'document',
   nextEpisode: nextEpisodeProp,
   outroThresholdMinutes: outroThresholdMinutesProp,
   showNextEpisodeOverlay: showNextEpisodeOverlayProp,
@@ -409,9 +414,10 @@ export function VideoPlayer({
         </div>
       )}
       <MediaPlayer
+        ref={playerRef}
         src={src}
         autoPlay
-        keyTarget="document"
+        keyTarget={keyTarget}
         className="w-full h-full"
         onProviderChange={handleProviderChange}
         onLoadStart={() => {

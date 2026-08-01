@@ -47,7 +47,6 @@ export default function HistoryPage() {
   return (
     <div className="p-6 space-y-5 max-w-7xl mx-auto">
       <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
-        <div className="absolute inset-0 -z-10 bg-background/80 backdrop-blur-sm" />
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Button variant="ghost" onClick={() => navigate(-1)} className="hover:text-text">
