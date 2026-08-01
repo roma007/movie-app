@@ -33,6 +33,11 @@ const entries = [
     replacement: `version = "${newVersion}"`,
   },
   {
+    path: 'apps/desktop/src-tauri/Cargo.lock',
+    pattern: /name = "movie-app-desktop"\nversion = "\d+\.\d+\.\d+"/,
+    replacement: `name = "movie-app-desktop"\nversion = "${newVersion}"`,
+  },
+  {
     path: 'apps/desktop/src-tauri/tauri.conf.json',
     pattern: /"version": "\d+\.\d+\.\d+"/,
     replacement: `"version": "${newVersion}"`,
