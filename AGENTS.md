@@ -52,4 +52,5 @@
 - 提交前 `git status` 核对暂存内容；使用 `git add -A` 前先确认 `.gitignore` 已覆盖工具文档，避免误加。
 - 提交信息：中文，`feat:`/`fix:`/`refactor:` 前缀 + 一句话概括本次改动。
 - 提交后同时推送两端：`git push origin master`（gitee）与 `git push github master`。
+- GitHub Actions（`.github/workflows/build.yml`）会在 push 到 master 时自动构建安装包；如需生成 GitHub Release 安装包，必须额外打版本标签并推送：`git tag v<版本号>` 与 `git push github v<版本号>`（版本号以 `package.json` 的 version 为准，如 `v1.0.39`），仅推 master 不会创建 Release。
 - 工具文档（`.trae/`、`BUTTON_COLORS.md`、`MOBILE_DESKTOP_DIFF.md`、`主题字色*.md`）永不提交，`.gitignore` 已兜底。
