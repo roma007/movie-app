@@ -1,5 +1,6 @@
 import { ExpoSqliteProvider } from './db/expoSqliteProvider';
-import { createAppStore, CollectorService, backfillSeriesGroup, type AppStore, type AppState } from '@movie-app/core';
+import { createAppStore, CollectorService, setBackgroundImageCache, backfillSeriesGroup, type AppStore, type AppState } from '@movie-app/core';
+import { mobileBackgroundImageCache } from './services/posterCache';
 
 let _provider: ExpoSqliteProvider | null = null;
 let _store: AppStore | null = null;
@@ -15,6 +16,7 @@ export async function initApp(): Promise<void> {
   _initPromise = (async () => {
     _provider = new ExpoSqliteProvider();
     await _provider.init();
+    setBackgroundImageCache(mobileBackgroundImageCache);
     try {
       const removed = await _provider.deleteNonMediaPlaySources();
       if (removed > 0) {

@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useAppStore } from '../useAppStore';
 import { getProvider } from '../init';
-import { VideoDurationService } from '@movie-app/core';
+import { VideoDurationService, resolveCachedBackgroundUrl } from '@movie-app/core';
 import { Heart, ArrowLeft } from 'lucide-react-native';
 import type { Episode, PlaySource, VideoSource } from '@movie-app/core';
 import { useThemeColors } from '../themes/useThemeColors';
@@ -39,6 +39,20 @@ export default function DetailScreen({ route, navigation }: Props) {
 
   // 功能5: 已看剧集
   const [watchedEpisodes, setWatchedEpisodes] = useState<Set<string>>(new Set());
+
+  const [bgImageUrl, setBgImageUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!currentMedia?.posterUrl) {
+      setBgImageUrl(null);
+      return;
+    }
+    let cancelled = false;
+    resolveCachedBackgroundUrl(currentMedia.id, currentMedia.posterUrl, (url) => {
+      if (!cancelled) setBgImageUrl(url);
+    });
+    return () => { cancelled = true; };
+  }, [currentMedia]);
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1 },
@@ -204,7 +218,7 @@ export default function DetailScreen({ route, navigation }: Props) {
   const isMovie = currentMedia.type === 'MOVIE';
 
   return (
-    <BlurredBackground imageUrl={currentMedia.posterUrl}>
+    <BlurredBackground imageUrl={bgImageUrl}>
     <ScrollView style={styles.container}>
       <View style={styles.navBar}>
         <Button variant="icon" size="sm" style={styles.navBack} onPress={() => navigation.goBack()}>

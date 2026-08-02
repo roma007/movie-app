@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Card } from '@/components/ui/card';
 import { Heart, ChevronRight, ArrowLeft } from 'lucide-react';
 import type { Media, Episode, PlaySource, VideoSource } from '@movie-app/core';
-import { VideoDurationService } from '@movie-app/core';
+import { VideoDurationService, resolveCachedBackgroundUrl } from '@movie-app/core';
 
 const typeLabel: Record<string, string> = {
     MOVIE: '电影',
@@ -53,9 +53,15 @@ export default function DetailPage() {
   }, [id]);
 
   useEffect(() => {
-    const bgUrl = currentMedia?.posterUrl ?? null;
-    setBgImage(bgUrl);
-    return () => clearBgImage();
+    if (!currentMedia?.posterUrl) {
+      setBgImage(null);
+      return () => clearBgImage();
+    }
+    let cancelled = false;
+    resolveCachedBackgroundUrl(currentMedia.id, currentMedia.posterUrl, (url) => {
+      if (!cancelled) setBgImage(url);
+    });
+    return () => { cancelled = true; clearBgImage(); };
   }, [currentMedia, setBgImage, clearBgImage]);
 
   useEffect(() => {

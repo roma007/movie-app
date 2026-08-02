@@ -7,8 +7,8 @@ export interface FetchResult {
   data: ArrayBuffer;
 }
 
-/** 预取并发数 */
-const CONCURRENCY = 3;
+/** 预取并发数默认值 */
+const DEFAULT_CONCURRENCY = 3;
 /** 预取水位（秒）：保持领先播放器约 120 秒的媒体数据 */
 const WATERMARK_SECONDS = 120;
 /** 缓存字节预算（LRU） */
@@ -88,6 +88,7 @@ class PrefetchManager {
   private playerIndex = 0;
   private activePrefetch = 0;
   private scheduling = false;
+  private concurrency = DEFAULT_CONCURRENCY;
   /** 分片级退避：key → { 已重试次数, 下次可重试时间 } */
   private fragRetries = new Map<string, { retries: number; nextAt: number }>();
   /** 源级健康：host → { 连续失败次数, 最近失败时间 } */
@@ -323,7 +324,7 @@ class PrefetchManager {
           break;
         }
       }
-      while (this.activePrefetch < CONCURRENCY && this.frontier < target) {
+      while (this.activePrefetch < this.concurrency && this.frontier < target) {
         const seg = this.segments[this.frontier];
         const key = this.cacheKey(seg.url, 0, 0);
         if (!this.cache.has(key) && !this.inflight.has(key)) {
@@ -343,7 +344,7 @@ class PrefetchManager {
             continue;
           }
           this.activePrefetch++;
-          this.log(`预取 seg[${this.frontier}]（inflight=${this.activePrefetch}/${CONCURRENCY}）`, seg.url.slice(0, 80));
+          this.log(`预取 seg[${this.frontier}]（inflight=${this.activePrefetch}/${this.concurrency}）`, seg.url.slice(0, 80));
           this.fetchAndCache(seg.url, 0, 0)
             .catch(() => {})
             .finally(() => {
@@ -356,6 +357,12 @@ class PrefetchManager {
     } finally {
       this.scheduling = false;
     }
+  }
+
+  /** 设置预取并发数（1-6），由使用偏好配置驱动。 */
+  setConcurrency(n: number): void {
+    this.concurrency = Math.min(6, Math.max(1, Math.round(n) || DEFAULT_CONCURRENCY));
+    this.log(`并发数调整为 ${this.concurrency}`);
   }
 
   /** 切换剧集/线路/退出播放页时清空会话与缓存。 */

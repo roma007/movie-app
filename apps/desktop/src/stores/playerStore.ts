@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { SystemConfigService, type Episode, type Media, type PlaySource } from '@movie-app/core';
 import { getProvider, getStore } from '../init';
+import { prefetchManager } from '../components/player/PrefetchManager';
 
 export interface PlaybackSession {
   episodeId: string;
@@ -185,6 +186,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           if (seq !== loadSeq) return;
           outro = playbackConfig.outroThresholdMinutes;
           showOverlay = playbackConfig.showNextEpisodeOverlay;
+          prefetchManager.setConcurrency(playbackConfig.prefetchConcurrency);
           watched = allHistory
             .filter(
               (h) =>

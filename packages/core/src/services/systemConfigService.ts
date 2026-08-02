@@ -27,6 +27,7 @@ export interface CollectConfig {
 export interface PlaybackConfig {
   outroThresholdMinutes: number;
   showNextEpisodeOverlay: boolean;
+  prefetchConcurrency: number;
 }
 
 export interface ShortDramaConfig {
@@ -244,6 +245,7 @@ export class SystemConfigService {
     return {
       outroThresholdMinutes: await this.getNumber('playback.outroThresholdMinutes', 10),
       showNextEpisodeOverlay: await this.getJSON<boolean>('playback.showNextEpisodeOverlay', true),
+      prefetchConcurrency: await this.getNumber('playback.prefetchConcurrency', 3),
     };
   }
 
@@ -253,6 +255,9 @@ export class SystemConfigService {
     }
     if (config.showNextEpisodeOverlay !== undefined) {
       await this.setJSON('playback.showNextEpisodeOverlay', config.showNextEpisodeOverlay);
+    }
+    if (config.prefetchConcurrency !== undefined) {
+      await this.setNumber('playback.prefetchConcurrency', config.prefetchConcurrency);
     }
   }
 

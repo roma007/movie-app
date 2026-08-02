@@ -213,7 +213,7 @@ export default function CollectConfigPage() {
           </Button>
           <h1 className="text-2xl font-bold">采集配置</h1>
           <div className="flex-1" />
-          <Button variant="outline" size="sm" onClick={handleReset}>
+          <Button size="sm" onClick={handleReset}>
             <RotateCcw className="size-3.5 mr-1.5" />
             重置默认
           </Button>
@@ -325,24 +325,32 @@ export default function CollectConfigPage() {
             <h2 className="text-lg font-semibold">自动增量采集</h2>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            定时自动执行增量采集，进度弹窗默认收缩显示。与手动采集互斥，有启用视频源时才执行。
+            满足条件自动执行增量采集，有启用视频源且无手动采集任务时才执行。
           </p>
         </div>
 
-        <div className="flex items-center justify-between gap-6 py-2">
-          <div>
-            <div className="text-sm font-medium">启用自动采集</div>
-            <div className="text-xs text-muted-foreground mt-1">关闭后定时与启动触发均不执行</div>
-          </div>
-          <Switch
-            checked={localConfig.autoEnabled}
-            onCheckedChange={(checked) => setLocalConfig({ ...localConfig, autoEnabled: checked })}
-          />
-        </div>
-
-        <div className={`grid grid-cols-2 gap-6 transition-opacity ${localConfig.autoEnabled ? '' : 'opacity-50 pointer-events-none'}`}>
+        <div className="grid grid-cols-3 gap-6">
           <div className="space-y-2">
-            <Label htmlFor="autoIntervalHours">采集间隔（小时）</Label>
+            <div className="text-sm font-medium">启用自动采集</div>
+            <Switch
+              checked={localConfig.autoEnabled}
+              onCheckedChange={(checked) => setLocalConfig({ ...localConfig, autoEnabled: checked })}
+            />
+            <p className="text-xs text-muted-foreground">关闭后定时与启动触发均不执行</p>
+          </div>
+
+          <div className={`space-y-2 transition-opacity ${localConfig.autoEnabled ? '' : 'opacity-50 pointer-events-none'}`}>
+            <div className="text-sm font-medium">启动时立即采集</div>
+            <Switch
+              checked={localConfig.autoOnStartup}
+              onCheckedChange={(checked) => setLocalConfig({ ...localConfig, autoOnStartup: checked })}
+              disabled={!localConfig.autoEnabled}
+            />
+            <p className="text-xs text-muted-foreground">应用启动后延迟数秒自动执行一次增量采集</p>
+          </div>
+
+          <div className={`space-y-2 transition-opacity ${localConfig.autoEnabled ? '' : 'opacity-50 pointer-events-none'}`}>
+            <Label htmlFor="autoIntervalHours">定时采集间隔（小时）</Label>
             <Input
               id="autoIntervalHours"
               type="number"
@@ -354,25 +362,13 @@ export default function CollectConfigPage() {
             <p className="text-xs text-muted-foreground">距上次自动采集达到该间隔后触发</p>
           </div>
 
-          <div className="space-y-2">
+          <div className={`space-y-2 transition-opacity ${localConfig.autoEnabled ? '' : 'opacity-50 pointer-events-none'}`}>
             <div className="text-sm font-medium">上次自动采集时间</div>
             <div className="h-9 px-3 py-2 text-sm text-muted-foreground bg-muted/40 rounded-md border border-transparent">
               {autoLastRunAt ? new Date(autoLastRunAt).toLocaleString() : '从未执行'}
             </div>
             <p className="text-xs text-muted-foreground">用于跨启动判断间隔与断点追溯</p>
           </div>
-        </div>
-
-        <div className="flex items-center justify-between gap-6 py-2">
-          <div>
-            <div className="text-sm font-medium">启动时立即采集</div>
-            <div className="text-xs text-muted-foreground mt-1">应用启动后延迟数秒自动执行一次增量采集</div>
-          </div>
-          <Switch
-            checked={localConfig.autoOnStartup}
-            onCheckedChange={(checked) => setLocalConfig({ ...localConfig, autoOnStartup: checked })}
-            disabled={!localConfig.autoEnabled}
-          />
         </div>
       </Card>
 

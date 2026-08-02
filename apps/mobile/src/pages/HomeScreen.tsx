@@ -13,6 +13,7 @@ import UsageGuideModal from '../components/UsageGuideModal';
 import CategoryHeader from '../components/CategoryHeader';
 import BlurredBackground from '../components/BlurredBackground';
 import type { Media, Episode, UserUsageType, WatchHistory } from '@movie-app/core';
+import { resolveCachedBackgroundUrl } from '@movie-app/core';
 import { radius } from '../themes/radiusTokens';
 import { Sparkles, Film, Tv, Clock, Heart, CheckSquare, Square } from 'lucide-react-native';
 
@@ -586,7 +587,21 @@ export default function HomeScreen() {
     },
   }), [colors, cardOpacity, cardBg, surfaceBg, s]);
 
-  const bgImageUrl = latestMedia[0]?.posterUrl ?? null;
+  const [bgImageUrl, setBgImageUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const first = latestMedia[0];
+    if (!first?.posterUrl) {
+      setBgImageUrl(null);
+      return;
+    }
+    let cancelled = false;
+    resolveCachedBackgroundUrl(first.id, first.posterUrl, (url) => {
+      if (!cancelled) setBgImageUrl(url);
+    });
+    return () => { cancelled = true; };
+  }, [latestMedia]);
+
   const tabsHidden = useRef(new Animated.Value(0)).current;
   const prevScrollY = useRef(0);
 

@@ -746,7 +746,7 @@ export default function VideoManagementPage() {
                 </div>
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">探测集数上限</Label>
-                  <p className="text-xs text-muted-foreground">逐集探测视频流，成功1集即停止；全部失败则尝试下一集，最多探测N集</p>
+                  <p className="text-xs text-muted-foreground">逐集探测视频时长，成功1集即止；最多探测N集</p>
                   <Input
                     type="number"
                     min="1"

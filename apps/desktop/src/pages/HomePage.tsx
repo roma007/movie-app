@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { Media, Episode, UserUsageType, WatchHistory } from '@movie-app/core';
+import { resolveCachedBackgroundUrl } from '@movie-app/core';
 import { useAppStore, getProvider } from '../useAppStore';
 import { useBackgroundStore } from '../themes/backgroundStore';
 import { useImportDialogStore } from '../themes/importDialogStore';
@@ -121,37 +122,44 @@ export default function HomePage() {
   }, [userUsageTypes, provider]);
 
   useEffect(() => {
+    const candidates: { id: string; posterUrl: string }[] = [];
+    const push = (m?: { id?: string; posterUrl?: string | null }) => {
+      if (m?.id && m.posterUrl) candidates.push({ id: m.id, posterUrl: m.posterUrl });
+    };
+
     if (isSearching) {
-      const url = mediaList[0]?.posterUrl ?? null;
-      setBgImage(url);
+      push(mediaList[0]);
+    } else {
+      if (userUsageTypes.includes('SEARCH_FIRST') && previewResults.length > 0) {
+        push(previewResults[0]);
+      }
+
+      if (userUsageTypes.includes('NEW_MOVIES') && latestMedia.length > 0) {
+        push(latestMedia[0]);
+      }
+
+      for (const h of watchHistory) {
+        const m = mediaMap[h.mediaId];
+        if (m) { push(m); break; }
+      }
+
+      for (const f of favorites) {
+        const m = mediaMap[f.mediaId];
+        if (m) { push(m); break; }
+      }
+    }
+
+    const first = candidates[0];
+    if (!first) {
+      setBgImage(null);
       return () => clearBgImage();
     }
 
-    const candidates: string[] = [];
-
-    if (userUsageTypes.includes('SEARCH_FIRST') && previewResults.length > 0) {
-      const url = previewResults[0]?.posterUrl;
-      if (url) candidates.push(url);
-    }
-
-    if (userUsageTypes.includes('NEW_MOVIES') && latestMedia.length > 0) {
-      const url = latestMedia[0]?.posterUrl;
-      if (url) candidates.push(url);
-    }
-
-    for (const h of watchHistory) {
-      const m = mediaMap[h.mediaId];
-      if (m?.posterUrl) { candidates.push(m.posterUrl); break; }
-    }
-
-    for (const f of favorites) {
-      const m = mediaMap[f.mediaId];
-      if (m?.posterUrl) { candidates.push(m.posterUrl); break; }
-    }
-
-    const bgUrl = candidates[0] ?? null;
-    setBgImage(bgUrl);
-    return () => clearBgImage();
+    let cancelled = false;
+    resolveCachedBackgroundUrl(first.id, first.posterUrl, (url) => {
+      if (!cancelled) setBgImage(url);
+    });
+    return () => { cancelled = true; clearBgImage(); };
   }, [isSearching, mediaList, latestMedia, watchHistory, favorites, mediaMap, userUsageTypes, previewResults, setBgImage, clearBgImage]);
 
   const handleSearch = async () => {

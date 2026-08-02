@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Layers, Video, Type, Maximize2, Palette } from 'lucide-react';
+import { ArrowLeft, Layers, Type, Maximize2, Palette } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useThemeStore } from '../themes/store';
 import { useFontSizeStore } from '../themes/fontSizeStore';
@@ -30,8 +30,6 @@ export default function AppearanceSettingsPage() {
     setBgImageBlur,
     bgImageScale,
     setBgImageScale,
-    maxBufferSize,
-    setMaxBufferSize,
   } = useThemeStore();
   const { currentFontSize, fontSizes, setFontSize } = useFontSizeStore();
   const [rememberWindowSize, setRememberWindowSize] = useState(true);
@@ -65,7 +63,7 @@ export default function AppearanceSettingsPage() {
     '[&::-moz-range-thumb]:bg-muted-foreground [&::-moz-range-thumb]:border-none [&::-moz-range-thumb]:cursor-pointer';
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-6 max-w-7xl mx-auto">
       <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
         <div className="flex items-center gap-4">
           <Button variant="ghost" onClick={() => navigate('/settings')} className="hover:text-text">
@@ -77,160 +75,140 @@ export default function AppearanceSettingsPage() {
       </div>
 
       <Card className="overflow-hidden mb-8">
-        <div className="flex items-center gap-3 px-5 pt-5 pb-2">
-          <Palette className="size-4 text-muted-foreground" />
-          <span className="font-medium">颜色模式</span>
+        <div className="flex items-center gap-6 p-5">
+          <div className="flex items-center gap-3 w-40 shrink-0">
+            <Palette className="size-4 text-muted-foreground" />
+            <span className="font-medium">颜色模式</span>
+          </div>
+          <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap justify-end">
+            {OPTIONS.map((opt) => {
+              const active = colorMode === opt.mode;
+              return (
+                <button
+                  key={opt.mode}
+                  onClick={() => setColorMode(opt.mode)}
+                  className="flex items-center justify-center gap-2 px-4 py-3 rounded-lg hover:bg-secondary/40 transition-colors"
+                >
+                  <div className="text-base font-medium text-text">{opt.label}</div>
+                  {active ? (
+                    <div
+                      className="rounded-full flex items-center justify-center flex-shrink-0"
+                      style={{ width: 22, height: 22, backgroundColor: CHECK_COLOR }}
+                    >
+                      <span className="text-white text-xs font-bold leading-none">✓</span>
+                    </div>
+                  ) : (
+                    <div
+                      className="rounded-full flex-shrink-0"
+                      style={{
+                        width: 22,
+                        height: 22,
+                        border: '2px solid rgb(148 163 184 / 0.6)',
+                      }}
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
-        {OPTIONS.map((opt) => {
-          const active = colorMode === opt.mode;
-          return (
-            <button
-              key={opt.mode}
-              onClick={() => setColorMode(opt.mode)}
-              className="flex items-center w-full px-5 py-4 hover:bg-secondary/40 transition-colors text-left"
-            >
-              <div className="flex-1 min-w-0 pr-4">
-                <div className="text-base font-medium text-text">{opt.label}</div>
+      </Card>
+
+      <Card className="p-5 mb-8">
+        <div className="flex items-start gap-6">
+          <div className="flex items-center gap-3 w-40 shrink-0 pt-1">
+            <Layers className="size-4 text-muted-foreground" />
+            <span className="font-medium">视觉效果</span>
+          </div>
+          <div className="flex items-start gap-5 flex-1 min-w-0 flex-wrap justify-end">
+            <div className="w-36 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm">卡片透明度</span>
+                <span className="text-sm text-muted-foreground">{cardOpacity}%</span>
               </div>
-              <div className="flex-shrink-0">
-                {active ? (
-                  <div
-                    className="rounded-full flex items-center justify-center"
-                    style={{ width: 22, height: 22, backgroundColor: CHECK_COLOR }}
-                  >
-                    <span className="text-white text-xs font-bold leading-none">✓</span>
-                  </div>
-                ) : (
-                  <div
-                    className="rounded-full"
-                    style={{
-                      width: 22,
-                      height: 22,
-                      border: '2px solid rgb(148 163 184 / 0.6)',
-                    }}
-                  />
-                )}
+              <input
+                type="range"
+                min={10}
+                max={100}
+                value={cardOpacity}
+                onChange={(e) => setCardOpacity(Number(e.target.value))}
+                className={sliderClasses}
+              />
+            </div>
+
+            <div className="w-36 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm">磨砂强度</span>
+                <span className="text-sm text-muted-foreground">{blurIntensity}</span>
               </div>
-            </button>
-          );
-        })}
-      </Card>
-
-      <Card className="p-5 mb-8">
-        <div className="flex items-center gap-3 mb-4">
-          <Layers className="size-4 text-muted-foreground" />
-          <span className="font-medium">视觉效果</span>
-        </div>
-        <div className="flex flex-col md:flex-row gap-5">
-          <div className="flex-1 space-y-2">
-            <div className="flex justify-between items-center">
-              <span className="text-sm">卡片透明度</span>
-              <span className="text-sm text-muted-foreground">{cardOpacity}%</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={blurIntensity}
+                onChange={(e) => setBlurIntensity(Number(e.target.value))}
+                className={sliderClasses}
+              />
             </div>
-            <input
-              type="range"
-              min={10}
-              max={100}
-              value={cardOpacity}
-              onChange={(e) => setCardOpacity(Number(e.target.value))}
-              className={sliderClasses}
-            />
-          </div>
 
-          <div className="flex-1 space-y-2">
-            <div className="flex justify-between items-center">
-              <span className="text-sm">磨砂强度</span>
-              <span className="text-sm text-muted-foreground">{blurIntensity}</span>
+            <div className="w-36 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm">背景图模糊</span>
+                <span className="text-sm text-muted-foreground">{bgImageBlur}</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={bgImageBlur}
+                onChange={(e) => setBgImageBlur(Number(e.target.value))}
+                className={sliderClasses}
+              />
             </div>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              step={5}
-              value={blurIntensity}
-              onChange={(e) => setBlurIntensity(Number(e.target.value))}
-              className={sliderClasses}
-            />
-          </div>
 
-          <div className="flex-1 space-y-2">
-            <div className="flex justify-between items-center">
-              <span className="text-sm">图片模糊</span>
-              <span className="text-sm text-muted-foreground">{bgImageBlur}</span>
+            <div className="w-36 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm">背景图缩放</span>
+                <span className="text-sm text-muted-foreground">{bgImageScale}x</span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={50}
+                value={bgImageScale}
+                onChange={(e) => setBgImageScale(Number(e.target.value))}
+                className={sliderClasses}
+              />
             </div>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              step={5}
-              value={bgImageBlur}
-              onChange={(e) => setBgImageBlur(Number(e.target.value))}
-              className={sliderClasses}
-            />
-          </div>
-
-          <div className="flex-1 space-y-2">
-            <div className="flex justify-between items-center">
-              <span className="text-sm">图片缩放</span>
-              <span className="text-sm text-muted-foreground">{bgImageScale}x</span>
-            </div>
-            <input
-              type="range"
-              min={1}
-              max={50}
-              value={bgImageScale}
-              onChange={(e) => setBgImageScale(Number(e.target.value))}
-              className={sliderClasses}
-            />
           </div>
         </div>
       </Card>
 
       <Card className="p-5 mb-8">
-        <div className="flex items-center gap-3 mb-3">
-          <Video className="size-4 text-muted-foreground" />
-          <span className="font-medium">播放缓冲</span>
-        </div>
-        <div className="space-y-2">
-          <div className="flex justify-between items-center">
-            <span className="text-sm">缓冲上限</span>
-            <span className="text-sm text-muted-foreground">{maxBufferSize}MB</span>
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3 w-40 shrink-0">
+            <Type className="size-4 text-muted-foreground" />
+            <span className="font-medium">字体大小</span>
           </div>
-          <input
-            type="range"
-            min={30}
-            max={600}
-            step={30}
-            value={maxBufferSize}
-            onChange={(e) => setMaxBufferSize(Number(e.target.value))}
-            className={sliderClasses}
-          />
-          <p className="text-xs text-muted-foreground">值越大网络波动时越不容易卡顿，但内存占用越高</p>
+          <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap justify-end">
+            {fontSizes.map((size) => (
+              <Button
+                key={size.id}
+                variant="outline"
+                onClick={() => setFontSize(size.id)}
+                className={currentFontSize === size.id ? 'bg-muted-foreground/20 text-text' : ''}
+              >
+                <span style={{ fontSize: size.size }}>{size.label}</span>
+              </Button>
+            ))}
+          </div>
         </div>
       </Card>
 
       <Card className="p-5 mb-8">
-        <div className="flex items-center gap-3 mb-3">
-          <Type className="size-4 text-muted-foreground" />
-          <span className="font-medium">字体大小</span>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {fontSizes.map((size) => (
-            <Button
-              key={size.id}
-              variant="outline"
-              size="sm"
-              onClick={() => setFontSize(size.id)}
-              className={currentFontSize === size.id ? 'bg-muted-foreground/20 text-text' : ''}
-            >
-              {size.label}
-            </Button>
-          ))}
-        </div>
-      </Card>
-
-      <Card className="p-5 mb-8">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3 min-w-0">
             <Maximize2 className="size-4 text-muted-foreground shrink-0" />
             <div className="min-w-0">

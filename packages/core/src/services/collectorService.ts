@@ -7,6 +7,7 @@ import type { CMSMediaItem, Media, Episode, PlaySource, CollectTask, TaskStatus,
 import { SystemConfigService } from './systemConfigService';
 import type { ShortDramaConfig } from './systemConfigService';
 import { VideoDurationService } from './videoDurationService';
+import { getBackgroundImageCache } from './backgroundImageCache';
 
 function generateId(): string {
   return `id_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
@@ -128,6 +129,15 @@ export class CollectorService {
     if (controller) {
       controller.abort();
       this.activeAbortControllers.delete(taskId);
+    }
+  }
+
+  /** 采集开始时清空分类页背景图缓存，避免新数据下展示旧图（平台实现未注入时静默跳过） */
+  private clearBackgroundCache(): void {
+    try {
+      void getBackgroundImageCache()?.clearAll();
+    } catch (err) {
+      console.error('[Collector] 清空背景图缓存失败:', err);
     }
   }
 
@@ -789,6 +799,8 @@ export class CollectorService {
 
     console.log(`[Collector] collectLatest: ${sources.length} sources, incrementalMaxPages=${config.incrementalMaxPages}, maxIncrementalHours=${config.maxIncrementalHours}`);
 
+    this.clearBackgroundCache();
+
     await Promise.all(sources.map(async (source, si) => {
       const now = new Date().toISOString();
 
@@ -931,6 +943,8 @@ export class CollectorService {
     const config = await configService.getCollectConfig();
     const sources = await this.db.getEnabledVideoSources();
 
+    this.clearBackgroundCache();
+
     let totalCollected = 0;
     let totalPages = 0;
 
@@ -1019,6 +1033,8 @@ export class CollectorService {
     const taskId = `${sourceCode}-INCREMENTAL-${Date.now()}`;
     const now = new Date().toISOString();
     const config = await (new SystemConfigService(this.db)).getCollectConfig();
+
+    this.clearBackgroundCache();
 
     const task: CollectTask = {
       id: generateId(),
@@ -1188,6 +1204,8 @@ export class CollectorService {
     const now = new Date().toISOString();
     const config = await (new SystemConfigService(this.db)).getCollectConfig();
     const startedAtMs = Date.now();
+
+    this.clearBackgroundCache();
 
     const task: CollectTask = {
       id: generateId(),

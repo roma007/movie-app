@@ -4,7 +4,7 @@ import { VideoView, useVideoPlayer } from 'expo-video';
 import { getProvider } from '../init';
 import { useAppStore } from '../useAppStore';
 import { ArrowLeft } from 'lucide-react-native';
-import { SystemConfigService } from '@movie-app/core';
+import { SystemConfigService, resolveCachedBackgroundUrl } from '@movie-app/core';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
 import { useScaledFontSize } from '../themes/useScaledFontSize';
@@ -55,6 +55,20 @@ export default function PlayScreen({ route, navigation }: Props) {
 
   // 功能6: 进度保存节流
   const [lastSaveTime, setLastSaveTime] = useState(0);
+
+  const [bgImageUrl, setBgImageUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!media?.posterUrl) {
+      setBgImageUrl(null);
+      return;
+    }
+    let cancelled = false;
+    resolveCachedBackgroundUrl(media.id, media.posterUrl, (url) => {
+      if (!cancelled) setBgImageUrl(url);
+    });
+    return () => { cancelled = true; };
+  }, [media]);
 
   const colors = useThemeColors();
   const cardOpacity = useThemeStore((s) => s.cardOpacity);
@@ -325,7 +339,7 @@ export default function PlayScreen({ route, navigation }: Props) {
     : '';
 
   return (
-    <BlurredBackground imageUrl={media?.posterUrl}>
+    <BlurredBackground imageUrl={bgImageUrl}>
     <View style={styles.container}>
       <View style={styles.header}>
         <Button variant="icon" size="sm" style={styles.backButton} onPress={() => navigation.goBack()}>

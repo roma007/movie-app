@@ -1,5 +1,6 @@
 mod video_fetch;
 mod window_state;
+mod poster_cache;
 
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_http::init as init_http;
@@ -29,6 +30,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             video_fetch::video_fetch,
             video_fetch::prewarm,
+            poster_cache::download_poster,
+            poster_cache::poster_cache_path,
+            poster_cache::clear_poster_cache,
             window_state::get_window_state,
             window_state::set_window_remember
         ]);

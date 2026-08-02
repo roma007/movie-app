@@ -1,5 +1,6 @@
 import { TauriSqlProvider } from './db/tauriSqlProvider';
-import { createAppStore, setHttpClient, setVideoFetchFn, backfillSeriesGroup, type AppStore, type AppState, type HttpClient } from '@movie-app/core';
+import { createAppStore, setHttpClient, setVideoFetchFn, setBackgroundImageCache, backfillSeriesGroup, type AppStore, type AppState, type HttpClient } from '@movie-app/core';
+import { desktopBackgroundImageCache } from './services/posterCache';
 
 let _provider: TauriSqlProvider | null = null;
 let _store: AppStore | null = null;
@@ -160,6 +161,9 @@ export async function initApp(onProgress?: (step: string) => void): Promise<void
       } catch {
         report('Step 1b: pooled fetch 不可用，使用 native fetch');
       }
+
+      setBackgroundImageCache(desktopBackgroundImageCache);
+      report('Step 1c: 背景图本地缓存 配置完成');
       
       report('Step 2: 创建 TauriSqlProvider...');
       _provider = new TauriSqlProvider();

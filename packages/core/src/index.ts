@@ -33,6 +33,14 @@ export {
 } from './utils/hlsProbe';
 
 // 服务
+export {
+  setBackgroundImageCache,
+  getBackgroundImageCache,
+  extractImageExt,
+  buildPosterCacheFilename,
+  resolveCachedBackgroundUrl,
+  type BackgroundImageCache,
+} from './services/backgroundImageCache';
 export { CMSAdapter } from './services/cmsAdapter';
 export { CollectorService } from './services/collectorService';
 export { backfillSeriesGroup } from './services/backfillService';
