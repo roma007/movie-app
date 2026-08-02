@@ -1,13 +1,30 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import type { MediaPlayerInstance } from '@vidstack/react';
+import { register as registerGlobalShortcut, unregister as unregisterGlobalShortcut } from '@tauri-apps/plugin-global-shortcut';
 import { PictureInPicture2, Maximize2, ChevronsUpDown, ChevronsDownUp, X, ExternalLink } from 'lucide-react';
 import { VideoPlayer } from './VideoPlayer';
+import { PlayerOverlays } from './PlayerOverlays';
 import { usePlayerStore } from '../../stores/playerStore';
 
 const HEADER_H = 36;
 const COLLAPSED_W = 240;
+const RESIZE_MIN_W = 240;
+const RESIZE_MIN_H = 160;
+
+type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+
+interface ResizeDrag {
+  sx: number;
+  sy: number;
+  ow: number;
+  oh: number;
+  ox: number;
+  oy: number;
+  dir: ResizeDir;
+  anchored: boolean;
+}
 
 export function PlayerHost() {
   const session = usePlayerStore((s) => s.session);
@@ -31,7 +48,60 @@ export function PlayerHost() {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<MediaPlayerInstance>(null);
   const headerDrag = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
-  const resizeDrag = useRef<{ sx: number; sy: number; ow: number } | null>(null);
+  const resizeDrag = useRef<ResizeDrag | null>(null);
+
+  const [overlayVisible, setOverlayVisible] = useState(false);
+  const overlayDismissedRef = useRef(false);
+
+  useEffect(() => {
+    setOverlayVisible(false);
+    overlayDismissedRef.current = false;
+  }, [session?.episodeId, session?.playSourceId]);
+
+  const handleBossKey = useCallback(async () => {
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      }
+    } catch {}
+    const video = playerRef.current?.el?.querySelector('video');
+    if (video) {
+      video.pause();
+      video.muted = true;
+    }
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      await getCurrentWindow().minimize();
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === '`') {
+        e.preventDefault();
+        void handleBossKey();
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [handleBossKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await registerGlobalShortcut('Control+`', (event) => {
+          if (event.state === 'Pressed' && !cancelled) {
+            void handleBossKey();
+          }
+        });
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+      unregisterGlobalShortcut('Control+`').catch(() => {});
+    };
+  }, [handleBossKey]);
 
   useEffect(() => {
     initMiniPrefs();
@@ -138,15 +208,61 @@ export function PlayerHost() {
     } catch {}
   };
 
-  const onResizePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    resizeDrag.current = { sx: e.clientX, sy: e.clientY, ow: miniSize.width };
-    e.currentTarget.setPointerCapture(e.pointerId);
-  };
+  const onResizePointerDown =
+    (dir: ResizeDir) => (e: ReactPointerEvent<HTMLDivElement>) => {
+      e.stopPropagation();
+      const ow = miniSize.width;
+      const oh = miniSize.height;
+      const anchored = miniPos === null;
+      const ox = anchored ? Math.max(0, window.innerWidth - ow - 16) : (miniPos?.x ?? 0);
+      const oy = anchored ? Math.max(0, window.innerHeight - oh - 16) : (miniPos?.y ?? 0);
+      resizeDrag.current = { sx: e.clientX, sy: e.clientY, ow, oh, ox, oy, dir, anchored };
+      e.currentTarget.setPointerCapture(e.pointerId);
+    };
   const onResizePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const d = resizeDrag.current;
     if (!d) return;
-    setMiniSize({ width: d.ow + (e.clientX - d.sx) });
+    const dx = e.clientX - d.sx;
+    const dy = e.clientY - d.sy;
+    const east = d.dir.includes('e');
+    const west = d.dir.includes('w');
+    const south = d.dir.includes('s');
+    const north = d.dir.includes('n');
+
+    let w = d.ow;
+    let h = d.oh;
+    if (east) w = d.ow + dx;
+    if (west) w = d.ow - dx;
+    if (south) h = d.oh + dy;
+    if (north) h = d.oh - dy;
+
+    const maxW0 = Math.max(RESIZE_MIN_W, Math.floor(window.innerWidth));
+    const maxH0 = Math.max(RESIZE_MIN_H, Math.floor(window.innerHeight));
+    if (east) {
+      const max = d.anchored
+        ? maxW0
+        : Math.max(RESIZE_MIN_W, Math.min(maxW0, window.innerWidth - 16 - d.ox));
+      w = Math.min(Math.max(w, RESIZE_MIN_W), max);
+    } else if (west) {
+      w = Math.min(Math.max(w, RESIZE_MIN_W), Math.max(RESIZE_MIN_W, Math.min(maxW0, d.ox + d.ow)));
+    }
+    if (south) {
+      const max = d.anchored
+        ? maxH0
+        : Math.max(RESIZE_MIN_H, Math.min(maxH0, window.innerHeight - 16 - d.oy));
+      h = Math.min(Math.max(h, RESIZE_MIN_H), max);
+    } else if (north) {
+      h = Math.min(Math.max(h, RESIZE_MIN_H), Math.max(RESIZE_MIN_H, Math.min(maxH0, d.oy + d.oh)));
+    }
+
+    setMiniSize({ width: Math.round(w), height: Math.round(h) });
+    if (!d.anchored) {
+      let x = d.ox;
+      let y = d.oy;
+      if (west) x = d.ox + (d.ow - w);
+      if (north) y = d.oy + (d.oh - h);
+      setMiniPos({ x: Math.round(x), y: Math.round(y) });
+    }
   };
   const onResizePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     resizeDrag.current = null;
@@ -159,6 +275,38 @@ export function PlayerHost() {
     const src = session.sources.find((s) => s.id === e.target.value);
     if (src) handleSourceChange(src);
   };
+
+  const handleNextEpisode = () => {
+    const nextId = session.nextEpisode?.id;
+    if (!nextId) return;
+    if (isPlayRoute) {
+      navigate(`/play/${nextId}`, { replace: true });
+    } else {
+      void switchEpisode(nextId);
+    }
+  };
+
+  const handleOverlayClose = () => {
+    setOverlayVisible(false);
+    overlayDismissedRef.current = true;
+  };
+
+  const handlePlayerTimeUpdate = (currentTime: number, duration: number) => {
+    handleTimeUpdate(currentTime, duration);
+    const threshold = (session.outroThresholdMinutes ?? 10) * 60;
+    const canShow =
+      !overlayDismissedRef.current &&
+      duration > threshold &&
+      currentTime > 0 &&
+      duration - currentTime <= threshold &&
+      session.showNextEpisodeOverlay !== false &&
+      session.nextEpisode != null;
+    setOverlayVisible(canShow);
+  };
+
+  const nextEpisodeTitle = session.nextEpisode
+    ? `下一集${session.nextEpisode.title ? ` · ${session.nextEpisode.title}` : ''}`
+    : '';
 
   const headerCls =
     'flex items-center gap-1 bg-black/90 text-white/90 text-xs px-2 h-9 cursor-move touch-none';
@@ -267,34 +415,80 @@ export function PlayerHost() {
             sources={session.sources}
             initialSourceId={session.playSourceId ?? undefined}
             initialCurrentTime={session.currentTime}
-            nextEpisode={session.nextEpisode}
-            outroThresholdMinutes={session.outroThresholdMinutes}
-            showNextEpisodeOverlay={session.showNextEpisodeOverlay}
-            onTimeUpdate={handleTimeUpdate}
-            onNextEpisode={() => {
-              const nextId = session.nextEpisode?.id;
-              if (!nextId) return;
-              if (isPlayRoute) {
-                navigate(`/play/${nextId}`, { replace: true });
-              } else {
-                void switchEpisode(nextId);
-              }
-            }}
+            onTimeUpdate={handlePlayerTimeUpdate}
             onSourceChange={handleSourceChange}
             onSourceFail={handleSourceFail}
+            overlays={
+              <PlayerOverlays
+                nextEpisodeTitle={nextEpisodeTitle}
+                overlayVisible={overlayVisible}
+                onNext={handleNextEpisode}
+                onClose={handleOverlayClose}
+              />
+            }
           />
         </div>
       )}
 
       {mode === 'mini' && !collapsed && (
-        <div
-          className="absolute bottom-0 right-0 w-5 h-5 z-30 cursor-nwse-resize touch-none"
-          onPointerDown={onResizePointerDown}
-          onPointerMove={onResizePointerMove}
-          onPointerUp={onResizePointerUp}
-        >
-          <div className="absolute bottom-0.5 right-0.5 w-2.5 h-2.5 pointer-events-none bg-white/30" style={{ clipPath: 'polygon(100% 0, 100% 100%, 0 100%)' }} />
-        </div>
+        <>
+          <div
+            className="absolute top-0 left-1 right-1 h-1 z-30 cursor-ns-resize touch-none"
+            onPointerDown={onResizePointerDown('n')}
+            onPointerMove={onResizePointerMove}
+            onPointerUp={onResizePointerUp}
+          />
+          <div
+            className="absolute bottom-0 left-1 right-1 h-1 z-30 cursor-ns-resize touch-none"
+            onPointerDown={onResizePointerDown('s')}
+            onPointerMove={onResizePointerMove}
+            onPointerUp={onResizePointerUp}
+          />
+          <div
+            className="absolute left-0 top-1 bottom-1 w-1 z-30 cursor-ew-resize touch-none"
+            onPointerDown={onResizePointerDown('w')}
+            onPointerMove={onResizePointerMove}
+            onPointerUp={onResizePointerUp}
+          />
+          <div
+            className="absolute right-0 top-1 bottom-1 w-1 z-30 cursor-ew-resize touch-none"
+            onPointerDown={onResizePointerDown('e')}
+            onPointerMove={onResizePointerMove}
+            onPointerUp={onResizePointerUp}
+          />
+          <div
+            className="absolute top-0 left-0 size-3 z-30 cursor-nwse-resize touch-none"
+            onPointerDown={onResizePointerDown('nw')}
+            onPointerMove={onResizePointerMove}
+            onPointerUp={onResizePointerUp}
+          >
+            <div className="absolute top-0.5 left-0.5 w-2 h-2 pointer-events-none bg-white/30" style={{ clipPath: 'polygon(0 0, 100% 0, 0 100%)' }} />
+          </div>
+          <div
+            className="absolute top-0 right-0 size-3 z-30 cursor-nesw-resize touch-none"
+            onPointerDown={onResizePointerDown('ne')}
+            onPointerMove={onResizePointerMove}
+            onPointerUp={onResizePointerUp}
+          >
+            <div className="absolute top-0.5 right-0.5 w-2 h-2 pointer-events-none bg-white/30" style={{ clipPath: 'polygon(100% 0, 100% 100%, 0 0)' }} />
+          </div>
+          <div
+            className="absolute bottom-0 left-0 size-3 z-30 cursor-nesw-resize touch-none"
+            onPointerDown={onResizePointerDown('sw')}
+            onPointerMove={onResizePointerMove}
+            onPointerUp={onResizePointerUp}
+          >
+            <div className="absolute bottom-0.5 left-0.5 w-2 h-2 pointer-events-none bg-white/30" style={{ clipPath: 'polygon(0 100%, 100% 100%, 0 0)' }} />
+          </div>
+          <div
+            className="absolute bottom-0 right-0 size-3 z-30 cursor-nwse-resize touch-none"
+            onPointerDown={onResizePointerDown('se')}
+            onPointerMove={onResizePointerMove}
+            onPointerUp={onResizePointerUp}
+          >
+            <div className="absolute bottom-0.5 right-0.5 w-2 h-2 pointer-events-none bg-white/30" style={{ clipPath: 'polygon(100% 0, 100% 100%, 0 100%)' }} />
+          </div>
+        </>
       )}
     </div>
   );

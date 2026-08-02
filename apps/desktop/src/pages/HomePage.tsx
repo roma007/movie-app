@@ -15,7 +15,7 @@ import { useToast } from '@/components/Layout';
 
 const USAGE_LABELS: Record<UserUsageType, string> = {
   SEARCH_FIRST: '搜索优先',
-  NEW_MOVIES: '新片追逐',
+  NEW_MOVIES: '追新电影',
   TV_SERIES: '追剧/综艺',
 };
 
@@ -332,7 +332,7 @@ export default function HomePage() {
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Film className="size-5 text-muted-foreground" />
-          <span className="font-medium text-lg">新片增量采集</span>
+          <span className="font-medium text-lg">追新电影</span>
         </div>
         <Button onClick={handleCollectLatest} disabled={isCollecting} variant="default">
           <Download className="size-4 mr-1" />
@@ -384,8 +384,8 @@ export default function HomePage() {
             <p className="text-xs text-muted-foreground mt-1">观看电视剧或综艺后会显示在这里</p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {tvWatchHistory.slice(0, 5).map((h) => {
+          <div className="flex gap-3 overflow-x-auto pb-2">
+            {tvWatchHistory.slice(0, 10).map((h) => {
               const media = mediaMap[h.mediaId];
               if (!media) return null;
               const history = watchedHistoryMap[media.id] ?? [];
@@ -418,38 +418,34 @@ export default function HomePage() {
               return (
                 <div
                   key={h.id}
-                  className="flex items-center gap-3 p-2 rounded-lg hover:bg-secondary/50 cursor-pointer"
+                  className="group w-24 shrink-0 cursor-pointer"
                   onClick={() => navigate(`/media/${media.id}`)}
                 >
-                  <div className="size-10 bg-secondary rounded overflow-hidden shrink-0">
+                  <div className="aspect-[2/3] bg-[var(--color-secondary-alpha)] overflow-hidden rounded-lg">
                     {media.posterUrl ? (
-                      <img src={media.posterUrl} alt="" className="size-full object-cover" />
+                      <img src={media.posterUrl} alt={media.title} loading="lazy" className="size-full object-cover group-hover:scale-105 transition-transform duration-300" />
                     ) : (
-                      <div className="size-full flex items-center justify-center text-xs text-muted-foreground">无</div>
+                      <div className="size-full flex items-center justify-center text-xs text-muted-foreground">无封面</div>
                     )}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{media.title}</div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>{media.type === 'VARIETY' ? '综艺' : '电视剧'}</span>
-                      {epLabel && <span className="text-text-secondary">{epLabel}</span>}
-                    </div>
+                  <div className="px-1.5 py-1">
+                    <div className="text-xs truncate">{media.title}</div>
+                    {epLabel && (
+                      <div className="mt-0.5 text-[10px] text-muted-foreground truncate">{epLabel}</div>
+                    )}
                     <div className="w-full bg-[var(--color-secondary-alpha)] rounded-full h-1 mt-1">
                       <div className="bg-muted-foreground h-1 rounded-full transition-all" style={{ width: `${progressPct}%` }} />
                     </div>
                   </div>
-                  <Button variant="ghost" size="sm" className="shrink-0 text-text-secondary">
-                    续看
-                  </Button>
                 </div>
               );
             })}
-            {tvWatchHistory.length > 5 && (
-              <Button variant="ghost" size="sm" onClick={() => navigate('/history')} className="text-text-secondary mt-1">
-                查看全部追剧 <ChevronRightIcon className="size-3" />
-              </Button>
-            )}
           </div>
+        )}
+        {tvWatchHistory.length > 10 && (
+          <Button variant="ghost" size="sm" onClick={() => navigate('/history')} className="text-text-secondary mt-1">
+            查看全部追剧 <ChevronRightIcon className="size-3" />
+          </Button>
         )}
       </Card>
     );

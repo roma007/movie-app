@@ -153,9 +153,6 @@ export default function Sidebar() {
           </View>
 
           <View style={styles.section}>
-            <TouchableOpacity style={styles.menuItem} onPress={() => handleNav('CollectGuide')}>
-              <Text style={styles.menuText}>采集教程</Text>
-            </TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={() => handleNav('HelpCenter')}>
               <Text style={styles.menuText}>帮助中心</Text>
             </TouchableOpacity>

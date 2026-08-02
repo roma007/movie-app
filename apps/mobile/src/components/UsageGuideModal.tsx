@@ -12,7 +12,7 @@ import { Search, Film, Tv, Check } from 'lucide-react-native';
 
 const OPTIONS: { type: UserUsageType; label: string; desc: string; icon: any }[] = [
   { type: 'SEARCH_FIRST', label: '搜索优先', desc: '临时搜索采集，找想看的视频', icon: Search },
-  { type: 'NEW_MOVIES', label: '新片追逐', desc: '增量采集最新电影，挑选感兴趣的', icon: Film },
+  { type: 'NEW_MOVIES', label: '追新电影', desc: '增量采集最新电影，挑选感兴趣的', icon: Film },
   { type: 'TV_SERIES', label: '追剧/综艺', desc: '追更电视剧/综艺，追完再增量采集', icon: Tv },
 ];
 

@@ -115,7 +115,7 @@ export default function App() {
                 <Route path="/settings/appearance" element={<AppearanceSettingsPage />} />
                 <Route path="/settings/preferences" element={<UsagePreferencesPage />} />
                 <Route path="/settings/collect" element={<CollectConfigPage />} />
-                <Route path="/settings/guide" element={<CollectGuidePage />} />
+                <Route path="/help/guide" element={<CollectGuidePage />} />
                 <Route path="/settings/video" element={<VideoManagementPage />} />
                 <Route path="/test-collect" element={<TestCollectPage />} />
                 <Route path="/help" element={<HelpCenterPage />} />

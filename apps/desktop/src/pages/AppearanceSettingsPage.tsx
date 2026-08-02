@@ -214,7 +214,7 @@ export default function AppearanceSettingsPage() {
             <div className="min-w-0">
               <div className="font-medium">记住窗口大小和位置</div>
               <div className="text-sm text-muted-foreground mt-1">
-                关闭后每次启动将以默认窗口大小（1200×800）打开
+                关闭后每次启动将以最大化窗口打开
               </div>
             </div>
           </div>

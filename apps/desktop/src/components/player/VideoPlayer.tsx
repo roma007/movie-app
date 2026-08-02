@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback, type ReactNode } from 'react';
 import {
   MediaPlayer,
   MediaProvider,
@@ -18,9 +18,6 @@ import { prefetchManager } from './PrefetchManager';
 import { invokePrewarm } from './pooledFetch';
 import { ZH_TRANSLATIONS } from './zhTranslations';
 import { ColorControls } from './ColorControls';
-import { NextEpisodeOverlay } from './NextEpisodeOverlay';
-import { register as registerGlobalShortcut, unregister as unregisterGlobalShortcut } from '@tauri-apps/plugin-global-shortcut';
-import { X } from 'lucide-react';
 import { useThemeStore } from '../../themes/store';
 
 interface VideoPlayerProps {
@@ -29,12 +26,9 @@ interface VideoPlayerProps {
   initialCurrentTime?: number;
   playerRef?: React.Ref<MediaPlayerInstance>;
   keyTarget?: 'document' | 'player';
-  nextEpisode?: { id: string; title?: string | null; episodeNumber: number } | null;
-  outroThresholdMinutes?: number;
-  showNextEpisodeOverlay?: boolean;
+  overlays?: ReactNode;
   onTimeUpdate?: (currentTime: number, duration: number) => void;
   onEnded?: () => void;
-  onNextEpisode?: () => void;
   onSourceChange?: (source: PlaySource) => void;
   onSourceFail?: (sourceId: string) => void;
 }
@@ -45,19 +39,14 @@ export function VideoPlayer({
   initialCurrentTime,
   playerRef,
   keyTarget = 'document',
-  nextEpisode: nextEpisodeProp,
-  outroThresholdMinutes: outroThresholdMinutesProp,
-  showNextEpisodeOverlay: showNextEpisodeOverlayProp,
+  overlays,
   onTimeUpdate,
   onEnded,
-  onNextEpisode: onNextEpisodeProp,
   onSourceChange,
   onSourceFail,
 }: VideoPlayerProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [overlayVisible, setOverlayVisible] = useState(false);
-  const overlayDismissedRef = useRef(false);
 
   const playerContainerRef = useRef<HTMLDivElement>(null);
 
@@ -91,7 +80,6 @@ export function VideoPlayer({
     [activeSources, initialSourceId],
   );
   const [currentIndex, setCurrentIndex] = useState(initialIndex >= 0 ? initialIndex : 0);
-  const [shortcutsVisible, setShortcutsVisible] = useState(true);
   const maxBufferSize = useThemeStore((s) => s.maxBufferSize);
 
   useEffect(() => {
@@ -133,11 +121,6 @@ export function VideoPlayer({
   }, [currentIndex, initialCurrentTime]);
 
   useEffect(() => {
-    setOverlayVisible(false);
-    overlayDismissedRef.current = false;
-  }, [currentIndex]);
-
-  useEffect(() => {
     prefetchManager.reset();
     return () => prefetchManager.reset();
   }, [currentIndex]);
@@ -146,16 +129,6 @@ export function VideoPlayer({
     const src = activeSources[currentIndex];
     if (src?.url) void invokePrewarm(src.url);
   }, [currentIndex, activeSources]);
-
-  const nextEpisodeRef = useRef(nextEpisodeProp);
-  const outroThresholdMinutesRef = useRef(outroThresholdMinutesProp);
-  const showNextEpisodeOverlayRef = useRef(showNextEpisodeOverlayProp);
-  const onNextEpisodeRef = useRef(onNextEpisodeProp);
-
-  useEffect(() => { nextEpisodeRef.current = nextEpisodeProp; }, [nextEpisodeProp]);
-  useEffect(() => { outroThresholdMinutesRef.current = outroThresholdMinutesProp; }, [outroThresholdMinutesProp]);
-  useEffect(() => { showNextEpisodeOverlayRef.current = showNextEpisodeOverlayProp; }, [showNextEpisodeOverlayProp]);
-  useEffect(() => { onNextEpisodeRef.current = onNextEpisodeProp; }, [onNextEpisodeProp]);
 
   const currentTimeRef = useRef(0);
 
@@ -172,15 +145,6 @@ export function VideoPlayer({
         const dur = videoEl!.duration || 0;
         currentTimeRef.current = ct;
         onTimeUpdateRef.current?.(ct, dur);
-        const threshold = (outroThresholdMinutesRef.current ?? 10) * 60;
-        const canShow =
-          !overlayDismissedRef.current &&
-          dur > threshold &&
-          ct > 0 &&
-          dur - ct <= threshold &&
-          showNextEpisodeOverlayRef.current !== false &&
-          nextEpisodeRef.current != null;
-        setOverlayVisible(canShow);
       };
       videoEl.addEventListener('timeupdate', handler);
     }, 1000);
@@ -191,11 +155,6 @@ export function VideoPlayer({
       }
     };
   }, [currentIndex]);
-
-  const handleOverlayClose = useCallback(() => {
-    setOverlayVisible(false);
-    overlayDismissedRef.current = true;
-  }, []);
 
   const handleSourceFail = useCallback(() => {
     const sourcesList = activeSourcesRef.current;
@@ -308,51 +267,6 @@ export function VideoPlayer({
     if (src) onSourceChangeRef.current?.(src);
   }, [currentIndex, activeSources]);
 
-  const handleBossKey = useCallback(async () => {
-    try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture();
-      }
-    } catch {}
-    const video = playerContainerRef.current?.querySelector('video');
-    if (video) {
-      video.pause();
-      video.muted = true;
-    }
-    try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
-      await getCurrentWindow().minimize();
-    } catch {}
-  }, []);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === '`') {
-        e.preventDefault();
-        handleBossKey();
-      }
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [handleBossKey]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        await registerGlobalShortcut('Control+`', (event) => {
-          if (event.state === 'Pressed' && !cancelled) {
-            handleBossKey();
-          }
-        });
-      } catch {}
-    })();
-    return () => {
-      cancelled = true;
-      unregisterGlobalShortcut('Control+`').catch(() => {});
-    };
-  }, [handleBossKey]);
-
   const handleRetry = () => {
     setError(null);
     setCurrentIndex(0);
@@ -374,25 +288,6 @@ export function VideoPlayer({
 
   return (
     <div ref={playerContainerRef} className="relative w-full aspect-video bg-black rounded-lg overflow-hidden">
-      {shortcutsVisible && (
-        <div className="absolute top-2 left-2 z-20 bg-[var(--color-card-alpha)] backdrop-blur-sm rounded-md px-2.5 py-1.5 text-xs text-text-secondary space-y-0.5 select-none">
-          <div className="font-semibold text-text mb-0.5 flex items-center justify-between">
-            <span>快捷键</span>
-            <button
-              onClick={() => setShortcutsVisible(false)}
-              className="p-0.5 text-text-secondary hover:text-text transition-colors"
-              aria-label="关闭快捷键提示"
-            >
-              <X className="size-3.5" />
-            </button>
-          </div>
-          <div>置顶 <kbd className="ml-1 text-text-secondary">i</kbd></div>
-          <div>老板键 <kbd className="ml-1 text-text-secondary">Ctrl + `</kbd></div>
-          <div>全屏 <kbd className="ml-1 text-text-secondary">f</kbd></div>
-        </div>
-      )}
-
-
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-card-alpha)] backdrop-blur-sm z-10">
           <div className="text-text-secondary">
@@ -465,13 +360,8 @@ export function VideoPlayer({
             ),
           }}
         />
+        {overlays}
       </MediaPlayer>
-      <NextEpisodeOverlay
-        show={overlayVisible}
-        nextEpisodeTitle={nextEpisodeRef.current ? `下一集${nextEpisodeRef.current.title ? ` · ${nextEpisodeRef.current.title}` : ''}` : ''}
-        onNext={() => onNextEpisodeRef.current?.()}
-        onClose={handleOverlayClose}
-      />
     </div>
   );
 }

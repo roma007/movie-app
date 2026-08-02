@@ -259,7 +259,7 @@ export default function HomeScreen() {
       <View style={styles.cardHeader}>
         <View style={styles.titleRow}>
           <Film size={18} color={colors.text} />
-          <Text style={styles.usageCardTitle}>新片增量采集</Text>
+          <Text style={styles.usageCardTitle}>追新电影</Text>
         </View>
         <Button variant="secondary" size="sm" onPress={handleMobileCollectLatest} loading={storeLoading} disabled={storeLoading}>
           {storeLoading ? '采集中' : '增量采集'}

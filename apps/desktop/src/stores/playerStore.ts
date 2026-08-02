@@ -51,6 +51,8 @@ interface PlayerState {
 const MINI_POS_KEY = 'movie_app_mini_pos';
 const MINI_SIZE_KEY = 'movie_app_mini_size';
 const MINI_HEADER_H = 36;
+const MINI_WIDTH_MIN = 240;
+const MINI_HEIGHT_MIN = 160;
 
 const currentTimeRef = { value: 0 };
 const durationRef = { value: 0 };
@@ -70,9 +72,15 @@ async function finalSave(session: PlaybackSession | null): Promise<void> {
   }
 }
 
-function clampMiniSize(size: { width: number }): { width: number; height: number } {
-  const w = Math.min(640, Math.max(240, Math.round(size.width)));
-  return { width: w, height: Math.round((w * 9) / 16) + MINI_HEADER_H };
+function clampMiniSize(size: { width: number; height?: number }): { width: number; height: number } {
+  const maxW = Math.max(MINI_WIDTH_MIN, Math.floor(window.innerWidth));
+  const w = Math.min(maxW, Math.max(MINI_WIDTH_MIN, Math.round(size.width)));
+  const maxH = Math.max(MINI_HEIGHT_MIN, Math.floor(window.innerHeight));
+  const h = Math.min(
+    maxH,
+    Math.max(MINI_HEIGHT_MIN, Math.round(size.height ?? (w * 9) / 16 + MINI_HEADER_H)),
+  );
+  return { width: w, height: h };
 }
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({

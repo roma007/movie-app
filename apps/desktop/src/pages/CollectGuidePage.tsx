@@ -2,89 +2,72 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { ArrowLeft, BookOpen, ExternalLink } from 'lucide-react';
+import { ArrowLeft, BookOpen, Database, RefreshCw, Rocket, Settings, Sparkles, UserPlus, Wand2 } from 'lucide-react';
 import { useBackgroundStore } from '../themes/backgroundStore';
 
-const cmsGuides = [
+const cmsRefs = [
   {
     name: '海洋CMS',
     version: 'HYCMS',
-    description: '基于ThinkPHP开发的视频管理系统，支持多模板、多采集源',
-    features: ['支持自定义采集规则', '内置播放器', '多语言支持', 'SEO优化'],
-    config: [
-      '接口地址格式：http://你的域名/api.php/provide/vod/',
-      '接口参数：ac=list（列表）、ac=detail（详情）、ac=play（播放）、ac=types（分类）',
-      '推荐配置：pageSize=20，rateLimit=2',
-      '注意：部分站点需要设置referer头',
-    ],
-    tips: '海洋CMS是最常用的视频CMS之一，稳定性较好，建议优先使用。',
+    apiFormat: 'http://你的域名/api.php/provide/vod/at/xml/',
+    tip: '最常用的视频 CMS，稳定性好，建议优先使用。',
   },
   {
     name: '苹果CMS8',
     version: 'MacCMS8',
-    description: '经典的影视内容管理系统，广泛应用于视频网站搭建',
-    features: ['自动采集', '云转码', '多线路支持', '广告管理'],
-    config: [
-      '接口地址格式：http://你的域名/index.php/api.php/provide/vod/',
-      '接口参数：ac=list、ac=detail、ac=play、ac=types',
-      '推荐配置：pageSize=20，rateLimit=2',
-      '注意：部分新版苹果CMS8需要在后台开启API访问',
-    ],
-    tips: '苹果CMS8版本较旧，建议升级到苹果CMS10以获得更好的兼容性。',
+    apiFormat: 'http://你的域名/index.php/api.php/provide/vod/at/xml/',
+    tip: '经典版本，兼容性好，建议升级到 MacCMS10。',
   },
   {
     name: '苹果CMS10',
     version: 'MacCMS10',
-    description: '苹果CMS的最新版本，支持更多功能和更好的性能',
-    features: ['JSON API', '阿里云OSS支持', '微信小程序', 'APP端支持'],
-    config: [
-      '接口地址格式：http://你的域名/index.php/api.php/provide/vod/',
-      '接口参数：ac=list、ac=detail、ac=play、ac=types',
-      '推荐配置：pageSize=30，rateLimit=3',
-      '注意：苹果CMS10默认开启了请求频率限制',
-    ],
-    tips: '苹果CMS10是目前最主流的选择，功能完善，更新频繁。',
+    apiFormat: 'http://你的域名/index.php/api.php/provide/vod/at/xml/',
+    tip: '目前最主流，功能完善，默认开启请求频率限制。',
   },
   {
     name: '飞飞CMS',
     version: 'FeiFeiCMS',
-    description: '专注于影视资源整合的CMS系统',
-    features: ['自动采集', '资源站对接', '播放解析', '数据统计'],
-    config: [
-      '接口地址格式：http://你的域名/api.php/',
-      '接口参数：ac=list、ac=detail、ac=play、ac=types',
-      '推荐配置：pageSize=20，rateLimit=2',
-      '注意：部分飞飞CMS站点需要认证密钥',
-    ],
-    tips: '飞飞CMS资源丰富，但稳定性参差不齐，建议选择口碑好的站点。',
+    apiFormat: 'http://你的域名/api.php/',
+    tip: '资源丰富但稳定性参差，部分站点需要认证密钥。',
   },
   {
     name: '赞片CMS',
     version: 'ZanPianCMS',
-    description: '基于苹果CMS二次开发的影视管理系统',
-    features: ['自动采集', '智能搜索', '多线路切换', '弹幕支持'],
-    config: [
-      '接口地址格式：http://你的域名/index.php/api.php/provide/vod/',
-      '接口参数：ac=list、ac=detail、ac=play、ac=types',
-      '推荐配置：pageSize=20，rateLimit=2',
-      '注意：赞片CMS与苹果CMSAPI兼容',
-    ],
-    tips: '赞片CMS在苹果CMS基础上增加了一些特色功能，适合追求差异化的用户。',
+    apiFormat: 'http://你的域名/index.php/api.php/provide/vod/at/xml/',
+    tip: '基于苹果 CMS 二次开发，API 兼容苹果 CMS。',
   },
   {
     name: '爱影CMS',
     version: 'AiYingCMS',
-    description: '轻量级影视内容管理系统',
-    features: ['一键采集', '模板美化', '广告联盟', '移动端适配'],
-    config: [
-      '接口地址格式：http://你的域名/api.php/provide/vod/',
-      '接口参数：ac=list、ac=detail、ac=play、ac=types',
-      '推荐配置：pageSize=20，rateLimit=1',
-      '注意：爱影CMS对请求频率较为敏感',
-    ],
-    tips: '爱影CMS资源更新快，但稳定性一般，建议配合重试机制使用。',
+    apiFormat: 'http://你的域名/api.php/provide/vod/at/xml/',
+    tip: '轻量级，资源更新快，对请求频率较敏感。',
   },
 ];
+
+const SECTION_LINKS = [
+  { id: 'source-config', label: '视频源配置' },
+  { id: 'full-collect', label: '全量采集' },
+  { id: 'incremental-collect', label: '手动增量采集' },
+  { id: 'auto-collect', label: '自动增量采集' },
+];
+
+function Step({ index, children }: { index: number; children: React.ReactNode }) {
+  return (
+    <li className="flex items-start gap-2">
+      <span className="w-5 h-5 flex items-center justify-center rounded-full bg-muted-foreground text-white text-xs shrink-0 mt-0.5">{index}</span>
+      <span>{children}</span>
+    </li>
+  );
+}
+
+function SectionTitle({ id, icon, title }: { id: string; icon: React.ReactNode; title: string }) {
+  return (
+    <div id={id} className="flex items-center gap-2 mb-4 scroll-mt-28">
+      {icon}
+      <h2 className="text-lg font-semibold">{title}</h2>
+    </div>
+  );
+}
 
 export default function CollectGuidePage() {
   const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
@@ -95,7 +78,7 @@ export default function CollectGuidePage() {
     <div className="p-6 max-w-7xl mx-auto">
       <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" onClick={() => navigate('/settings')} className="hover:text-text">
+          <Button variant="ghost" onClick={() => navigate('/help')} className="hover:text-text">
             <ArrowLeft className="size-4 mr-2" />
             返回
           </Button>
@@ -107,96 +90,99 @@ export default function CollectGuidePage() {
         <div className="flex items-start gap-4">
           <BookOpen className="size-8 text-muted-foreground shrink-0 mt-1" />
           <div>
-            <h2 className="text-lg font-semibold mb-2">视频源配置指南</h2>
+            <h2 className="text-lg font-semibold mb-2">采集教程</h2>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              本APP支持多种CMS视频源的采集，包括海洋CMS、苹果CMS8、苹果CMS10、飞飞CMS、赞片CMS、爱影CMS等。
-              以下是各类CMS的配置方法和注意事项。
+              从配置视频源到全量、增量、自动采集，本教程带你完整掌握本应用的采集功能。
             </p>
+            <div className="flex flex-wrap gap-2 mt-4">
+              {SECTION_LINKS.map((link) => (
+                <a
+                  key={link.id}
+                  href={`#${link.id}`}
+                  className="px-3 py-1.5 text-sm rounded-lg bg-muted-foreground/10 text-text-secondary hover:bg-muted-foreground/20 hover:text-text transition-colors"
+                >
+                  {link.label}
+                </a>
+              ))}
+            </div>
           </div>
         </div>
       </Card>
 
-      <div className="space-y-4">
-        {cmsGuides.map((cms) => (
-          <Card key={cms.name} className="p-5 hover:border-muted-foreground/30 transition-colors">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-lg font-semibold">{cms.name}</h3>
-                  <span className="px-2 py-0.5 text-xs rounded-full bg-muted-foreground/10 text-text-secondary">
-                    {cms.version}
-                  </span>
-                </div>
-                <p className="text-sm text-muted-foreground mt-1">{cms.description}</p>
-              </div>
-              <a
-                href={`https://www.baidu.com/s?wd=${encodeURIComponent(cms.name + ' CMS')}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-muted-foreground hover:text-text transition-colors"
-              >
-                <ExternalLink className="size-4" />
-              </a>
-            </div>
+      <Card className="p-6 mb-6">
+        <SectionTitle id="source-config" icon={<Database className="size-5 text-muted-foreground" />} title="一、视频源配置" />
+        <p className="text-sm text-muted-foreground leading-relaxed mb-4">
+          采集前必须先添加视频源。支持手动配置和 AI 导入两种方式。
+        </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <div className="text-sm font-medium text-text-secondary">主要功能</div>
-                <ul className="text-sm text-muted-foreground space-y-1">
-                  {cms.features.map((feature) => (
-                    <li key={feature} className="flex items-center gap-1">
-                      <span className="w-1 h-1 rounded-full bg-muted-foreground" />
-                      {feature}
-                    </li>
-                  ))}
-                </ul>
-              </div>
+        <div className="mb-4">
+          <h3 className="text-md font-semibold mb-2 flex items-center gap-2">
+            <UserPlus className="size-4 text-muted-foreground" /> 1. 手动配置
+          </h3>
+          <ol className="text-sm text-muted-foreground space-y-2">
+            <Step index={1}>打开「设置」页面，点击「视频源管理」</Step>
+            <Step index={2}>点击「手动添加」，填写视频源信息：编码（唯一标识）、名称、API 地址、速率限制（1-10）</Step>
+            <Step index={3}>点击「保存」，视频源出现在列表中</Step>
+            <Step index={4}>点击「检测」确认源可用，用开关启用/禁用源</Step>
+          </ol>
+        </div>
 
-              <div className="space-y-2">
-                <div className="text-sm font-medium text-text-secondary">配置方法</div>
-                <ul className="text-sm text-muted-foreground space-y-1">
-                  {cms.config.map((item) => (
-                    <li key={item} className="flex items-start gap-1">
-                      <span className="w-1 h-1 rounded-full bg-muted-foreground mt-1.5 shrink-0" />
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
+        <div className="mb-4">
+          <h3 className="text-md font-semibold mb-2">常见 CMS 接口格式参考</h3>
+          <div className="space-y-2">
+            {cmsRefs.map((cms) => (
+              <div key={cms.name} className="flex flex-col md:flex-row md:items-center gap-1 md:gap-3 p-3 rounded-lg bg-muted/40">
+                <span className="text-sm font-medium shrink-0">
+                  {cms.name} <span className="text-xs text-text-secondary">{cms.version}</span>
+                </span>
+                <code className="text-xs text-muted-foreground font-mono break-all flex-1">{cms.apiFormat}</code>
+                <span className="text-xs text-text-secondary">{cms.tip}</span>
               </div>
+            ))}
+          </div>
+        </div>
 
-              <div className="space-y-2">
-                <div className="text-sm font-medium text-text-secondary">使用提示</div>
-                <p className="text-sm text-muted-foreground">{cms.tips}</p>
-              </div>
-            </div>
-          </Card>
-        ))}
-      </div>
+        <div>
+          <h3 className="text-md font-semibold mb-2 flex items-center gap-2">
+            <Wand2 className="size-4 text-muted-foreground" /> 2. AI 导入
+          </h3>
+          <ol className="text-sm text-muted-foreground space-y-2">
+            <Step index={1}>进入「视频源管理」，点击「AI 导入」</Step>
+            <Step index={2}>复制弹窗中的提示词，发给 AI 助手（如 ChatGPT、Claude 等）</Step>
+            <Step index={3}>将 AI 返回的数据粘贴到输入框中，点击「解析并预览」</Step>
+            <Step index={4}>确认预览结果（重复源自动跳过），点击「导入」即可批量添加</Step>
+          </ol>
+        </div>
+      </Card>
 
-      <Card className="p-6 mt-6">
-        <h3 className="text-lg font-semibold mb-3">通用配置步骤</h3>
-        <ol className="text-sm text-muted-foreground space-y-2">
-          <li className="flex items-start gap-2">
-            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-muted-foreground text-white text-xs shrink-0">1</span>
-            在设置页面点击"视频源管理"，进入视频源列表
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-muted-foreground text-white text-xs shrink-0">2</span>
-            点击"添加视频源"，输入视频源名称和API地址
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-muted-foreground text-white text-xs shrink-0">3</span>
-            根据视频源类型选择对应的CMS类型
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-muted-foreground text-white text-xs shrink-0">4</span>
-            点击保存
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-muted-foreground text-white text-xs shrink-0">5</span>
-            在采集任务页面创建采集任务，选择刚添加的视频源进行采集
-          </li>
-        </ol>
+      <Card className="p-6 mb-6">
+        <SectionTitle id="full-collect" icon={<Rocket className="size-5 text-muted-foreground" />} title="二、全量采集" />
+        <div className="space-y-2 text-sm text-muted-foreground leading-relaxed">
+          <p><span className="text-text font-medium">适用场景：</span>首次添加视频源，或需要建立完整的本地片库。</p>
+          <p><span className="text-text font-medium">操作方式：</span>进入「视频源管理」，点击对应源的「全量采集」按钮。</p>
+          <p><span className="text-text font-medium">参数调整：</span>在「采集配置」中可设置「全量采集最大页数」，限制单次采集的数据量。</p>
+          <p><span className="text-text font-medium">特点：</span>采集该源的全部数据，耗时较长，建议在初次使用时执行一次。</p>
+        </div>
+      </Card>
+
+      <Card className="p-6 mb-6">
+        <SectionTitle id="incremental-collect" icon={<RefreshCw className="size-5 text-muted-foreground" />} title="三、手动增量采集" />
+        <div className="space-y-2 text-sm text-muted-foreground leading-relaxed">
+          <p><span className="text-text font-medium">适用场景：</span>日常追新，只采集新增的视频内容。</p>
+          <p><span className="text-text font-medium">操作方式：</span>进入「视频源管理」点击「增量采集」，或在首页「追新电影」卡片点击「一键采集」。</p>
+          <p><span className="text-text font-medium">参数调整：</span>在「采集配置」中可设置「增量采集最大页数」与「断点小时数」，控制增量采集的范围。</p>
+          <p><span className="text-text font-medium">特点：</span>速度快、资源消耗小，建议定期手动执行以保持数据最新。</p>
+        </div>
+      </Card>
+
+      <Card className="p-6 mb-6">
+        <SectionTitle id="auto-collect" icon={<Settings className="size-5 text-muted-foreground" />} title="四、自动增量采集" />
+        <div className="space-y-2 text-sm text-muted-foreground leading-relaxed">
+          <p><span className="text-text font-medium">开启方式：</span>进入「设置 → 采集配置」，开启「自动增量采集」。</p>
+          <p><span className="text-text font-medium">相关选项：</span>启用自动采集、定时采集间隔（小时）、启动时立即采集。</p>
+          <p><span className="text-text font-medium">触发条件：</span>有启用中的视频源且无手动采集任务运行时才执行；移动端回前台也会自动补检一次。</p>
+          <p><span className="text-text font-medium">注意：</span>自动采集与手动采集互斥，手动采集进行中时自动采集会跳过。</p>
+        </div>
       </Card>
 
       <Card className="p-6 mt-4">
@@ -220,10 +206,16 @@ export default function CollectGuidePage() {
               A: 请检查网络连接，尝试切换不同的播放源。部分视频源可能存在防盗链机制，需要在采集配置中设置referer头。
             </div>
           </div>
-          <div>
+          <div className="pb-3">
             <div className="font-medium text-sm">Q: 如何更新视频源的新内容？</div>
             <div className="text-sm text-muted-foreground mt-1">
-              A: 在采集任务页面创建"增量采集"任务，系统会自动采集新增的视频内容。建议定期执行增量采集以保持数据最新。
+              A: 在视频源管理点击「增量采集」，或开启「自动增量采集」让系统定期自动更新。建议保持数据最新。
+            </div>
+          </div>
+          <div>
+            <div className="font-medium text-sm">Q: 自动采集为什么没有执行？</div>
+            <div className="text-sm text-muted-foreground mt-1">
+              A: 请检查是否已在「采集配置」开启自动采集，是否存在启用中的视频源，以及是否与手动采集任务冲突。自动采集仅在无手动任务运行且达到设定间隔时触发。
             </div>
           </div>
         </div>

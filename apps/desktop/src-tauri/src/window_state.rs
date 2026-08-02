@@ -74,12 +74,17 @@ fn is_visible_on_screen(app: &AppHandle, x: i32, y: i32, width: u32, height: u32
 }
 
 /// 启动时恢复窗口大小和位置（在窗口显示前调用）。
+/// 无已保存状态或关闭记忆功能时，以当前显示器工作区最大尺寸打开。
 pub fn apply_on_startup(app: &AppHandle) {
-    let Some(state) = load_state(app) else { return };
+    let Some(window) = app.get_webview_window("main") else { return };
+    let Some(state) = load_state(app) else {
+        let _ = window.maximize();
+        return;
+    };
     if !state.remember {
+        let _ = window.maximize();
         return;
     }
-    let Some(window) = app.get_webview_window("main") else { return };
     let _ = window.set_size(PhysicalSize::new(state.width, state.height));
     if is_visible_on_screen(app, state.x, state.y, state.width, state.height) {
         let _ = window.set_position(PhysicalPosition::new(state.x, state.y));

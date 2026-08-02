@@ -11,7 +11,12 @@ export function NextEpisodeOverlay({ show, nextEpisodeTitle, onNext, onClose }: 
   if (!show) return null;
 
   return (
-    <div className="absolute top-2 right-2 z-30 bg-[var(--color-card-alpha)] backdrop-blur-sm rounded-md px-2.5 py-1.5 text-xs text-text-secondary flex items-center gap-2 pointer-events-auto">
+    <div
+      className="absolute top-2 right-2 z-30 bg-[var(--color-card-alpha)] backdrop-blur-sm rounded-md px-2.5 py-1.5 text-xs text-text-secondary flex items-center gap-2 pointer-events-auto"
+      onPointerDown={(e) => e.stopPropagation()}
+      onPointerUp={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
       <span className="truncate max-w-32">{nextEpisodeTitle}</span>
       <button
         onClick={onNext}
