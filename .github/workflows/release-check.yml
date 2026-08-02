@@ -1,0 +1,39 @@
+name: Release Tag Check
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  ensure-release-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --tags --force
+
+      - name: Ensure release tag
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v$VERSION"
+          echo "Target tag: $TAG"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "Tag $TAG already exists, skip."
+          else
+            git tag "$TAG"
+            git push origin "$TAG" || {
+              echo "Tag push failed (likely raced with another run); re-checking..."
+              git fetch --tags --force
+              if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+                echo "Tag $TAG still missing after fetch" >&2
+                exit 1
+              fi
+            }
+          fi
