@@ -32,6 +32,7 @@ export interface DatabaseProvider {
     totalEpisodes: number | null,
     updatedAt: string
   ): Promise<void>;
+  updateMediaPoster(mediaId: string, posterUrl: string | null, updatedAt: string): Promise<void>;
   incrementViewCount(id: string): Promise<void>;
   incrementSearchCount(id: string): Promise<void>;
   searchMedia(

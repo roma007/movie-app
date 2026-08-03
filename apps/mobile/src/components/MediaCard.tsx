@@ -1,10 +1,11 @@
 import React, { useMemo, useRef } from 'react';
-import { Animated, Image, Text, TouchableOpacity, StyleSheet, View, Dimensions } from 'react-native';
+import { Animated, Text, TouchableOpacity, StyleSheet, View, Dimensions } from 'react-native';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
 import { useScaledFontSize } from '../themes/useScaledFontSize';
 import { hexToRgba } from '../themes/colorUtils';
 import { radius } from '../themes/radiusTokens';
+import PosterImage from './PosterImage';
 import type { Media } from '@movie-app/core';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -121,7 +122,7 @@ export default function MediaCard({ media, onPress, compact = false }: MediaCard
       <TouchableOpacity style={styles.compactCard} onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut}>
         <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
           {media.posterUrl ? (
-            <Image source={{ uri: media.posterUrl }} style={styles.compactPoster} />
+            <PosterImage uri={media.posterUrl} style={styles.compactPoster} placeholder={<Text style={styles.placeholderText}>{media.title[0]}</Text>} />
           ) : (
             <View style={[styles.compactPlaceholder, styles.compactPoster]}>
               <Text style={styles.placeholderText}>{media.title[0]}</Text>
@@ -138,7 +139,7 @@ export default function MediaCard({ media, onPress, compact = false }: MediaCard
       <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
         <View style={styles.posterContainer}>
         {media.posterUrl ? (
-          <Image source={{ uri: media.posterUrl }} style={styles.poster} />
+          <PosterImage uri={media.posterUrl} style={styles.poster} placeholder={<Text style={styles.placeholderText}>{media.title[0]}</Text>} />
         ) : (
           <View style={[styles.placeholder, styles.poster]}>
             <Text style={styles.placeholderText}>{media.title[0]}</Text>

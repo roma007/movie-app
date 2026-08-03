@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { useAppStore, getProvider } from '../useAppStore';
 import { useConfirm } from '@/components/ConfirmProvider';
 import { useToast } from '@/components/Layout';
@@ -503,45 +504,6 @@ export default function VideoManagementPage() {
           ) : null}
         </Card>
 
-        <div className="grid grid-cols-2 gap-6 mb-6">
-          <Card className="p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <Trash2 className="size-4 text-muted-foreground" />
-              <h2 className="text-lg font-semibold">删除所有视频</h2>
-            </div>
-            <p className="text-sm text-muted-foreground mb-4">
-              删除所有视频数据，包括播放源、剧集、收藏和观看历史。此操作无法撤销。
-            </p>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteAllMedia}
-              disabled={stats?.total === 0}
-              className="w-full"
-            >
-              <Trash2 className="size-4 mr-2" />
-              删除所有视频 ({stats?.total || 0})
-            </Button>
-          </Card>
-
-          <Card className="p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <Unlink className="size-4 text-muted-foreground" />
-              <h2 className="text-lg font-semibold">删除无播放源视频</h2>
-            </div>
-            <p className="text-sm text-muted-foreground mb-4">
-              删除所有没有播放源的视频。此操作无法撤销。
-            </p>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteMediaWithoutPlaySource}
-              className="w-full"
-            >
-              <Trash2 className="size-4 mr-2" />
-              删除无播放源视频
-            </Button>
-          </Card>
-        </div>
-
         <Card className="p-6 mb-6 border-l-4 border-l-destructive">
           <div className="flex items-center gap-3 mb-4">
             <Trash2 className="size-4 text-destructive" />
@@ -704,7 +666,10 @@ export default function VideoManagementPage() {
           {localConfig && (
             <div className="space-y-5">
               <div className="space-y-2">
-                <Label className="text-sm font-medium">第1层：从简介提取时长的匹配模板</Label>
+                <div className="flex items-center gap-2">
+                  <Badge className="size-5 justify-center p-0 rounded-full bg-[var(--color-muted-alpha)] text-button-primary-text">1</Badge>
+                  <Label className="text-sm font-medium">第1层：从简介提取时长的匹配模板</Label>
+                </div>
                 <p className="text-xs text-muted-foreground">用 {'{'}N{'}'} 代表数字，例如「{'{'}N{'}'}分钟」可匹配"30分钟"、"每集30分钟"等文本中的时长</p>
                 <div className="flex flex-wrap gap-2 mb-2">
                   {localConfig.summaryPatterns.map((pattern, i) => (
@@ -732,33 +697,43 @@ export default function VideoManagementPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">第2层：短剧判定阈值（分钟）</Label>
-                  <p className="text-xs text-muted-foreground">单集平均时长低于此值判定为短剧</p>
-                  <Input
-                    type="number"
-                    min="1"
-                    max="120"
-                    value={localConfig.durationThresholdMinutes}
-                    onChange={(e) => setLocalConfig({ ...localConfig, durationThresholdMinutes: Math.max(1, parseInt(e.target.value) || 30) })}
-                  />
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Badge className="size-5 justify-center p-0 rounded-full bg-[var(--color-muted-alpha)] text-button-primary-text">2</Badge>
+                  <Label className="text-sm font-medium">第2层：探测视频实际时长</Label>
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">探测集数上限</Label>
-                  <p className="text-xs text-muted-foreground">逐集探测视频时长，成功1集即止；最多探测N集</p>
-                  <Input
-                    type="number"
-                    min="1"
-                    max="20"
-                    value={localConfig.probeEpisodeCount}
-                    onChange={(e) => setLocalConfig({ ...localConfig, probeEpisodeCount: Math.max(1, parseInt(e.target.value) || 8) })}
-                  />
+                <p className="text-xs text-muted-foreground">逐集探测视频流时长，成功1集即止；根据探测结果与下方阈值判断长短剧</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">短剧判定阈值（分钟）</Label>
+                    <p className="text-xs text-muted-foreground">单集时长低于阈值为短剧</p>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="120"
+                      value={localConfig.durationThresholdMinutes}
+                      onChange={(e) => setLocalConfig({ ...localConfig, durationThresholdMinutes: Math.max(1, parseInt(e.target.value) || 30) })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">探测集数上限</Label>
+                    <p className="text-xs text-muted-foreground">逐集探测视频时长，成功1集即止；最多探测N集</p>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="20"
+                      value={localConfig.probeEpisodeCount}
+                      onChange={(e) => setLocalConfig({ ...localConfig, probeEpisodeCount: Math.max(1, parseInt(e.target.value) || 8) })}
+                    />
+                  </div>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label className="text-sm font-medium">第3层：元数据关键词列表</Label>
+                <div className="flex items-center gap-2">
+                  <Badge className="size-5 justify-center p-0 rounded-full bg-[var(--color-muted-alpha)] text-button-primary-text">3</Badge>
+                  <Label className="text-sm font-medium">第3层：元数据关键词列表</Label>
+                </div>
                 <p className="text-xs text-muted-foreground">当第1、2层均未命中时，根据简介、标题、类型中是否包含这些关键词来判断</p>
                 <div className="flex flex-wrap gap-2 mb-2 max-h-40 overflow-y-auto">
                   {localConfig.metaKeywords.map((kw, i) => (
@@ -1039,6 +1014,45 @@ export default function VideoManagementPage() {
             {reprobing ? '启动中...' : `开始批量重新探测 (${reprobeMediaList.length})`}
           </Button>
         </Card>
+
+        <div className="grid grid-cols-2 gap-6 mb-6">
+          <Card className="p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <Trash2 className="size-4 text-muted-foreground" />
+              <h2 className="text-lg font-semibold">删除所有视频</h2>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              删除所有视频数据，包括播放源、剧集、收藏和观看历史。此操作无法撤销。
+            </p>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteAllMedia}
+              disabled={stats?.total === 0}
+              className="w-full"
+            >
+              <Trash2 className="size-4 mr-2" />
+              删除所有视频 ({stats?.total || 0})
+            </Button>
+          </Card>
+
+          <Card className="p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <Unlink className="size-4 text-muted-foreground" />
+              <h2 className="text-lg font-semibold">删除无播放源视频</h2>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              删除所有没有播放源的视频。此操作无法撤销。
+            </p>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteMediaWithoutPlaySource}
+              className="w-full"
+            >
+              <Trash2 className="size-4 mr-2" />
+              删除无播放源视频
+            </Button>
+          </Card>
+        </div>
       </div>
     </div>
   );

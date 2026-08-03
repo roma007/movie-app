@@ -1,5 +1,5 @@
 import { TauriSqlProvider } from './db/tauriSqlProvider';
-import { createAppStore, setHttpClient, setVideoFetchFn, backfillSeriesGroup, reclassifyShortDramaMovies, type AppStore, type AppState, type HttpClient } from '@movie-app/core';
+import { createAppStore, setHttpClient, setVideoFetchFn, backfillSeriesGroup, reclassifyShortDramaMovies, repairDeadPosterUrls, mergeDuplicateSeriesMedia, type AppStore, type AppState, type HttpClient } from '@movie-app/core';
 
 let _provider: TauriSqlProvider | null = null;
 let _store: AppStore | null = null;
@@ -199,6 +199,26 @@ export async function initApp(onProgress?: (step: string) => void): Promise<void
         report(`Step 3d: 短剧类型修复完成（${reclassified} 条）`);
       } catch (err) {
         const errMsg = `短剧类型修复失败: ${err instanceof Error ? err.message : String(err)}`;
+        console.error(errMsg);
+        await logToDb(errMsg, 'error');
+      }
+
+      try {
+        const { replaced } = await repairDeadPosterUrls(_provider);
+        if (replaced > 0) await logToDb(`Repaired ${replaced} dead poster urls`);
+        report(`Step 3e: 失效封面修复完成（${replaced} 条）`);
+      } catch (err) {
+        const errMsg = `失效封面修复失败: ${err instanceof Error ? err.message : String(err)}`;
+        console.error(errMsg);
+        await logToDb(errMsg, 'error');
+      }
+
+      try {
+        const { merged, removed } = await mergeDuplicateSeriesMedia(_provider);
+        if (merged > 0) await logToDb(`Merged ${merged} duplicate series (removed ${removed} rows)`);
+        report(`Step 3f: 同系列重复合并完成（${merged} 组 / 删除 ${removed} 条）`);
+      } catch (err) {
+        const errMsg = `同系列重复合并失败: ${err instanceof Error ? err.message : String(err)}`;
         console.error(errMsg);
         await logToDb(errMsg, 'error');
       }

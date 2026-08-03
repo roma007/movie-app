@@ -46,6 +46,16 @@
 - 桌面端升级验证：复制现有库文件（`~/Library/Application Support/com.movie.app.desktop/movieapp.db`）→ 用新代码启动 → `PRAGMA table_info` 确认新列/新表存在、`media` 行数不变、引用新字段的查询正常。
 - 所有改动必须同时落到 schema.ts + 桌面端 + 移动端三条路径，缺一不可。
 
+## UI 规范
+
+### 弹窗不透明度规则
+
+弹窗（Dialog / Modal / 底部弹层 / 选择弹层等）主体背景与内部大面积表面必须**不透明**，禁止用半透明背景（`rgba`、`hexToRgba(token, alpha)`、Tailwind `bg-*/N`、`--color-*-alpha`）作为弹窗面板底色，避免背景内容透过弹窗。
+
+- 允许：弹窗背后的半透明遮罩（backdrop，如 `rgba(0,0,0,0.5~0.8)`）。
+- 允许：弹窗面板已不透明前提下的小面积选中/状态强调（如 `bg-success/5`、`bg-muted-foreground/10`）。
+- 此规则**仅限弹窗**；卡片、按钮、页面其它元素基于 cardOpacity 的半透明设计不受影响。
+
 ## 提交规范
 
 - 默认单 commit 全量提交：工作区所有代码改动一次提交，除非用户明确要求按功能拆分。

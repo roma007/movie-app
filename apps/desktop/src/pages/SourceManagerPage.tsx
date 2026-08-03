@@ -36,6 +36,7 @@ import { useToast } from '@/components/Layout';
 import { SourceImportService, AI_SOURCE_PROMPT, AI_SOURCE_IMPORT_SAMPLE } from '@movie-app/core';
 import type { VideoSource, CollectTask, CollectPreviewItem, ImportSourceItem, ParsedImportSource } from '@movie-app/core';
 import { useBackgroundStore } from '../themes/backgroundStore';
+import { PosterImage } from '@/components/PosterImage';
 
 
 export default function SourceManagerPage() {
@@ -848,7 +849,7 @@ export default function SourceManagerPage() {
                         />
                         <div className="w-10 h-14 shrink-0 rounded overflow-hidden bg-secondary">
                           {item.posterUrl && (
-                            <img src={item.posterUrl} alt={item.title} className="size-full object-cover" />
+                            <PosterImage src={item.posterUrl} alt={item.title} className="size-full object-cover" />
                           )}
                         </div>
                         <div className="flex-1 min-w-0">

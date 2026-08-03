@@ -3,6 +3,7 @@ export * from './types';
 
 // 工具
 export { DataNormalizer, normalizer } from './utils/normalizer';
+export { DEAD_IMAGE_HOSTS, extractImageHost, isKnownDeadPosterUrl, isUsablePosterUrl } from './utils/posterHost';
 export {
   isAiDrama,
   isBlacklisted,
@@ -37,6 +38,7 @@ export { CMSAdapter } from './services/cmsAdapter';
 export { CollectorService } from './services/collectorService';
 export { backfillSeriesGroup } from './services/backfillService';
 export { reclassifyShortDramaMovies } from './services/reclassifyService';
+export { repairDeadPosterUrls, mergeDuplicateSeriesMedia } from './services/posterRepairService';
 export { SystemConfigService, type CollectConfig, type ShortDramaConfig } from './services/systemConfigService';
 export { AutoCollectScheduler } from './services/autoCollectScheduler';
 export { VideoDurationService, setVideoFetchFn, getVideoFetchFn } from './services/videoDurationService';

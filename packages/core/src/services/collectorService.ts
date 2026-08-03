@@ -2,6 +2,7 @@ import { CMSAdapter } from './cmsAdapter';
 import { normalizer, DEFAULT_MIN_YEAR } from '../utils/normalizer';
 import { mapType, isBlacklisted, refineTypeByEpisodes, isVersionTitle, needsShortDramaCheck } from '../utils/typeMapper';
 import { SOURCE_ID_TO_NAME_MAP, PLAY_SOURCE_TYPE_MAP, isPlayableMediaUrl } from '../utils/constants';
+import { isKnownDeadPosterUrl, isUsablePosterUrl } from '../utils/posterHost';
 import type { DatabaseProvider } from '../db/provider';
 import type { CMSMediaItem, Media, Episode, PlaySource, VideoSource, CollectTask, TaskStatus, TaskErrorType, CollectionLog, CollectPreviewItem } from '../types';
 import { SystemConfigService } from './systemConfigService';
@@ -249,6 +250,15 @@ export class CollectorService {
       const seriesGroup = normalizer.extractSeriesGroup(fingerprint);
       const seriesSeason = normalizer.extractSeriesSeason(fingerprint);
 
+      // 封面择优：已有封面挂在失效图床时，用当前源返回的有效封面覆盖（避免破图）
+      const currentPoster = item.vod_pic || null;
+      let effectivePoster = currentPoster;
+      let posterReplaced = false;
+      if (existing && isKnownDeadPosterUrl(existing.posterUrl) && isUsablePosterUrl(currentPoster)) {
+        effectivePoster = currentPoster;
+        posterReplaced = true;
+      }
+
       const media: Media = {
         id: mediaId,
         title,
@@ -261,7 +271,7 @@ export class CollectorService {
         directors,
         actors,
         description,
-        posterUrl: item.vod_pic || null,
+        posterUrl: effectivePoster,
         backdropUrl: null,
         status,
         remarks: remarks || null,
@@ -293,6 +303,9 @@ export class CollectorService {
 
         if (bestStatus !== existing.status || bestEpisodes !== existing.currentEpisodes || bestTotal !== existing.totalEpisodes) {
           await this.db.updateMediaStatusAndEpisodes(mediaId, bestStatus, bestEpisodes, bestTotal, new Date().toISOString());
+        }
+        if (posterReplaced && effectivePoster !== existing.posterUrl) {
+          await this.db.updateMediaPoster(mediaId, effectivePoster, new Date().toISOString());
         }
       } else {
         await this.db.upsertMedia(media);

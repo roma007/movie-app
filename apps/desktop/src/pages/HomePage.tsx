@@ -5,6 +5,7 @@ import { useAppStore, getProvider } from '../useAppStore';
 import { useBackgroundStore } from '../themes/backgroundStore';
 import { useImportDialogStore } from '../themes/importDialogStore';
 import { MediaGrid, MediaCard } from '@/components/MediaCard';
+import { PosterImage } from '@/components/PosterImage';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -298,7 +299,7 @@ export default function HomePage() {
                 className="size-5 accent-primary cursor-pointer"
               />
               {item.posterUrl && (
-                <img src={item.posterUrl} alt="" className="size-10 object-cover rounded" />
+                <PosterImage src={item.posterUrl} alt="" className="size-10 object-cover rounded" />
               )}
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium truncate">{item.title}</div>
@@ -418,11 +419,11 @@ export default function HomePage() {
                   onClick={() => navigate(`/media/${media.id}`)}
                 >
                   <div className="aspect-[2/3] bg-[var(--color-secondary-alpha)] overflow-hidden rounded-lg">
-                    {media.posterUrl ? (
-                      <img src={media.posterUrl} alt={media.title} loading="lazy" className="size-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                    ) : (
-                      <div className="size-full flex items-center justify-center text-xs text-muted-foreground">无封面</div>
-                    )}
+                    <PosterImage
+                      src={media.posterUrl}
+                      alt={media.title}
+                      className="size-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
                   </div>
                   <div className="px-1.5 py-1">
                     <div className="text-xs truncate">{media.title}</div>

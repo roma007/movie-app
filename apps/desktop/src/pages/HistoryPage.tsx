@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Trash2, Play, ArrowLeft } from 'lucide-react';
 import type { Media } from '@movie-app/core';
 import { useBackgroundStore } from '../themes/backgroundStore';
+import { PosterImage } from '@/components/PosterImage';
 
 export default function HistoryPage() {
   const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
@@ -74,9 +75,7 @@ export default function HistoryPage() {
             return (
               <Card key={h.id} className="p-3 flex items-center gap-4 hover:border-highlight transition-colors">
                 <div className="w-12 h-16 shrink-0 rounded-lg bg-secondary overflow-hidden">
-                  {m?.posterUrl && (
-                    <img src={m.posterUrl} alt={m.title} className="size-full object-cover" />
-                  )}
+                  <PosterImage src={m?.posterUrl} alt={m?.title} className="size-full object-cover" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="font-medium truncate">{m?.title || '未知视频'}</div>

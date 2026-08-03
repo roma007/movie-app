@@ -3,7 +3,6 @@ import { View, Text, StyleSheet, ActivityIndicator, Dimensions, LayoutAnimation,
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppStore } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
-import { useThemeStore } from '../themes/store';
 import { useScaledFontSize } from '../themes/useScaledFontSize';
 import { hexToRgba } from '../themes/colorUtils';
 import { Button } from './ui/Button';
@@ -24,9 +23,8 @@ export default function CollectProgressDialog() {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const s = useScaledFontSize();
-  const cardOpacity = useThemeStore((s) => s.cardOpacity);
-  const cardBg = hexToRgba(colors.card, cardOpacity / 100);
-  const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100 * 0.6);
+  const cardBg = colors.card;
+  const surfaceBg = hexToRgba(colors.surface, 0.6);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevVisibleRef = useRef(false);
@@ -118,7 +116,7 @@ export default function CollectProgressDialog() {
       width: 22,
       height: 22,
       borderRadius: radius.full,
-      backgroundColor: hexToRgba(colors.mutedForeground, cardOpacity / 100 * 0.15),
+      backgroundColor: hexToRgba(colors.mutedForeground, 0.15),
       alignItems: 'center',
       justifyContent: 'center',
     },

@@ -128,7 +128,7 @@ export default function CategoryHeader({ activeType, tabsHiddenAnim }: CategoryH
     : tabsHeightRef.current || 60;
 
   return (
-    <View style={{ paddingTop: insets.top + 8 }}>
+    <View style={{ paddingTop: insets.top + 8, paddingBottom: 12 }}>
       <View style={styles.headerRow}>
         <TouchableOpacity style={styles.menuButton} onPress={openSidebar} activeOpacity={0.6}>
           <Menu size={22} color={colors.text} />

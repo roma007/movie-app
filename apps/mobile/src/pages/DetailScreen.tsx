@@ -1,9 +1,9 @@
 import { useEffect, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal } from 'react-native';
 import { useAppStore } from '../useAppStore';
 import { getProvider } from '../init';
 import { VideoDurationService } from '@movie-app/core';
-import { Heart, ArrowLeft } from 'lucide-react-native';
+import { Heart, ArrowLeft, EyeOff } from 'lucide-react-native';
 import type { Episode, PlaySource, VideoSource } from '@movie-app/core';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
@@ -11,6 +11,7 @@ import { useScaledFontSize } from '../themes/useScaledFontSize';
 import { Button } from '../components/ui/Button';
 import { hexToRgba } from '../themes/colorUtils';
 import BlurredBackground from '../components/BlurredBackground';
+import PosterImage from '../components/PosterImage';
 import { radius } from '../themes/radiusTokens';
 
 interface Props {
@@ -20,11 +21,10 @@ interface Props {
 
 export default function DetailScreen({ route, navigation }: Props) {
   const { id } = route.params;
-  const { currentMedia, episodes, seasons, isLoading, episodeSources, seriesMedia, loadMediaDetail, loadEpisodes, loadSeasons, loadSeasonEpisodes, loadSeriesMedia } = useAppStore();
+  const { currentMedia, episodes, seasons, isLoading, episodeSources, seriesMedia, loadMediaDetail, loadEpisodes, loadSeasons, loadSeasonEpisodes, loadSeriesMedia, hideMediaByGenres } = useAppStore();
   const colors = useThemeColors();
   const cardOpacity = useThemeStore((s) => s.cardOpacity);
   const cardBg = hexToRgba(colors.card, cardOpacity / 100);
-  const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100);
   const s = useScaledFontSize();
   const [currentSeason, setCurrentSeason] = useState(1);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
@@ -33,6 +33,11 @@ export default function DetailScreen({ route, navigation }: Props) {
 
   // 功能1: 收藏
   const [isFav, setIsFav] = useState(false);
+
+  // 功能6: 隐藏此类视频
+  const [hideModalVisible, setHideModalVisible] = useState(false);
+  const [selectedHideGenres, setSelectedHideGenres] = useState<string[]>([]);
+  const [hiding, setHiding] = useState(false);
 
   // 功能4: 电影多线路
   const [allPlaySources, setAllPlaySources] = useState<Record<string, PlaySource[]>>({});
@@ -63,6 +68,7 @@ export default function DetailScreen({ route, navigation }: Props) {
     titleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 },
     title: { fontSize: s(20), fontWeight: 'bold', color: colors.text, flex: 1, marginRight: 8 },
     favButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.sm, gap: 4 },
+    favGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     alias: { fontSize: s(13), color: colors.mutedForeground, marginBottom: 4 },
     subtitle: { fontSize: s(14), color: colors.textSecondary, marginBottom: 4 },
     updateTime: { fontSize: s(13), color: colors.error, marginBottom: 8 },
@@ -85,7 +91,16 @@ export default function DetailScreen({ route, navigation }: Props) {
     episodeButton: { width: '22%', paddingVertical: 10, borderRadius: radius.sm },
     episodeDuration: { color: colors.disabledForeground, fontSize: s(11), marginTop: 4 },
     error: { color: colors.error, textAlign: 'center', marginTop: 50 },
-  }), [colors, cardBg, surfaceBg, s]);
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+    modalCard: { width: '100%', borderRadius: radius.lg, padding: 20 },
+    modalTitle: { fontSize: s(18), fontWeight: 'bold', color: colors.text, marginBottom: 6 },
+    modalDesc: { fontSize: s(13), color: colors.mutedForeground, marginBottom: 16 },
+    modalGenres: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
+    genreChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.md, borderWidth: 1 },
+    genreChipText: { fontSize: s(13), color: colors.text },
+    modalButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12 },
+    modalButton: { paddingHorizontal: 16, paddingVertical: 8 },
+  }), [colors, cardBg, s]);
 
   useEffect(() => {
     loadMediaDetail(id);
@@ -191,6 +206,37 @@ export default function DetailScreen({ route, navigation }: Props) {
     setIsFav(result);
   };
 
+  const openHideModal = () => {
+    if (!currentMedia?.genres?.length) return;
+    setSelectedHideGenres([]);
+    setHideModalVisible(true);
+  };
+
+  const toggleHideGenre = (g: string) => {
+    setSelectedHideGenres(prev =>
+      prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g]
+    );
+  };
+
+  const handleHide = async () => {
+    if (selectedHideGenres.length === 0 || hiding) return;
+    setHiding(true);
+    try {
+      const result = await hideMediaByGenres(selectedHideGenres);
+      setHideModalVisible(false);
+      Alert.alert(
+        '已隐藏',
+        `已隐藏 ${result.hidden} 个「${selectedHideGenres.join('/')}」类视频`,
+        [{ text: '确定', onPress: () => navigation.goBack() }],
+      );
+    } catch (err: any) {
+      setHideModalVisible(false);
+      Alert.alert('错误', err.message || '隐藏失败');
+    } finally {
+      setHiding(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <BlurredBackground imageUrl={null}>
@@ -226,21 +272,34 @@ export default function DetailScreen({ route, navigation }: Props) {
 
       <View style={styles.header}>
         {currentMedia.posterUrl && (
-          <Image source={{ uri: currentMedia.posterUrl }} style={styles.poster} />
+          <PosterImage uri={currentMedia.posterUrl} style={styles.poster} />
         )}
         <View style={styles.info}>
           <View style={styles.titleRow}>
             <Text style={styles.title} numberOfLines={2}>{currentMedia.title}</Text>
-            <Button
-              variant="secondary"
-              size="sm"
-              active={isFav}
-              style={styles.favButton}
-              leftIcon={<Heart size={16} color={isFav ? colors.text : colors.textSecondary} fill={isFav ? colors.text : 'none'} />}
-              onPress={handleFav}
-            >
-              {isFav ? '已收藏' : '收藏'}
-            </Button>
+            <View style={styles.favGroup}>
+              {currentMedia.genres.length > 0 && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  style={styles.favButton}
+                  leftIcon={<EyeOff size={16} color={colors.textSecondary} />}
+                  onPress={openHideModal}
+                >
+                  隐藏此类视频
+                </Button>
+              )}
+              <Button
+                variant="secondary"
+                size="sm"
+                active={isFav}
+                style={styles.favButton}
+                leftIcon={<Heart size={16} color={isFav ? colors.text : colors.textSecondary} fill={isFav ? colors.text : 'none'} />}
+                onPress={handleFav}
+              >
+                {isFav ? '已收藏' : '收藏'}
+              </Button>
+            </View>
           </View>
           {currentMedia.alias && (
             <Text style={styles.alias}>又名：{currentMedia.alias}</Text>
@@ -409,6 +468,56 @@ export default function DetailScreen({ route, navigation }: Props) {
           </View>
         )}
       </View>
+
+      <Modal
+        visible={hideModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setHideModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface }]}>
+            <Text style={styles.modalTitle}>隐藏此类视频</Text>
+            <Text style={styles.modalDesc}>选择要隐藏的子类型，隐藏后此类视频将不再显示。</Text>
+            <View style={styles.modalGenres}>
+              {currentMedia.genres.map((g: string) => {
+                const selected = selectedHideGenres.includes(g);
+                return (
+                  <TouchableOpacity
+                    key={g}
+                    onPress={() => toggleHideGenre(g)}
+                    style={[
+                      styles.genreChip,
+                      { borderColor: selected ? colors.mutedForeground : colors.disabledForeground, backgroundColor: selected ? colors.mutedForeground : colors.card },
+                    ]}
+                  >
+                    <Text style={[styles.genreChipText, { color: selected ? colors.background : colors.text }]}>{g}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <View style={styles.modalButtons}>
+              <Button
+                variant="secondary"
+                size="sm"
+                style={styles.modalButton}
+                onPress={() => setHideModalVisible(false)}
+              >
+                取消
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                style={styles.modalButton}
+                disabled={hiding || selectedHideGenres.length === 0}
+                onPress={handleHide}
+              >
+                {hiding ? '隐藏中...' : `隐藏 (${selectedHideGenres.length})`}
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
     </BlurredBackground>
   );

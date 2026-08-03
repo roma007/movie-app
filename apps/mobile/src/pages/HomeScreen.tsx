@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Image, Switch, ActivityIndicator, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Switch, ActivityIndicator, Animated } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAppStore, getProvider } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
@@ -7,6 +7,7 @@ import { useThemeStore } from '../themes/store';
 import { useScaledFontSize } from '../themes/useScaledFontSize';
 import { hexToRgba } from '../themes/colorUtils';
 import MediaCard from '../components/MediaCard';
+import PosterImage from '../components/PosterImage';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import UsageGuideModal from '../components/UsageGuideModal';
@@ -237,7 +238,7 @@ export default function HomeScreen() {
                 {selectedPreviewIds.size === 0 || selectedPreviewIds.has(item.previewId) ? <CheckSquare size={16} color={colors.text} /> : <Square size={16} color={colors.mutedForeground} />}
               </Text>
               {item.posterUrl && (
-                <Image source={{ uri: item.posterUrl }} style={styles.previewPoster} />
+                <PosterImage uri={item.posterUrl} style={styles.previewPoster} />
               )}
               <View style={styles.previewInfo}>
                 <Text style={styles.previewTitle} numberOfLines={1}>{item.title}</Text>
@@ -340,7 +341,7 @@ export default function HomeScreen() {
                 >
                   <View style={styles.tvPoster}>
                     {media.posterUrl ? (
-                      <Image source={{ uri: media.posterUrl }} style={styles.tvPosterImg} />
+                      <PosterImage uri={media.posterUrl} style={styles.tvPosterImg} placeholder={<Text style={{ fontSize: s(11), color: colors.mutedForeground }}>无封面</Text>} />
                     ) : (
                       <View style={styles.tvPosterPlaceholder}>
                         <Text style={{ fontSize: s(11), color: colors.mutedForeground }}>无封面</Text>
@@ -419,6 +420,9 @@ export default function HomeScreen() {
     },
     scrollContent: {
       paddingBottom: 20,
+    },
+    fixedHeader: {
+      zIndex: 10,
     },
     usageCard: {
       marginHorizontal: 15,
@@ -609,7 +613,9 @@ export default function HomeScreen() {
   return (
     <BlurredBackground imageUrl={bgImageUrl}>
     <View style={styles.container}>
-      <CategoryHeader activeType="首页" tabsHiddenAnim={tabsHidden} />
+      <View style={styles.fixedHeader}>
+        <CategoryHeader activeType="首页" tabsHiddenAnim={tabsHidden} />
+      </View>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}

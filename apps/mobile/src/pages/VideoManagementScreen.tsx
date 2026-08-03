@@ -31,9 +31,28 @@ export default function VideoManagementScreen({ navigation }: Props) {
   const s = useScaledFontSize();
   const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100);
 
+  const MEDIA_TYPES = [
+    { value: '', label: '全部' },
+    { value: 'MOVIE', label: '电影' },
+    { value: 'TV', label: '电视剧' },
+    { value: 'VARIETY', label: '综艺' },
+    { value: 'ANIME', label: '动漫' },
+    { value: 'DOCUMENTARY', label: '纪录片' },
+  ];
+
   const [deletingAll, setDeletingAll] = useState(false);
   const [deletingOrphans, setDeletingOrphans] = useState(false);
   const [hiddenCount, setHiddenCount] = useState(0);
+
+  const [deleting, setDeleting] = useState(false);
+  const [deleteResult, setDeleteResult] = useState<{ deleted: number } | null>(null);
+  const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
+  const [allGenres, setAllGenres] = useState<string[]>([]);
+  const [deleteMediaType, setDeleteMediaType] = useState('');
+  const [hideMediaType, setHideMediaType] = useState('');
+  const [hideAllGenres, setHideAllGenres] = useState<string[]>([]);
+  const [visibleGenres, setVisibleGenres] = useState<string[]>([]);
+  const [togglingGenre, setTogglingGenre] = useState<string | null>(null);
 
   const [localConfig, setLocalConfig] = useState<ShortDramaConfig | null>(null);
   const [configSaved, setConfigSaved] = useState(false);
@@ -55,6 +74,25 @@ export default function VideoManagementScreen({ navigation }: Props) {
     loadRunningReprobeTask();
     getFullReprobeMediaCount().then(setFullReprobeMediaCount).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    setSelectedGenres([]);
+    getSubTypesByType(deleteMediaType || undefined, true)
+      .then(setAllGenres)
+      .catch(() => {});
+  }, [deleteMediaType]);
+
+  useEffect(() => {
+    Promise.all([
+      getSubTypesByType(hideMediaType || undefined, true),
+      getSubTypesByType(hideMediaType || undefined, false),
+    ])
+      .then(([all, visible]) => {
+        setHideAllGenres(all);
+        setVisibleGenres(visible);
+      })
+      .catch(() => {});
+  }, [hideMediaType]);
 
   useEffect(() => {
     if (shortDramaConfig) {
@@ -116,6 +154,64 @@ export default function VideoManagementScreen({ navigation }: Props) {
         }},
       ],
     );
+  };
+
+  const toggleGenre = (genre: string) => {
+    setSelectedGenres(prev =>
+      prev.includes(genre) ? prev.filter(g => g !== genre) : [...prev, genre]
+    );
+  };
+
+  const handleDeleteByGenre = () => {
+    if (selectedGenres.length === 0) return;
+    Alert.alert(
+      '按子类型删除视频',
+      `将永久删除子类型「${selectedGenres.join('、')}」下的所有视频，此操作不可恢复。确定继续？`,
+      [
+        { text: '取消', style: 'cancel' },
+        { text: '确认删除', style: 'destructive', onPress: async () => {
+          setDeleting(true);
+          setDeleteResult(null);
+          try {
+            const result = await deleteMediaByGenres(selectedGenres);
+            setDeleteResult(result);
+            setSelectedGenres([]);
+            getHiddenMediaCount().then(setHiddenCount).catch(() => {});
+          } catch (err: any) {
+            Alert.alert('错误', err.message);
+          } finally {
+            setDeleting(false);
+          }
+        }},
+      ],
+    );
+  };
+
+  const reloadHideGenres = async () => {
+    const [all, visible] = await Promise.all([
+      getSubTypesByType(hideMediaType || undefined, true),
+      getSubTypesByType(hideMediaType || undefined, false),
+    ]);
+    setHideAllGenres(all);
+    setVisibleGenres(visible);
+  };
+
+  const handleToggleHideGenre = async (genre: string) => {
+    setTogglingGenre(genre);
+    try {
+      const isCurrentlyHidden = !visibleGenres.includes(genre);
+      if (isCurrentlyHidden) {
+        await unhideMediaByGenres([genre]);
+      } else {
+        await hideMediaByGenres([genre]);
+      }
+      await reloadHideGenres();
+      getHiddenMediaCount().then(setHiddenCount).catch(() => {});
+    } catch (err: any) {
+      Alert.alert('错误', err.message);
+    } finally {
+      setTogglingGenre(null);
+    }
   };
 
   const addPattern = useCallback(() => {
@@ -279,9 +375,11 @@ export default function VideoManagementScreen({ navigation }: Props) {
     cardTitle: { fontSize: s(16), fontWeight: '600', color: colors.text },
     cardDesc: { fontSize: s(13), color: colors.mutedForeground, lineHeight: 18 },
     text: { fontSize: s(14), color: colors.textSecondary, lineHeight: 22 },
-    warningText: { fontSize: s(13), color: colors.error },
     configSection: { gap: 8 },
     configLabel: { fontSize: s(14), fontWeight: '500', color: colors.text },
+    flowRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
+    stepBadge: { width: 20, height: 20, borderRadius: 10, backgroundColor: hexToRgba(colors.buttonPrimaryBg, cardOpacity / 100 * 0.2), alignItems: 'center', justifyContent: 'center' },
+    stepBadgeText: { fontSize: s(11), fontWeight: '700', color: colors.buttonPrimaryText },
     configDesc: { fontSize: s(12), color: colors.mutedForeground, lineHeight: 16 },
     configInputRow: { flexDirection: 'row', gap: 8 },
     tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
@@ -302,6 +400,11 @@ export default function VideoManagementScreen({ navigation }: Props) {
     runningBadge: { flexDirection: 'row', alignItems: 'center', padding: 10, backgroundColor: hexToRgba(colors.mutedForeground, 0.15), borderRadius: radius.md },
     runningBadgeCol: { flexDirection: 'column', padding: 10, backgroundColor: hexToRgba(colors.mutedForeground, 0.15), borderRadius: radius.md },
     runningText: { fontSize: s(13), color: colors.text, fontWeight: '500' },
+    chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    sectionLabel: { fontSize: s(13), fontWeight: '500', color: colors.mutedForeground },
+    chipBox: { padding: 12, backgroundColor: surfaceBg, borderRadius: radius.md, gap: 8, minHeight: 56 },
+    chipBoxDashed: { padding: 12, backgroundColor: hexToRgba(colors.mutedForeground, 0.06), borderRadius: radius.md, gap: 8, minHeight: 56, borderWidth: 1, borderStyle: 'dashed', borderColor: hexToRgba(colors.mutedForeground, 0.35) },
+    selectedSummary: { fontSize: s(12), color: colors.mutedForeground, lineHeight: 18 },
   }), [colors, cardBg, surfaceBg, s]);
 
   return (
@@ -325,7 +428,10 @@ export default function VideoManagementScreen({ navigation }: Props) {
           {localConfig && (
             <>
               <View style={styles.configSection}>
-                <Text style={styles.configLabel}>第1层：从简介提取时长的匹配模板</Text>
+                <View style={styles.flowRow}>
+                  <View style={styles.stepBadge}><Text style={styles.stepBadgeText}>1</Text></View>
+                  <Text style={styles.configLabel}>第1层：从简介提取时长的匹配模板</Text>
+                </View>
                 <Text style={styles.configDesc}>用 {'{N}'} 代表数字，例如「{'{N}'}分钟」可匹配"30分钟"</Text>
                 <View style={styles.tagRow}>
                   {localConfig.summaryPatterns.map((p, i) => (
@@ -351,10 +457,15 @@ export default function VideoManagementScreen({ navigation }: Props) {
               </View>
 
               <View style={styles.configSection}>
+                <View style={styles.flowRow}>
+                  <View style={styles.stepBadge}><Text style={styles.stepBadgeText}>2</Text></View>
+                  <Text style={styles.configLabel}>第2层：探测视频实际时长</Text>
+                </View>
+                <Text style={styles.configDesc}>逐集探测视频流时长，成功1集即止；根据探测结果与下方阈值判断长短剧</Text>
                 <View style={styles.configInputRow}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.configLabel}>短剧阈值（分钟）</Text>
-                    <Text style={styles.configDesc}>低于此值判定为短剧</Text>
+                    <Text style={styles.configLabel}>短剧判定阈值（分钟）</Text>
+                    <Text style={styles.configDesc}>单集时长低于阈值为短剧</Text>
                     <Input
                       size="sm"
                       style={{ marginTop: 6 }}
@@ -378,7 +489,10 @@ export default function VideoManagementScreen({ navigation }: Props) {
               </View>
 
               <View style={styles.configSection}>
-                <Text style={styles.configLabel}>第3层：元数据关键词列表</Text>
+                <View style={styles.flowRow}>
+                  <View style={styles.stepBadge}><Text style={styles.stepBadgeText}>3</Text></View>
+                  <Text style={styles.configLabel}>第3层：元数据关键词列表</Text>
+                </View>
                 <Text style={styles.configDesc}>当第1、2层均未命中时，根据简介、标题、类型中的关键词判断</Text>
                 <View style={styles.tagRow}>
                   {localConfig.metaKeywords.slice(0, 30).map((kw, i) => (
@@ -514,7 +628,6 @@ export default function VideoManagementScreen({ navigation }: Props) {
 
               {reprobing && pollProgress && (
                 <View style={styles.progressSection}>
-                  <Text style={styles.progressText}>正在探测：{pollProgress.currentMediaTitle || '准备中...'}</Text>
                   <View style={styles.progressBar}>
                     <View style={[styles.progressFill, { width: `${pollProgress.total > 0 ? (pollProgress.processed / pollProgress.total) * 100 : 0}%` }]} />
                   </View>
@@ -572,8 +685,137 @@ export default function VideoManagementScreen({ navigation }: Props) {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>危险操作</Text>
-          <Text style={styles.warningText}>以下操作不可恢复，请谨慎使用</Text>
+          <Text style={[styles.cardTitle, { color: colors.error }]}>按子类型删除视频</Text>
+          <Text style={styles.cardDesc}>先选择大类，再选择该大类下的子类型进行删除。此操作不可恢复。</Text>
+
+          <View style={styles.chipRow}>
+            {MEDIA_TYPES.map(mt => (
+              <Button
+                key={mt.value}
+                variant="secondary"
+                size="sm"
+                active={deleteMediaType === mt.value}
+                onPress={() => setDeleteMediaType(mt.value)}
+              >
+                {mt.label}
+              </Button>
+            ))}
+          </View>
+
+          <View style={styles.chipBox}>
+            {allGenres.length === 0 ? (
+              <Text style={styles.configDesc}>暂无子类型数据</Text>
+            ) : (
+              <View style={styles.chipRow}>
+                {allGenres.map(genre => (
+                  <Button
+                    key={genre}
+                    variant={selectedGenres.includes(genre) ? 'destructive' : 'secondary'}
+                    size="sm"
+                    onPress={() => toggleGenre(genre)}
+                  >
+                    {genre}
+                  </Button>
+                ))}
+              </View>
+            )}
+          </View>
+
+          {selectedGenres.length > 0 && (
+            <Text style={styles.selectedSummary}>已选：{selectedGenres.join('、')}</Text>
+          )}
+
+          {deleteResult && !deleting && (
+            <View style={styles.resultBox}>
+              <Text style={[styles.resultText, { color: deleteResult.deleted > 0 ? colors.success : colors.mutedForeground }]}>
+                {deleteResult.deleted > 0
+                  ? `删除完成：成功删除 ${deleteResult.deleted} 部视频`
+                  : '没有匹配的视频'}
+              </Text>
+            </View>
+          )}
+
+          <Button
+            variant="destructive"
+            size="md"
+            fullWidth
+            loading={deleting}
+            disabled={deleting || selectedGenres.length === 0}
+            onPress={handleDeleteByGenre}
+          >
+            {deleting ? '删除中...' : `删除所选子类型 (${selectedGenres.length})`}
+          </Button>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>按子类型隐藏视频</Text>
+          <Text style={styles.cardDesc}>点击子类型立即切换隐藏状态，无需确认。隐藏后视频将从各列表移除。</Text>
+
+          <View style={styles.infoRow}>
+            <Text style={styles.infoText}>当前已隐藏：<Text style={styles.infoBold}>{hiddenCount} 部视频</Text></Text>
+          </View>
+
+          <View style={styles.chipRow}>
+            {MEDIA_TYPES.map(mt => (
+              <Button
+                key={mt.value}
+                variant="secondary"
+                size="sm"
+                active={hideMediaType === mt.value}
+                onPress={() => setHideMediaType(mt.value)}
+              >
+                {mt.label}
+              </Button>
+            ))}
+          </View>
+
+          <Text style={styles.sectionLabel}>未隐藏 ({visibleGenres.length})</Text>
+          <View style={styles.chipBox}>
+            {visibleGenres.length === 0 ? (
+              <Text style={styles.configDesc}>暂无未隐藏的子类型</Text>
+            ) : (
+              <View style={styles.chipRow}>
+                {visibleGenres.map(genre => (
+                  <Button
+                    key={genre}
+                    variant="secondary"
+                    size="sm"
+                    disabled={togglingGenre === genre}
+                    onPress={() => handleToggleHideGenre(genre)}
+                  >
+                    {togglingGenre === genre ? '...' : genre}
+                  </Button>
+                ))}
+              </View>
+            )}
+          </View>
+
+          <Text style={styles.sectionLabel}>已隐藏 ({hideAllGenres.length - visibleGenres.length})</Text>
+          <View style={styles.chipBoxDashed}>
+            {hideAllGenres.length - visibleGenres.length === 0 ? (
+              <Text style={styles.configDesc}>暂无已隐藏的子类型</Text>
+            ) : (
+              <View style={styles.chipRow}>
+                {hideAllGenres.filter(g => !visibleGenres.includes(g)).map(genre => (
+                  <Button
+                    key={genre}
+                    variant="secondary"
+                    size="sm"
+                    active
+                    disabled={togglingGenre === genre}
+                    onPress={() => handleToggleHideGenre(genre)}
+                  >
+                    {togglingGenre === genre ? '...' : genre}
+                  </Button>
+                ))}
+              </View>
+            )}
+          </View>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>删除所有视频</Text>
+          <Text style={styles.cardDesc}>删除所有视频数据，包括播放源、剧集、收藏和观看历史。此操作无法撤销。</Text>
 
           <Button
             variant="destructive"
@@ -585,6 +827,11 @@ export default function VideoManagementScreen({ navigation }: Props) {
           >
             删除所有视频
           </Button>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>删除无播放源视频</Text>
+          <Text style={styles.cardDesc}>删除所有没有播放源的视频。此操作无法撤销。</Text>
 
           <Button
             variant="destructive"
@@ -596,12 +843,6 @@ export default function VideoManagementScreen({ navigation }: Props) {
           >
             删除无播放源视频
           </Button>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>隐藏管理</Text>
-          <Text style={styles.text}>当前已隐藏 {hiddenCount} 个子类型</Text>
-          <Text style={styles.text}>隐藏管理功能在桌面端完整可用</Text>
         </View>
       </View>
     </ScrollView>

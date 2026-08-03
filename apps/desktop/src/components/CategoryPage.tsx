@@ -310,6 +310,8 @@ export default function CategoryPage({ type }: CategoryPageProps) {
     if (page < 1 || page > totalPages) return;
     setCurrentPage(page);
     sessionStorage.removeItem(scrollKey);
+    const main = document.getElementById('main-content');
+    if (main) main.scrollTop = 0;
   };
 
   const getPageNumbers = () => {

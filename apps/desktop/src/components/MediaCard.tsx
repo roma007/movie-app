@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import type { Media } from '@movie-app/core';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { PosterImage } from '@/components/PosterImage';
 
 export function MediaCard({ 
   media, 
@@ -26,18 +27,11 @@ export function MediaCard({
         }}
       >
         <div className="aspect-[2/3] bg-[var(--color-secondary-alpha)] overflow-hidden">
-          {media.posterUrl ? (
-            <img
-              src={media.posterUrl}
-              alt={media.title}
-              loading="lazy"
-              className="size-full object-cover group-hover:scale-105 transition-transform duration-300"
-            />
-          ) : (
-            <div className="size-full flex items-center justify-center text-muted-foreground text-xs">
-              无封面
-            </div>
-          )}
+          <PosterImage
+            src={media.posterUrl}
+            alt={media.title}
+            className="size-full object-cover group-hover:scale-105 transition-transform duration-300"
+          />
         </div>
         <div className="px-1.5 py-1">
           <div className="text-xs truncate">{media.title}</div>
@@ -55,18 +49,11 @@ export function MediaCard({
       }}
     >
       <div className="aspect-[2/3] bg-[var(--color-secondary-alpha)] overflow-hidden relative">
-        {media.posterUrl ? (
-          <img
-            src={media.posterUrl}
-            alt={media.title}
-            loading="lazy"
-            className="size-full object-cover group-hover:scale-105 transition-transform duration-300"
-          />
-        ) : (
-          <div className="size-full flex items-center justify-center text-muted-foreground text-xs">
-            无封面
-          </div>
-        )}
+        <PosterImage
+          src={media.posterUrl}
+          alt={media.title}
+          className="size-full object-cover group-hover:scale-105 transition-transform duration-300"
+        />
         {(media.status === 'ONGOING' || media.status === 'PUBLISHED') && media.type !== 'VARIETY' && media.currentEpisodes && (
           <Badge 
             variant="secondary" 

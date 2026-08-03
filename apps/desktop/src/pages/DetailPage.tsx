@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '../useAppStore';
+import { useToast } from '@/components/Layout';
 import { getProvider } from '../init';
 import { useBackgroundStore } from '../themes/backgroundStore';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card } from '@/components/ui/card';
-import { Heart, ChevronRight, ArrowLeft } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Heart, ChevronRight, ArrowLeft, EyeOff } from 'lucide-react';
 import type { Media, Episode, PlaySource, VideoSource } from '@movie-app/core';
 import { VideoDurationService } from '@movie-app/core';
+import { PosterImage } from '@/components/PosterImage';
 
 const typeLabel: Record<string, string> = {
     MOVIE: '电影',
@@ -23,7 +26,8 @@ export default function DetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const { currentMedia, episodes, seasons, isLoading, error, episodeSources, seriesMedia, loadMediaDetail, loadSeasons, loadEpisodes, loadSeasonEpisodes, loadSeriesMedia, toggleFav } = useAppStore();
+  const { currentMedia, episodes, seasons, isLoading, error, episodeSources, seriesMedia, loadMediaDetail, loadSeasons, loadEpisodes, loadSeasonEpisodes, loadSeriesMedia, toggleFav, hideMediaByGenres } = useAppStore();
+  const toast = useToast();
   const setBgImage = useBackgroundStore((s) => s.setBgImage);
   const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
   const prevState = location.state as { page?: number; type?: string; subType?: string; year?: number; area?: string; episodeType?: string } | undefined;
@@ -34,6 +38,15 @@ export default function DetailPage() {
   const [allPlaySources, setAllPlaySources] = useState<Record<string, PlaySource[]>>({});
   const [watchedEpisodes, setWatchedEpisodes] = useState<Set<string>>(new Set());
   const [episodesLoading, setEpisodesLoading] = useState(true);
+  const [hideDialogOpen, setHideDialogOpen] = useState(false);
+  const [selectedHideGenres, setSelectedHideGenres] = useState<string[]>([]);
+  const [hiding, setHiding] = useState(false);
+
+  const openHideDialog = () => {
+    if (!currentMedia?.genres?.length) return;
+    setSelectedHideGenres([]);
+    setHideDialogOpen(true);
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -147,6 +160,22 @@ export default function DetailPage() {
     setIsFav(result);
   };
 
+  const handleHide = async () => {
+    if (selectedHideGenres.length === 0) return;
+    setHiding(true);
+    try {
+      const result = await hideMediaByGenres(selectedHideGenres);
+      toast(`已隐藏 ${result.hidden} 个「${selectedHideGenres.join('/')}」类视频`);
+      setHideDialogOpen(false);
+      navigate(getBackUrl());
+    } catch (err: any) {
+      toast(`隐藏失败: ${err.message || '未知错误'}`, 'error');
+      setHideDialogOpen(false);
+    } finally {
+      setHiding(false);
+    }
+  };
+
   if (isLoading && !currentMedia) {
     return (
       <div className="p-6 max-w-7xl mx-auto">
@@ -236,25 +265,36 @@ export default function DetailPage() {
           <Card className="card-shadow">
             <div className="p-5">
               <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-secondary mb-4">
-                {media.posterUrl && (
-                  <img src={media.posterUrl} alt={media.title} className="size-full object-cover" />
-                )}
+                <PosterImage src={media.posterUrl} alt={media.title} className="size-full object-cover" />
               </div>
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <h1 className="text-xl font-normal">
-                    {media.title}
-                  </h1>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={handleFav}
-                    className={isFav ? 'bg-muted-foreground/20 text-text' : ''}
-                  >
-                    <Heart className={`size-4 ${isFav ? 'fill-current' : ''}`} />
-                    {isFav ? '已收藏' : '收藏'}
-                  </Button>
-                </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <h1 className="text-xl font-normal">
+                      {media.title}
+                    </h1>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {media.genres.length > 0 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={openHideDialog}
+                          title="将此类子类型视频加入隐藏列表"
+                        >
+                          <EyeOff className="size-4" />
+                          隐藏此类视频
+                        </Button>
+                      )}
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={handleFav}
+                        className={isFav ? 'bg-muted-foreground/20 text-text' : ''}
+                      >
+                        <Heart className={`size-4 ${isFav ? 'fill-current' : ''}`} />
+                        {isFav ? '已收藏' : '收藏'}
+                      </Button>
+                    </div>
+                  </div>
                 {media.alias && (
                   <p className="text-sm"><span className="text-muted-foreground">又名：</span>{media.alias}</p>
                 )}
@@ -433,6 +473,54 @@ export default function DetailPage() {
           </Card>
         </div>
       </div>
+
+      <Dialog open={hideDialogOpen} onOpenChange={(open) => { if (!open) setHideDialogOpen(false); }}>
+        <DialogContent className="w-full max-w-sm">
+          <DialogHeader>
+            <DialogTitle>隐藏此类视频</DialogTitle>
+            <DialogDescription>
+              选择要隐藏的子类型，隐藏后此类视频将不再显示。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-wrap gap-2 py-2">
+            {media.genres.map((g) => {
+              const selected = selectedHideGenres.includes(g);
+              return (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => {
+                    setSelectedHideGenres(prev =>
+                      prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g]
+                    );
+                  }}
+                  className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
+                    selected
+                      ? 'bg-muted-foreground text-background border-muted-foreground'
+                      : 'bg-card text-text hover:border-muted-foreground/50'
+                  }`}
+                >
+                  {g}
+                </button>
+              );
+            })}
+          </div>
+          <DialogFooter className="flex items-center gap-2">
+            <DialogClose asChild>
+              <Button variant="outline" size="sm" onClick={() => setHideDialogOpen(false)}>取消</Button>
+            </DialogClose>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={hiding || selectedHideGenres.length === 0}
+              onClick={handleHide}
+            >
+              <EyeOff className={`size-4 mr-1 ${hiding ? 'animate-spin' : ''}`} />
+              {hiding ? '隐藏中...' : `隐藏 (${selectedHideGenres.length})`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

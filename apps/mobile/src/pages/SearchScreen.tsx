@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useAppStore, getCollector, getProvider } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
@@ -7,6 +7,7 @@ import { useScaledFontSize } from '../themes/useScaledFontSize';
 import { hexToRgba } from '../themes/colorUtils';
 import { radius } from '../themes/radiusTokens';
 import BlurredBackground from '../components/BlurredBackground';
+import PosterImage from '../components/PosterImage';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { ArrowLeft } from 'lucide-react-native';
@@ -93,7 +94,7 @@ export default function SearchScreen({ navigation, route }: Props) {
       onPress={() => navigation.navigate('Detail', { id: item.id })}
     >
       {item.posterUrl && (
-        <Image source={{ uri: item.posterUrl }} style={styles.poster} />
+        <PosterImage uri={item.posterUrl} style={styles.poster} />
       )}
       <View style={styles.itemInfo}>
         <Text style={styles.itemTitle} numberOfLines={1}>{item.title}</Text>
