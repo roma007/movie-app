@@ -1,6 +1,6 @@
 {
   "name": "movie-app-monorepo",
-  "version": "1.0.46",
+  "version": "1.0.47",
   "private": true,
   "scripts": {
     "mobile": "pnpm --filter @movie-app/mobile start",
