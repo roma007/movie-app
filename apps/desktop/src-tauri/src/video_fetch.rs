@@ -22,7 +22,6 @@ fn log_line(msg: &str) {
 /// 全局常驻连接池客户端。
 /// 所有视频相关请求共享同一 reqwest::Client，从而复用 TCP/TLS 连接（keep-alive），
 /// 避免每次分片请求都重新握手（plugin-http 的 fetch 每次新建 client，无复用）。
-/// `pub(crate)` 供 poster_cache 复用下载海报。
 pub(crate) static HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
 
 pub(crate) fn http_client() -> &'static Client {

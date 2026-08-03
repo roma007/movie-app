@@ -10,7 +10,6 @@ import BlurredBackground from '../components/BlurredBackground';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { ArrowLeft } from 'lucide-react-native';
-import { resolveCachedBackgroundUrl } from '@movie-app/core';
 
 interface Props {
   navigation: any;
@@ -137,11 +136,7 @@ export default function SearchScreen({ navigation, route }: Props) {
       setBgImageUrl(null);
       return;
     }
-    let cancelled = false;
-    resolveCachedBackgroundUrl(first.id, first.posterUrl, (url) => {
-      if (!cancelled) setBgImageUrl(url);
-    });
-    return () => { cancelled = true; };
+    setBgImageUrl(first.posterUrl);
   }, [mediaList]);
 
   return (

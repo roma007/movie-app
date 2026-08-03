@@ -3,11 +3,10 @@ import { normalizer, DEFAULT_MIN_YEAR } from '../utils/normalizer';
 import { mapType, isBlacklisted, refineTypeByEpisodes, isVersionTitle, needsShortDramaCheck } from '../utils/typeMapper';
 import { SOURCE_ID_TO_NAME_MAP, PLAY_SOURCE_TYPE_MAP, isPlayableMediaUrl } from '../utils/constants';
 import type { DatabaseProvider } from '../db/provider';
-import type { CMSMediaItem, Media, Episode, PlaySource, CollectTask, TaskStatus, TaskErrorType, CollectionLog, CollectPreviewItem } from '../types';
+import type { CMSMediaItem, Media, Episode, PlaySource, VideoSource, CollectTask, TaskStatus, TaskErrorType, CollectionLog, CollectPreviewItem } from '../types';
 import { SystemConfigService } from './systemConfigService';
 import type { ShortDramaConfig } from './systemConfigService';
 import { VideoDurationService } from './videoDurationService';
-import { getBackgroundImageCache } from './backgroundImageCache';
 
 function generateId(): string {
   return `id_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
@@ -23,7 +22,7 @@ function classifyError(err: unknown): TaskErrorType {
     return 'TIMEOUT';
   }
   // 网络错误包括CORS、连接失败等
-  if (msg.includes('network') || msg.includes('econnreset') || msg.includes('enotfound') || msg.includes('econnrefused')) {
+  if (msg.includes('network') || msg.includes('econnreset') || msg.includes('enotfound') || msg.includes('econnrefused') || msg.includes('网络') || msg.includes('连接异常')) {
     return 'NETWORK';
   }
   if (msg.includes('cors') || msg.includes('opaque') || msg.includes('blocked')) {
@@ -129,15 +128,6 @@ export class CollectorService {
     if (controller) {
       controller.abort();
       this.activeAbortControllers.delete(taskId);
-    }
-  }
-
-  /** 采集开始时清空分类页背景图缓存，避免新数据下展示旧图（平台实现未注入时静默跳过） */
-  private clearBackgroundCache(): void {
-    try {
-      void getBackgroundImageCache()?.clearAll();
-    } catch (err) {
-      console.error('[Collector] 清空背景图缓存失败:', err);
     }
   }
 
@@ -646,6 +636,7 @@ export class CollectorService {
 
     for (const source of sources) {
       try {
+        await this.assertSourceReachable(source);
         const adapter = new CMSAdapter(source.baseUrl, source.rateLimit);
         await this.db.incrementSourceRequestCount(source.id);
         const response = await adapter.search(keyword, 1);
@@ -799,8 +790,6 @@ export class CollectorService {
 
     console.log(`[Collector] collectLatest: ${sources.length} sources, incrementalMaxPages=${config.incrementalMaxPages}, maxIncrementalHours=${config.maxIncrementalHours}`);
 
-    this.clearBackgroundCache();
-
     await Promise.all(sources.map(async (source, si) => {
       const now = new Date().toISOString();
 
@@ -847,6 +836,7 @@ export class CollectorService {
 
       try {
         await this.db.updateCollectTask(taskId, { status: 'RUNNING' as TaskStatus, startedAt: now, currentPage });
+        await this.assertSourceReachable(source);
 
         while (hasMore && currentPage <= maxPages) {
           console.log(`[Collector] Processing source ${source.name} page ${currentPage}${hours ? ` hours=${hours}` : ` (定额)`}`);
@@ -943,12 +933,16 @@ export class CollectorService {
     const config = await configService.getCollectConfig();
     const sources = await this.db.getEnabledVideoSources();
 
-    this.clearBackgroundCache();
-
     let totalCollected = 0;
     let totalPages = 0;
 
     for (const source of sources) {
+      const { healthy } = await this.checkSource(source.id);
+      if (!healthy) {
+        console.warn(`[Collector] 跳过不可达视频源: ${source.name}`);
+        this.emitLog('warn', `跳过不可达视频源 [${source.name}]，已取消全量采集`, source.code, source.name);
+        continue;
+      }
       let page = 1;
       let hasMore = true;
 
@@ -1021,6 +1015,21 @@ export class CollectorService {
     }
   }
 
+  /**
+   * 采集前探活：复用 checkSource（getTypes）确认视频源可达，不可达则抛出友好错误。
+   * 会顺带更新 healthStatus / fail_count，与手动「检查」行为一致。
+   */
+  private async assertSourceReachable(source: VideoSource): Promise<void> {
+    const { healthy } = await this.checkSource(source.id);
+    if (!healthy) {
+      const err: Error & { errorType?: TaskErrorType } = new Error(
+        `视频源「${source.name}」网络连接异常，已取消采集`
+      );
+      err.errorType = 'NETWORK';
+      throw err;
+    }
+  }
+
   async collectSourceLatest(sourceCode: string, startPage: number = 1): Promise<{ taskId: string; collected: number }> {
     const source = await this.db.getVideoSourceByCode(sourceCode);
     if (!source || !source.isEnabled) return { taskId: '', collected: 0 };
@@ -1033,8 +1042,6 @@ export class CollectorService {
     const taskId = `${sourceCode}-INCREMENTAL-${Date.now()}`;
     const now = new Date().toISOString();
     const config = await (new SystemConfigService(this.db)).getCollectConfig();
-
-    this.clearBackgroundCache();
 
     const task: CollectTask = {
       id: generateId(),
@@ -1075,6 +1082,7 @@ export class CollectorService {
 
     try {
       await this.db.updateCollectTask(taskId, { status: 'RUNNING' as TaskStatus, startedAt: now, currentPage: startPage });
+      await this.assertSourceReachable(source);
       this.emitLog('info', `开始增量采集 [${source.name}]`, sourceCode, source.name, taskId);
 
       const maxPages = hours ? Number.MAX_SAFE_INTEGER : config.incrementalMaxPages;
@@ -1205,8 +1213,6 @@ export class CollectorService {
     const config = await (new SystemConfigService(this.db)).getCollectConfig();
     const startedAtMs = Date.now();
 
-    this.clearBackgroundCache();
-
     const task: CollectTask = {
       id: generateId(),
       taskId,
@@ -1236,6 +1242,7 @@ export class CollectorService {
 
     try {
       await this.db.updateCollectTask(taskId, { status: 'RUNNING' as TaskStatus, startedAt: now });
+      await this.assertSourceReachable(source);
       this.emitLog('info', `开始全量采集 [${source.name}]，最多${config.maxPages}页`, sourceCode, source.name, taskId);
 
       while (page <= config.maxPages) {
@@ -1816,3 +1823,4 @@ export class CollectorService {
     }
   }
 }
+

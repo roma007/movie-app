@@ -55,7 +55,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1 },
     scrollContainer: { flex: 1 },
-    header: { paddingTop: 50, paddingHorizontal: 15, paddingBottom: 15, backgroundColor: colors.surfaceElevated },
+    header: { paddingTop: 50, paddingHorizontal: 15, paddingBottom: 15 },
     headerRow: { flexDirection: 'row', alignItems: 'center' },
     navBack: { padding: 8, marginRight: 8 },
     title: { flex: 1, fontSize: sf(18), fontWeight: 'bold', color: colors.text, textAlign: 'center' },
@@ -65,7 +65,8 @@ export default function SourceManagerScreen({ navigation }: Props) {
     sourceHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
     sourceMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, marginRight: 8 },
     sourceName: { fontSize: sf(16), fontWeight: '600', color: colors.text },
-    sourceUrl: { fontSize: sf(12), color: colors.mutedForeground, marginBottom: 8 },
+    checkTimeRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+    checkTimeText: { fontSize: sf(11), color: colors.disabledForeground },
     rateRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
     ratePrefix: { fontSize: sf(12), color: colors.mutedForeground },
     rateButton: { padding: 4 },
@@ -74,7 +75,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
     rateBar: { width: 8, height: 16, borderRadius: radius.progress },
     rateLabel: { fontSize: sf(14), color: colors.textSecondary, width: 24, textAlign: 'center' },
     healthBadge: { fontSize: sf(10), paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm, borderWidth: StyleSheet.hairlineWidth, marginLeft: 8 },
-    lastCollectText: { fontSize: sf(11), color: colors.disabledForeground },
     sourceSwitchLabel: { fontSize: sf(11), color: colors.mutedForeground, marginRight: 4 },
     sourceActions: { flexDirection: 'row', gap: 6 },
     sourceActionBtn: { flex: 1, paddingVertical: 10, borderRadius: radius.md, minHeight: 40 },
@@ -453,9 +453,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
                 <View style={styles.sourceHeader}>
                   <View style={styles.sourceMain}>
                     <Text style={styles.sourceName} numberOfLines={1}>{source.name}</Text>
-                    <Text style={styles.lastCollectText}>
-                      上次采集: {source.lastCollectedAt ? formatTime(source.lastCollectedAt) : '从未'}
-                    </Text>
                   </View>
                   <Text style={styles.sourceSwitchLabel}>{source.isEnabled ? '启用' : '禁用'}</Text>
                   <Switch
@@ -465,7 +462,14 @@ export default function SourceManagerScreen({ navigation }: Props) {
                     thumbColor={source.isEnabled ? colors.swiftThumb : colors.disabledForeground}
                   />
                 </View>
-                <Text style={styles.sourceUrl} numberOfLines={1}>{source.baseUrl}</Text>
+                <View style={styles.checkTimeRow}>
+                  <Text style={styles.checkTimeText}>
+                    上次采集: {source.lastCollectedAt ? formatTime(source.lastCollectedAt) : '从未'}
+                  </Text>
+                  <Text style={styles.checkTimeText}>
+                    上次检查: {source.lastCheckAt ? formatTime(source.lastCheckAt) : '从未'}
+                  </Text>
+                </View>
 
                 <View style={styles.rateRow}>
                   <Text style={styles.ratePrefix}>速率：</Text>

@@ -33,7 +33,7 @@ import { Switch } from '@/components/ui/switch';
 import { useAppStore } from '../useAppStore';
 import { useConfirm } from '@/components/ConfirmProvider';
 import { useToast } from '@/components/Layout';
-import { getHttpClient, SourceImportService, AI_SOURCE_PROMPT, AI_SOURCE_IMPORT_SAMPLE } from '@movie-app/core';
+import { SourceImportService, AI_SOURCE_PROMPT, AI_SOURCE_IMPORT_SAMPLE } from '@movie-app/core';
 import type { VideoSource, CollectTask, CollectPreviewItem, ImportSourceItem, ParsedImportSource } from '@movie-app/core';
 import { useBackgroundStore } from '../themes/backgroundStore';
 
@@ -57,6 +57,7 @@ export default function SourceManagerPage() {
     toggleSourceEnabled,
     deletePlaySourcesBySourceId,
     updateSourceRateLimit,
+    checkVideoSource,
     previewResults,
     previewLoading,
     searchKeywordPreview,
@@ -145,18 +146,15 @@ export default function SourceManagerPage() {
     if (checkingSource === source.code) return;
     setCheckingSource(source.code);
     try {
-      const httpClient = getHttpClient();
-      const response = await httpClient.get(source.baseUrl, { timeout: 10000 });
-      if (response.status >= 200 && response.status < 300) {
-        toast(`「${source.name}」连接正常`);
+      const result = await checkVideoSource(source.id);
+      if (result.healthy) {
+        toast(`「${source.name}」连接正常，响应时间: ${result.responseTime}ms`);
       } else {
-        toast(`「${source.name}」连接失败: HTTP ${response.status}`, 'error');
+        toast(`「${source.name}」连接失败`, 'error');
       }
     } catch (err: any) {
       const errorMsg = err.message || String(err);
       console.error(`[SourceCheck] ${source.name} 检查失败:`, errorMsg);
-      
-      // 提供更详细的错误信息
       let userMsg = `「${source.name}」连接失败: ${errorMsg}`;
       if (errorMsg.includes('CORS') || errorMsg.includes('opaque')) {
         userMsg = `「${source.name}」CORS错误 - 无法访问外部API。Tauri HTTP插件可能未正确加载。`;
@@ -165,7 +163,6 @@ export default function SourceManagerPage() {
       } else if (errorMsg.includes('timeout') || errorMsg.includes('abort')) {
         userMsg = `「${source.name}」连接超时 - 服务器响应时间过长。`;
       }
-      
       toast(userMsg, 'error');
     } finally {
       setCheckingSource(null);
@@ -581,7 +578,14 @@ export default function SourceManagerPage() {
 
                     <div className="flex items-center gap-6">
                       <Badge className="text-xs" style={{ backgroundColor: '#8b5cf6', color: 'white' }}>
-                        视频: {source.mediaCount || 0}
+                        <span className="flex items-center gap-1">
+                          视频:
+                          {source.mediaCount === undefined ? (
+                            <Loader2 className="size-3 animate-spin" />
+                          ) : (
+                            source.mediaCount
+                          )}
+                        </span>
                       </Badge>
 
                       <span className="text-xs text-muted-foreground">

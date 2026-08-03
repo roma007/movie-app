@@ -1,6 +1,5 @@
 import { TauriSqlProvider } from './db/tauriSqlProvider';
-import { createAppStore, setHttpClient, setVideoFetchFn, setBackgroundImageCache, backfillSeriesGroup, type AppStore, type AppState, type HttpClient } from '@movie-app/core';
-import { desktopBackgroundImageCache } from './services/posterCache';
+import { createAppStore, setHttpClient, setVideoFetchFn, backfillSeriesGroup, reclassifyShortDramaMovies, type AppStore, type AppState, type HttpClient } from '@movie-app/core';
 
 let _provider: TauriSqlProvider | null = null;
 let _store: AppStore | null = null;
@@ -162,9 +161,6 @@ export async function initApp(onProgress?: (step: string) => void): Promise<void
         report('Step 1b: pooled fetch 不可用，使用 native fetch');
       }
 
-      setBackgroundImageCache(desktopBackgroundImageCache);
-      report('Step 1c: 背景图本地缓存 配置完成');
-      
       report('Step 2: 创建 TauriSqlProvider...');
       _provider = new TauriSqlProvider();
       report('Step 2: TauriSqlProvider 创建完成');
@@ -193,6 +189,16 @@ export async function initApp(onProgress?: (step: string) => void): Promise<void
         report(`Step 3b: 回填系列字段完成（${updated} 条）`);
       } catch (err) {
         const errMsg = `回填系列字段失败: ${err instanceof Error ? err.message : String(err)}`;
+        console.error(errMsg);
+        await logToDb(errMsg, 'error');
+      }
+
+      try {
+        const reclassified = await reclassifyShortDramaMovies(_provider);
+        if (reclassified > 0) await logToDb(`Reclassified ${reclassified} short-drama media to TV`);
+        report(`Step 3d: 短剧类型修复完成（${reclassified} 条）`);
+      } catch (err) {
+        const errMsg = `短剧类型修复失败: ${err instanceof Error ? err.message : String(err)}`;
         console.error(errMsg);
         await logToDb(errMsg, 'error');
       }

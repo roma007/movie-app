@@ -103,6 +103,8 @@ export const SCHEMA_SQL = `
     rate_limit INTEGER DEFAULT 5,
     health_status TEXT,
     last_check_at TEXT,
+    last_success_at TEXT,
+    avg_response_time INTEGER,
     last_collected_at TEXT,
     created_at TEXT,
     fail_count INTEGER DEFAULT 0,

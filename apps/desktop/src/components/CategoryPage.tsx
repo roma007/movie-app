@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import type { Media } from '@movie-app/core';
-import { resolveCachedBackgroundUrl } from '@movie-app/core';
 import { useAppStore } from '../useAppStore';
 import { useBackgroundStore } from '../themes/backgroundStore';
 import { MediaGrid } from '@/components/MediaCard';
@@ -167,7 +166,6 @@ export default function CategoryPage({ type }: CategoryPageProps) {
   const hasRestoredScroll = useRef(false);
   const hasTriggeredLoad = useRef(false);
   const columnsMenuRef = useRef<HTMLDivElement>(null);
-  const bgTokenRef = useRef(0);
 
   const scrollKey = `scrollPos_${type}`;
 
@@ -197,23 +195,13 @@ export default function CategoryPage({ type }: CategoryPageProps) {
 
   useEffect(() => {
     const first = mediaList[0];
-    const token = ++bgTokenRef.current;
     if (!first?.posterUrl) {
       setBgImage(null);
       return () => clearBgImage();
     }
 
-    // 流程：默认背景图（解析期间显示）→ 本地视频图（命中缓存）→ 网络视频图（无缓存下载/回退远程）。
-    let cancelled = false;
-    resolveCachedBackgroundUrl(first.id, first.posterUrl, (url) => {
-      if (cancelled || token !== bgTokenRef.current) return;
-      setBgImage(url);
-    });
-
-    return () => {
-      cancelled = true;
-      clearBgImage();
-    };
+    setBgImage(first.posterUrl);
+    return () => clearBgImage();
   }, [mediaList, setBgImage, clearBgImage]);
 
   useEffect(() => {

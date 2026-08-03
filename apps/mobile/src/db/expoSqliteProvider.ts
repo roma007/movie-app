@@ -162,6 +162,22 @@ const MIGRATIONS: Migration[] = [
           WHERE media.hidden = 1 AND json_valid(media.genre)
             AND json_each.value IS NOT NULL AND json_each.value != '';`,
   },
+  {
+    version: 19,
+    description: 'create_collection_log_table',
+    sql: `CREATE TABLE IF NOT EXISTS collection_log (
+            id TEXT PRIMARY KEY,
+            timestamp TEXT NOT NULL,
+            level TEXT NOT NULL,
+            message TEXT NOT NULL,
+            task_id TEXT,
+            source_code TEXT,
+            source_name TEXT,
+            details TEXT
+          );
+          CREATE INDEX IF NOT EXISTS idx_collection_log_ts ON collection_log(timestamp);
+          CREATE INDEX IF NOT EXISTS idx_collection_log_task ON collection_log(task_id);`,
+  },
 ];
 
 /**
@@ -673,9 +689,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async getMediaCountBySourceId(sourceId: string): Promise<number> {
     const rows = await this.db!.getAllAsync<{ count: number }>(
-      `SELECT COUNT(DISTINCT e.media_id) as count FROM episode e
-       JOIN play_source ps ON e.id = ps.episode_id
-       WHERE ps.source_id = ?`,
+      `SELECT COUNT(DISTINCT media_id) as count FROM episode WHERE source_id = ?`,
       [sourceId]
     );
     return rows[0]?.count || 0;
@@ -683,10 +697,10 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async getMediaCountBySourceIdMap(): Promise<Map<string, number>> {
     const rows = await this.db!.getAllAsync<{ sourceId: string; count: number }>(
-      `SELECT ps.source_id as sourceId, COUNT(DISTINCT e.media_id) as count
-       FROM episode e
-       JOIN play_source ps ON e.id = ps.episode_id
-       GROUP BY ps.source_id`
+      `SELECT source_id as sourceId, COUNT(DISTINCT media_id) as count
+       FROM episode
+       WHERE source_id IS NOT NULL
+       GROUP BY source_id`
     );
     const map = new Map<string, number>();
     for (const row of rows) {

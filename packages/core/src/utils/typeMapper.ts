@@ -67,7 +67,16 @@ export function mapType(
   const r = (remarks || '').trim();
   const pf = (playFrom || '').trim();
 
-  if (isAiDrama(t, r, ...(genreArray || []))) return 'MOVIE';
+  if (isAiDrama(t, r, ...(genreArray || []))) {
+    // AI 漫剧/短剧单集视为电影；多集（全N集/共N集/更新至N集/第N集）按剧集处理
+    const multiEpMatch =
+      r.match(/全\s*(\d+)\s*集/) ||
+      r.match(/共\s*(\d+)\s*集/) ||
+      r.match(/更新至\s*(\d+)\s*集/) ||
+      r.match(/第\s*(\d+)\s*集/);
+    const epNum = multiEpMatch ? parseInt(multiEpMatch[1], 10) : 0;
+    if (epNum <= 1) return 'MOVIE';
+  }
 
   for (const kw of ANIME_KEYWORDS) {
     if (t.toLowerCase().includes(kw.toLowerCase())) return 'ANIME';

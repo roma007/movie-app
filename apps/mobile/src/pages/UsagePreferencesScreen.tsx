@@ -62,7 +62,7 @@ export default function UsagePreferencesScreen({ navigation }: Props) {
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1 },
-    header: { paddingTop: 50, paddingHorizontal: 15, paddingBottom: 15, backgroundColor: colors.surfaceElevated },
+    header: { paddingTop: 50, paddingHorizontal: 15, paddingBottom: 15 },
     headerRow: { flexDirection: 'row', alignItems: 'center' },
     title: { flex: 1, fontSize: s(18), fontWeight: 'bold', color: colors.text, textAlign: 'center' },
     placeholder: { width: 40 },

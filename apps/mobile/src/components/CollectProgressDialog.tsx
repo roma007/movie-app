@@ -10,7 +10,7 @@ import { Button } from './ui/Button';
 import { radius } from '../themes/radiusTokens';
 import { Check, CheckCircle, XCircle, Minus, X } from 'lucide-react-native';
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+if (Platform.OS === 'android' && !(globalThis as any).RN$Bridgeless && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 

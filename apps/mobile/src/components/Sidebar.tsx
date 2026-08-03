@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
   Animated, Alert,
 } from 'react-native';
+import Constants from 'expo-constants';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../themes/useThemeColors';
@@ -14,6 +15,8 @@ import { useAppStore } from '../useAppStore';
 import { radius } from '../themes/radiusTokens';
 
 const SIDEBAR_WIDTH = 280;
+
+const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 
 export default function Sidebar() {
   const { isOpen, close } = useSidebarStore();
@@ -164,7 +167,7 @@ export default function Sidebar() {
           <View style={styles.section}>
             <View style={styles.versionItem}>
               <Text style={styles.menuText}>版本</Text>
-              <Text style={styles.menuValue}>1.0.21</Text>
+              <Text style={styles.menuValue}>{APP_VERSION}</Text>
             </View>
           </View>
         </ScrollView>

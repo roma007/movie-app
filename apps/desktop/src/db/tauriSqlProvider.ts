@@ -209,6 +209,9 @@ export class TauriSqlProvider implements DatabaseProvider {
     // 增量迁移：为已有 media 表补齐 series_group / series_season 列
     await this.addColumnIfMissing('media', 'series_group', 'TEXT');
     await this.addColumnIfMissing('media', 'series_season', 'INTEGER');
+    // 增量迁移：为已有 video_source 表补齐健康检查相关列
+    await this.addColumnIfMissing('video_source', 'last_success_at', 'TEXT');
+    await this.addColumnIfMissing('video_source', 'avg_response_time', 'INTEGER');
 
     // 始终重建 FTS5：确保虚拟表和辅助表状态一致，不受历史损坏影响
     await this.rebuildFts5();
@@ -749,8 +752,7 @@ export class TauriSqlProvider implements DatabaseProvider {
 
   async getMediaCountBySourceId(sourceId: string): Promise<number> {
     const rows = await this.db!.select<{ count: number }[]>(
-      `SELECT COUNT(DISTINCT e.media_id) as count FROM episode e
-       WHERE e.id IN (SELECT DISTINCT episode_id FROM play_source WHERE source_id = ?)`,
+      `SELECT COUNT(DISTINCT media_id) as count FROM episode WHERE source_id = ?`,
       [sourceId]
     );
     return rows[0]?.count || 0;
@@ -758,10 +760,10 @@ export class TauriSqlProvider implements DatabaseProvider {
 
   async getMediaCountBySourceIdMap(): Promise<Map<string, number>> {
     const rows = await this.db!.select<{ sourceId: string; count: number }[]>(
-      `SELECT ps.source_id as sourceId, COUNT(DISTINCT e.media_id) as count
-       FROM episode e
-       JOIN play_source ps ON e.id = ps.episode_id
-       GROUP BY ps.source_id`
+      `SELECT source_id as sourceId, COUNT(DISTINCT media_id) as count
+       FROM episode
+       WHERE source_id IS NOT NULL
+       GROUP BY source_id`
     );
     const map = new Map<string, number>();
     for (const row of rows) {

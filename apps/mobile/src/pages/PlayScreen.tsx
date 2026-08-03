@@ -4,7 +4,7 @@ import { VideoView, useVideoPlayer } from 'expo-video';
 import { getProvider } from '../init';
 import { useAppStore } from '../useAppStore';
 import { ArrowLeft } from 'lucide-react-native';
-import { SystemConfigService, resolveCachedBackgroundUrl } from '@movie-app/core';
+import { SystemConfigService } from '@movie-app/core';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
 import { useScaledFontSize } from '../themes/useScaledFontSize';
@@ -63,11 +63,7 @@ export default function PlayScreen({ route, navigation }: Props) {
       setBgImageUrl(null);
       return;
     }
-    let cancelled = false;
-    resolveCachedBackgroundUrl(media.id, media.posterUrl, (url) => {
-      if (!cancelled) setBgImageUrl(url);
-    });
-    return () => { cancelled = true; };
+    setBgImageUrl(media.posterUrl);
   }, [media]);
 
   const colors = useThemeColors();

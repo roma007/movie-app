@@ -9,7 +9,6 @@ import CategoryHeader from '../components/CategoryHeader';
 import FilterDropdown from '../components/FilterDropdown';
 import BlurredBackground from '../components/BlurredBackground';
 import type { Media, PaginatedMeta } from '@movie-app/core';
-import { resolveCachedBackgroundUrl } from '@movie-app/core';
 
 const PAGE_SIZE = 20;
 
@@ -64,7 +63,6 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
   const flatListRef = useRef<FlatList>(null);
   const tabsHidden = useRef(new Animated.Value(0)).current;
   const prevScrollY = useRef(0);
-  const bgTokenRef = useRef(0);
   const [bgImageUrl, setBgImageUrl] = useState<string | null>(null);
 
   const loadList = useCallback(async (pageNum: number, replace: boolean) => {
@@ -243,6 +241,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
       gap: 8,
       paddingHorizontal: 15,
       marginTop: 12,
+      paddingBottom: 12,
     },
     count: {
       fontSize: s(13),
@@ -278,19 +277,11 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
 
   useEffect(() => {
     const first = mediaList[0];
-    const token = ++bgTokenRef.current;
     if (!first?.posterUrl) {
       setBgImageUrl(null);
       return;
     }
-
-    // 流程：默认背景图（解析期间显示）→ 本地视频图（命中缓存）→ 网络视频图（无缓存下载/回退远程）。
-    let cancelled = false;
-    resolveCachedBackgroundUrl(first.id, first.posterUrl, (url) => {
-      if (cancelled || token !== bgTokenRef.current) return;
-      setBgImageUrl(url);
-    });
-    return () => { cancelled = true; };
+    setBgImageUrl(first.posterUrl);
   }, [mediaList]);
 
   return (

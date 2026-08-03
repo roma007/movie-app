@@ -13,7 +13,6 @@ import UsageGuideModal from '../components/UsageGuideModal';
 import CategoryHeader from '../components/CategoryHeader';
 import BlurredBackground from '../components/BlurredBackground';
 import type { Media, Episode, UserUsageType, WatchHistory } from '@movie-app/core';
-import { resolveCachedBackgroundUrl } from '@movie-app/core';
 import { radius } from '../themes/radiusTokens';
 import { Sparkles, Film, Tv, Clock, Heart, CheckSquare, Square } from 'lucide-react-native';
 
@@ -302,62 +301,63 @@ export default function HomeScreen() {
         {tvWatchHistory.length === 0 ? (
           <Text style={styles.usageCardDesc}>暂无追剧记录，观看电视剧或综艺后会显示在这里</Text>
         ) : (
-          tvWatchHistory.slice(0, 5).map((h) => {
-            const media = historyMediaList.find((m) => m.id === h.mediaId);
-            if (!media) return null;
-            const history = watchedHistoryMap[media.id] ?? [];
-            const isWatched = (wh: WatchHistory) => wh.episodeId && (wh.progress > 60 || (wh.duration > 0 && wh.progress / wh.duration >= 0.1));
-            let recentSourceId: string | null = null;
-            for (const wh of history) {
-              if (wh.episodeId) {
-                const e = episodeMap[wh.episodeId];
-                if (e?.sourceId) { recentSourceId = e.sourceId; break; }
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {tvWatchHistory.slice(0, 10).map((h) => {
+              const media = historyMediaList.find((m) => m.id === h.mediaId);
+              if (!media) return null;
+              const history = watchedHistoryMap[media.id] ?? [];
+              const isWatched = (wh: WatchHistory) => wh.episodeId && (wh.progress > 60 || (wh.duration > 0 && wh.progress / wh.duration >= 0.1));
+              let recentSourceId: string | null = null;
+              for (const wh of history) {
+                if (wh.episodeId) {
+                  const e = episodeMap[wh.episodeId];
+                  if (e?.sourceId) { recentSourceId = e.sourceId; break; }
+                }
               }
-            }
-            const sourceCount = recentSourceId ? (sourceTotalMap[media.id]?.[recentSourceId] ?? 0) : 0;
-            const distinctKey = (wh: WatchHistory) => {
-              const e = wh.episodeId ? episodeMap[wh.episodeId] : null;
-              return e ? `${e.seasonNumber}:${e.episodeNumber}` : `ep:${wh.episodeId}`;
-            };
-            const watchedRows = history.filter(isWatched);
-            const watchedCount = sourceCount > 0
-              ? new Set(watchedRows.filter((wh) => {
-                  const e = wh.episodeId ? episodeMap[wh.episodeId] : null;
-                  return e?.sourceId === recentSourceId;
-                }).map(distinctKey)).size
-              : new Set(watchedRows.map(distinctKey)).size;
-            const totalCount = sourceCount > 0 ? sourceCount : (media.totalEpisodes ?? media.currentEpisodes ?? episodeTotalMap[media.id] ?? 0);
-            const progressPct = totalCount > 0
-              ? Math.min(Math.round((watchedCount / totalCount) * 100), 100)
-              : (h.duration > 0 ? Math.min(Math.round((h.progress / h.duration) * 100), 100) : 0);
-            const ep = h.episodeId ? episodeMap[h.episodeId] : null;
-            const epLabel = ep ? (ep.title || `第${ep.episodeNumber}集`) : null;
-            return (
-              <TouchableOpacity
-                key={h.id}
-                style={styles.tvItem}
-                onPress={() => navigation.navigate('Detail', { id: media.id })}
-              >
-                <View style={styles.tvItemThumb}>
-                  {media.posterUrl ? (
-                    <Image source={{ uri: media.posterUrl }} style={styles.tvItemThumbImg} />
-                  ) : (
-                    <View style={styles.tvItemThumbPlaceholder}>
-                      <Text style={{ fontSize: 10, color: colors.mutedForeground }}>无</Text>
-                    </View>
-                  )}
-                </View>
-                <View style={styles.tvItemLeft}>
-                  <Text style={styles.tvItemTitle} numberOfLines={1}>{media.title}</Text>
-                  {epLabel && <Text style={styles.tvItemEpisode} numberOfLines={1}>{epLabel}</Text>}
-                  <View style={styles.progressBar}>
-                    <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
+              const sourceCount = recentSourceId ? (sourceTotalMap[media.id]?.[recentSourceId] ?? 0) : 0;
+              const distinctKey = (wh: WatchHistory) => {
+                const e = wh.episodeId ? episodeMap[wh.episodeId] : null;
+                return e ? `${e.seasonNumber}:${e.episodeNumber}` : `ep:${wh.episodeId}`;
+              };
+              const watchedRows = history.filter(isWatched);
+              const watchedCount = sourceCount > 0
+                ? new Set(watchedRows.filter((wh) => {
+                    const e = wh.episodeId ? episodeMap[wh.episodeId] : null;
+                    return e?.sourceId === recentSourceId;
+                  }).map(distinctKey)).size
+                : new Set(watchedRows.map(distinctKey)).size;
+              const totalCount = sourceCount > 0 ? sourceCount : (media.totalEpisodes ?? media.currentEpisodes ?? episodeTotalMap[media.id] ?? 0);
+              const progressPct = totalCount > 0
+                ? Math.min(Math.round((watchedCount / totalCount) * 100), 100)
+                : (h.duration > 0 ? Math.min(Math.round((h.progress / h.duration) * 100), 100) : 0);
+              const ep = h.episodeId ? episodeMap[h.episodeId] : null;
+              const epLabel = ep ? (ep.title || `第${ep.episodeNumber}集`) : null;
+              return (
+                <TouchableOpacity
+                  key={h.id}
+                  style={styles.tvPosterCard}
+                  onPress={() => navigation.navigate('Detail', { id: media.id })}
+                >
+                  <View style={styles.tvPoster}>
+                    {media.posterUrl ? (
+                      <Image source={{ uri: media.posterUrl }} style={styles.tvPosterImg} />
+                    ) : (
+                      <View style={styles.tvPosterPlaceholder}>
+                        <Text style={{ fontSize: s(11), color: colors.mutedForeground }}>无封面</Text>
+                      </View>
+                    )}
                   </View>
-                </View>
-                <Text style={styles.tvItemAction}>续看</Text>
-              </TouchableOpacity>
-            );
-          })
+                  <View style={styles.tvPosterInfo}>
+                    <Text style={styles.tvPosterTitle} numberOfLines={1}>{media.title}</Text>
+                    {epLabel && <Text style={styles.tvPosterEpisode} numberOfLines={1}>{epLabel}</Text>}
+                    <View style={styles.progressBar}>
+                      <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
         )}
       </View>
     );
@@ -533,57 +533,51 @@ export default function HomeScreen() {
       fontSize: s(14),
       fontWeight: '600',
     },
-    tvItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingVertical: 10,
-      gap: 8,
+    tvPosterCard: {
+      width: 100,
+      marginRight: 10,
     },
-    tvItemThumb: {
-      width: 40,
-      height: 40,
-      borderRadius: radius.sm,
+    tvPoster: {
+      width: 100,
+      height: 150,
+      borderRadius: radius.md,
       overflow: 'hidden',
       backgroundColor: surfaceBg,
     },
-    tvItemThumbImg: {
-      width: 40,
-      height: 40,
+    tvPosterImg: {
+      width: '100%',
+      height: '100%',
     },
-    tvItemThumbPlaceholder: {
-      width: 40,
-      height: 40,
+    tvPosterPlaceholder: {
+      width: '100%',
+      height: '100%',
       alignItems: 'center',
       justifyContent: 'center',
     },
-    tvItemLeft: {
-      flex: 1,
+    tvPosterInfo: {
+      paddingHorizontal: 6,
+      paddingTop: 6,
     },
-    tvItemTitle: {
-      fontSize: s(14),
-      color: colors.text,
-      marginBottom: 2,
-    },
-    tvItemEpisode: {
+    tvPosterTitle: {
       fontSize: s(12),
+      color: colors.text,
+    },
+    tvPosterEpisode: {
+      fontSize: s(10),
       color: colors.textSecondary,
-      marginBottom: 4,
+      marginTop: 2,
     },
     progressBar: {
       height: 4,
       backgroundColor: colors.trackBg,
       borderRadius: radius.progress,
       overflow: 'hidden',
+      marginTop: 4,
     },
     progressFill: {
       height: '100%',
       backgroundColor: colors.mutedForeground,
       borderRadius: radius.progress,
-    },
-    tvItemAction: {
-      fontSize: s(12),
-      color: colors.textSecondary,
-      fontWeight: '600',
     },
   }), [colors, cardOpacity, cardBg, surfaceBg, s]);
 
@@ -595,11 +589,7 @@ export default function HomeScreen() {
       setBgImageUrl(null);
       return;
     }
-    let cancelled = false;
-    resolveCachedBackgroundUrl(first.id, first.posterUrl, (url) => {
-      if (!cancelled) setBgImageUrl(url);
-    });
-    return () => { cancelled = true; };
+    setBgImageUrl(first.posterUrl);
   }, [latestMedia]);
 
   const tabsHidden = useRef(new Animated.Value(0)).current;

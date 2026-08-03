@@ -335,18 +335,28 @@ export function createAppStore(db: DatabaseProvider) {
 
     loadVideoSources: async () => {
       try {
-        const [sources, countMap] = await Promise.all([
-          db.getAllVideoSources(),
-          db.getMediaCountBySourceIdMap(),
-        ]);
-        const sourcesWithCount = sources.map((source) => ({
-          ...source,
-          mediaCount: countMap.get(source.id) || 0,
-        }));
-        set({ videoSources: sourcesWithCount });
+        const sources = await db.getAllVideoSources();
+        const prev = get().videoSources;
+        set({
+          videoSources: sources.map((s) => ({
+            ...s,
+            mediaCount: prev.find((v) => v.id === s.id)?.mediaCount,
+          })),
+        });
       } catch (err: any) {
         set({ error: err.message });
+        return;
       }
+      db.getMediaCountBySourceIdMap()
+        .then((countMap) => {
+          set({
+            videoSources: get().videoSources.map((s) => ({
+              ...s,
+              mediaCount: countMap.get(s.id) || 0,
+            })),
+          });
+        })
+        .catch((err) => set({ error: err.message }));
     },
 
     toggleSourceEnabled: async (id: string, enabled: boolean) => {

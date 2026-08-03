@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { Media, Episode, UserUsageType, WatchHistory } from '@movie-app/core';
-import { resolveCachedBackgroundUrl } from '@movie-app/core';
 import { useAppStore, getProvider } from '../useAppStore';
 import { useBackgroundStore } from '../themes/backgroundStore';
 import { useImportDialogStore } from '../themes/importDialogStore';
@@ -155,11 +154,8 @@ export default function HomePage() {
       return () => clearBgImage();
     }
 
-    let cancelled = false;
-    resolveCachedBackgroundUrl(first.id, first.posterUrl, (url) => {
-      if (!cancelled) setBgImage(url);
-    });
-    return () => { cancelled = true; clearBgImage(); };
+    setBgImage(first.posterUrl);
+    return () => clearBgImage();
   }, [isSearching, mediaList, latestMedia, watchHistory, favorites, mediaMap, userUsageTypes, previewResults, setBgImage, clearBgImage]);
 
   const handleSearch = async () => {

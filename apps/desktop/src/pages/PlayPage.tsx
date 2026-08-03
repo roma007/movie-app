@@ -6,7 +6,6 @@ import { usePlayerStore } from '../stores/playerStore';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
-import { resolveCachedBackgroundUrl } from '@movie-app/core';
 
 const typeLabel: Record<string, string> = {
   MOVIE: '电影',
@@ -60,11 +59,8 @@ export default function PlayPage() {
       setBgImage(null);
       return () => clearBgImage();
     }
-    let cancelled = false;
-    resolveCachedBackgroundUrl(media.id, media.posterUrl, (url) => {
-      if (!cancelled) setBgImage(url);
-    });
-    return () => { cancelled = true; clearBgImage(); };
+    setBgImage(media.posterUrl);
+    return () => clearBgImage();
   }, [media, setBgImage, clearBgImage]);
 
   useEffect(() => {

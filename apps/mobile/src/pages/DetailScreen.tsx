@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useAppStore } from '../useAppStore';
 import { getProvider } from '../init';
-import { VideoDurationService, resolveCachedBackgroundUrl } from '@movie-app/core';
+import { VideoDurationService } from '@movie-app/core';
 import { Heart, ArrowLeft } from 'lucide-react-native';
 import type { Episode, PlaySource, VideoSource } from '@movie-app/core';
 import { useThemeColors } from '../themes/useThemeColors';
@@ -47,11 +47,7 @@ export default function DetailScreen({ route, navigation }: Props) {
       setBgImageUrl(null);
       return;
     }
-    let cancelled = false;
-    resolveCachedBackgroundUrl(currentMedia.id, currentMedia.posterUrl, (url) => {
-      if (!cancelled) setBgImageUrl(url);
-    });
-    return () => { cancelled = true; };
+    setBgImageUrl(currentMedia.posterUrl);
   }, [currentMedia]);
 
   const styles = useMemo(() => StyleSheet.create({
