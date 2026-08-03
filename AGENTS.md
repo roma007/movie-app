@@ -62,5 +62,5 @@
 - 提交前 `git status` 核对暂存内容；使用 `git add -A` 前先确认 `.gitignore` 已覆盖工具文档，避免误加。
 - 提交信息：中文，`feat:`/`fix:`/`refactor:` 前缀 + 一句话概括本次改动。
 - 提交后同时推送两端：`git push origin master`（gitee）与 `git push github master`。
-- 提交/推送一律走 `pnpm push "提交信息"`（含版本 tag 全流程）。GitHub 端由 `.github/workflows/release-check.yml` 兜底：push 到 master 时自动补打 `v<版本号>` 标签（版本号以 `package.json` 的 version 为准），并触发 `build.yml` 生成 GitHub Release 安装包。**默认不需要手动打标签**；仅当 CI 不可用需手动发布时，才执行 `git tag v<版本号>` 与 `git push github v<版本号>`。
+- 提交/推送一律走 `pnpm push "提交信息"`（含版本 tag 全流程）。GitHub 端由 `.github/workflows/release-check.yml` 兜底：push 到 master 时自动补打 `v<版本号>` 标签（版本号以 `package.json` 的 version 为准），随后用 `workflow_dispatch` 显式触发 `build.yml` 在 tag 上构建并生成 GitHub Release 安装包。**注意：GITHUB_TOKEN 推送的 tag 不会自动触发 `build.yml`（GitHub 限制），必须显式 dispatch，否则只有构建产物没有 Release。** **默认不需要手动打标签**；仅当 CI 不可用需手动发布时，才执行 `git tag v<版本号>` 与 `git push github v<版本号>`（手动 push tag 会按 `tags: v*` 正常触发 `build.yml`）。
 - 工具文档（`.trae/`、`BUTTON_COLORS.md`、`MOBILE_DESKTOP_DIFF.md`、`主题字色*.md`）永不提交，`.gitignore` 已兜底。

@@ -37,3 +37,20 @@ jobs:
               fi
             }
           fi
+          echo "tag=$TAG" >> "$GITHUB_ENV"
+
+      - name: Trigger release build on tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Dispatching build.yml on ref $tag"
+          for i in 1 2 3 4 5; do
+            if gh workflow run build.yml --ref "$tag"; then
+              echo "Dispatch succeeded"
+              exit 0
+            fi
+            echo "Retry $i after 5s..."
+            sleep 5
+          done
+          echo "Dispatch failed after retries" >&2
+          exit 1
