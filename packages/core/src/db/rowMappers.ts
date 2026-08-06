@@ -14,6 +14,17 @@ import type {
 
 /** row → 领域对象转换函数（两端共享，SQL 列名为 snake_case） */
 
+function parseStringArray(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return Array.from(new Set(arr.filter((x): x is string => typeof x === 'string' && x.length > 0)));
+  } catch {
+    return [];
+  }
+}
+
 export function rowToMedia(row: any): Media {
   return {
     id: row.id,
@@ -23,9 +34,9 @@ export function rowToMedia(row: any): Media {
     type: row.type as MediaType,
     year: row.year,
     area: row.area,
-    genres: row.genre ? JSON.parse(row.genre) : [],
-    directors: row.director ? JSON.parse(row.director) : [],
-    actors: row.cast ? JSON.parse(row.cast) : [],
+    genres: parseStringArray(row.genre),
+    directors: parseStringArray(row.director),
+    actors: parseStringArray(row.cast),
     description: row.description,
     posterUrl: row.poster_url,
     backdropUrl: row.backdrop_url,
@@ -84,6 +95,7 @@ export function rowToVideoSource(row: any): VideoSource {
     healthStatus: row.health_status,
     lastCheckAt: row.last_check_at,
     lastCollectedAt: row.last_collected_at || null,
+    lastIncrementalCollectedAt: row.last_incremental_collected_at || null,
     lastSuccessAt: row.last_success_at || null,
     failCount: row.fail_count || 0,
     totalRequests: row.total_requests || 0,

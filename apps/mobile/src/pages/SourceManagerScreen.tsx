@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Alert, Modal, TextInput, ActivityIndicator } from 'react-native';
-import { useAppStore } from '../useAppStore';
+import { useAppStore, getProvider } from '../useAppStore';
 import { SourceImportService, AI_SOURCE_PROMPT, AI_SOURCE_IMPORT_SAMPLE } from '@movie-app/core';
 import type { VideoSource, CollectTask, CollectPreviewItem, ImportSourceItem, ParsedImportSource } from '@movie-app/core';
 import Toast, { showToast } from '../components/Toast';
@@ -12,7 +12,7 @@ import { radius } from '../themes/radiusTokens';
 import BlurredBackground from '../components/BlurredBackground';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { ArrowLeft, Check, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react-native';
+import { ArrowLeft, Check, CheckCircle2, XCircle, AlertTriangle, Trash2, Pencil, Database, Ban } from 'lucide-react-native';
 
 interface Props {
   navigation: any;
@@ -20,14 +20,14 @@ interface Props {
 
 const RATE_BARS = [2, 4, 6, 8, 10];
 
-function formatTime(timestamp: string): string {
+function formatCheckTime(timestamp: string): string {
   try {
     const d = new Date(timestamp);
     const month = (d.getMonth() + 1).toString().padStart(2, '0');
     const day = d.getDate().toString().padStart(2, '0');
     const hours = d.getHours().toString().padStart(2, '0');
     const minutes = d.getMinutes().toString().padStart(2, '0');
-    return `${month}-${day} ${hours}:${minutes}`;
+    return `${month}/${day} ${hours}:${minutes}`;
   } catch {
     return timestamp;
   }
@@ -62,10 +62,9 @@ export default function SourceManagerScreen({ navigation }: Props) {
     navPlaceholder: { width: 40 },
     list: { paddingHorizontal: 15, paddingBottom: 30, gap: 12 },
     sourceCard: { backgroundColor: cardBg, borderRadius: radius.lg, padding: 12 },
-    sourceHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
-    sourceMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, marginRight: 8 },
+    sourceHeader: { marginBottom: 6 },
     sourceName: { fontSize: sf(16), fontWeight: '600', color: colors.text },
-    checkTimeRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+    sourceControls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 },
     checkTimeText: { fontSize: sf(11), color: colors.disabledForeground },
     rateRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
     ratePrefix: { fontSize: sf(12), color: colors.mutedForeground },
@@ -75,7 +74,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
     rateBar: { width: 8, height: 16, borderRadius: radius.progress },
     rateLabel: { fontSize: sf(14), color: colors.textSecondary, width: 24, textAlign: 'center' },
     healthBadge: { fontSize: sf(10), paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm, borderWidth: StyleSheet.hairlineWidth, marginLeft: 8 },
-    sourceSwitchLabel: { fontSize: sf(11), color: colors.mutedForeground, marginRight: 4 },
+    sourceDeleteBtn: { paddingVertical: 4, paddingHorizontal: 8 },
     sourceActions: { flexDirection: 'row', gap: 6 },
     sourceActionBtn: { flex: 1, paddingVertical: 10, borderRadius: radius.md, minHeight: 40 },
     progressContainer: { marginTop: 10 },
@@ -147,22 +146,25 @@ export default function SourceManagerScreen({ navigation }: Props) {
     const failRate = totalRequests > 0 ? (failCount / totalRequests) * 100 : 0;
 
     if (status === 'DOWN' || status === 'unhealthy') {
-      return { label: '源不可用，建议降速', color: colors.error };
+      return { label: '不可用，请检查', color: colors.error };
     }
     if (failRate > 20) {
-      return { label: '失败较多，建议降速', color: colors.error };
+      return { label: '失败多，需降速', color: colors.error };
     }
     if (status === 'DEGRADED' || status === 'degraded' || failRate > 10) {
-      return { label: '状态不稳定，建议降速', color: colors.warning };
+      return { label: '不稳定，需降速', color: colors.warning };
     }
     if (failRate < 5 && (source.rateLimit || 0) < 5) {
-      return { label: '状态良好，可以加速', color: colors.success };
+      return { label: '非常好，可加速', color: colors.success };
     }
-    return { label: '状态稳定，保持速率', color: colors.success };
+    return { label: '很稳定，可保持', color: colors.success };
   };
 
   const [modalVisible, setModalVisible] = useState(false);
   const [form, setForm] = useState({ code: '', name: '', baseUrl: '', rateLimit: '5' });
+
+  const [editingSource, setEditingSource] = useState<VideoSource | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', baseUrl: '' });
 
   const [checkingSource, setCheckingSource] = useState<string | null>(null);
 
@@ -223,9 +225,50 @@ export default function SourceManagerScreen({ navigation }: Props) {
   };
 
   const handleDelete = (id: string, name: string) => {
-    Alert.alert('删除视频源', `确定要删除「${name}」吗？`, [
+    Alert.alert('删除视频源', `确定要删除「${name}」吗？\n\n仅删除视频源配置，不会删除该源采集的视频数据。如需删除数据请使用「删视频」。`, [
       { text: '取消', style: 'cancel' },
       { text: '删除', style: 'destructive', onPress: () => removeVideoSource(id) },
+    ]);
+  };
+
+  const handleStartEdit = (source: VideoSource) => {
+    setEditingSource(source);
+    setEditForm({ name: source.name, baseUrl: source.baseUrl });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingSource) return;
+    if (!editForm.name.trim() || !editForm.baseUrl.trim()) {
+      Alert.alert('提示', '名称和API地址不能为空');
+      return;
+    }
+    const updatedSource: VideoSource = {
+      ...editingSource,
+      name: editForm.name.trim(),
+      baseUrl: editForm.baseUrl.trim(),
+    };
+    await addVideoSource(updatedSource);
+    setEditingSource(null);
+    setEditForm({ name: '', baseUrl: '' });
+    showToast('视频源已更新');
+  };
+
+  const handleDeletePlaySources = (source: VideoSource) => {
+    Alert.alert('删除播放源', `确定要删除「${source.name}」的所有播放源吗？如果某部视频没有其他播放源，该视频也会被一并删除。`, [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '删除',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await getProvider().deletePlaySourcesBySourceId(source.id);
+            await loadVideoSources();
+            showToast(`「${source.name}」的播放源已删除`);
+          } catch (err: any) {
+            showToast(`删除失败: ${err.message}`, 'error');
+          }
+        },
+      },
     ]);
   };
 
@@ -451,24 +494,49 @@ export default function SourceManagerScreen({ navigation }: Props) {
             return (
               <View key={source.id} style={styles.sourceCard}>
                 <View style={styles.sourceHeader}>
-                  <View style={styles.sourceMain}>
-                    <Text style={styles.sourceName} numberOfLines={1}>{source.name}</Text>
-                  </View>
-                  <Text style={styles.sourceSwitchLabel}>{source.isEnabled ? '启用' : '禁用'}</Text>
-                  <Switch
-                    value={source.isEnabled}
-                    onValueChange={(value) => toggleSourceEnabled(source.id, value)}
-                    trackColor={{ false: colors.swiftTrack, true: colors.swiftActiveTrack }}
-                    thumbColor={source.isEnabled ? colors.swiftThumb : colors.disabledForeground}
-                  />
+                  <Text style={styles.sourceName} numberOfLines={1}>{source.name}</Text>
                 </View>
-                <View style={styles.checkTimeRow}>
-                  <Text style={styles.checkTimeText}>
-                    上次采集: {source.lastCollectedAt ? formatTime(source.lastCollectedAt) : '从未'}
-                  </Text>
-                  <Text style={styles.checkTimeText}>
-                    上次检查: {source.lastCheckAt ? formatTime(source.lastCheckAt) : '从未'}
-                  </Text>
+                <View style={styles.sourceControls}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    style={styles.sourceDeleteBtn}
+                    onPress={() => handleStartEdit(source)}
+                    leftIcon={<Pencil size={14} color={colors.textSecondary} />}
+                    textStyle={{ color: colors.textSecondary }}
+                  >
+                    编辑
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    style={styles.sourceDeleteBtn}
+                    onPress={() => toggleSourceEnabled(source.id, !source.isEnabled)}
+                    leftIcon={<Ban size={14} color={colors.textSecondary} />}
+                    textStyle={{ color: colors.textSecondary }}
+                  >
+                    {source.isEnabled ? '禁用' : '启用'}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    style={styles.sourceDeleteBtn}
+                    onPress={() => handleDelete(source.id, source.name)}
+                    leftIcon={<Trash2 size={14} color={colors.error} />}
+                    textStyle={{ color: colors.error }}
+                  >
+                    删源
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    style={styles.sourceDeleteBtn}
+                    onPress={() => handleDeletePlaySources(source)}
+                    leftIcon={<Database size={14} color={colors.textSecondary} />}
+                    textStyle={{ color: colors.textSecondary }}
+                  >
+                    删视频
+                  </Button>
                 </View>
 
                 <View style={styles.rateRow}>
@@ -506,37 +574,47 @@ export default function SourceManagerScreen({ navigation }: Props) {
                     variant="secondary"
                     size="sm"
                     style={styles.sourceActionBtn}
+                    textStyle={{ textAlign: 'center' }}
                     loading={checking}
                     disabled={checking}
                     onPress={() => handleCheck(source)}
                   >
-                    检测
+                    <>
+                      检测{'\n'}
+                      <Text style={styles.checkTimeText} numberOfLines={1}>
+                        {source.lastCheckAt ? formatCheckTime(source.lastCheckAt) : '从未'}
+                      </Text>
+                    </>
                   </Button>
                   <Button
                     variant="secondary"
                     size="sm"
                     style={styles.sourceActionBtn}
+                    textStyle={{ textAlign: 'center' }}
                     disabled={collecting}
                     onPress={() => handleCollect(source.code, 'increment', source.name)}
                   >
-                    增量采集
+                    <>
+                      增量采集{'\n'}
+                      <Text style={styles.checkTimeText} numberOfLines={1}>
+                        {source.lastIncrementalCollectedAt ? formatCheckTime(source.lastIncrementalCollectedAt) : '从未'}
+                      </Text>
+                    </>
                   </Button>
                   <Button
                     variant="secondary"
                     size="sm"
                     style={styles.sourceActionBtn}
+                    textStyle={{ textAlign: 'center' }}
                     disabled={collecting}
                     onPress={() => handleCollect(source.code, 'full', source.name)}
                   >
-                    全量采集
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    style={styles.sourceActionBtn}
-                    onPress={() => handleDelete(source.id, source.name)}
-                  >
-                    删除
+                    <>
+                      全量采集{'\n'}
+                      <Text style={styles.checkTimeText} numberOfLines={1}>
+                        {source.lastCollectedAt ? formatCheckTime(source.lastCollectedAt) : '从未'}
+                      </Text>
+                    </>
                   </Button>
                 </View>
 
@@ -597,6 +675,39 @@ export default function SourceManagerScreen({ navigation }: Props) {
               </Button>
               <Button variant="primary" size="md" style={styles.modalButton} onPress={handleAdd}>
                 添加
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={!!editingSource}
+        onRequestClose={() => setEditingSource(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>编辑视频源</Text>
+            <Input
+              size="lg"
+              placeholder="名称"
+              value={editForm.name}
+              onChangeText={(text) => setEditForm({ ...editForm, name: text })}
+            />
+            <Input
+              size="lg"
+              placeholder="API 地址"
+              value={editForm.baseUrl}
+              onChangeText={(text) => setEditForm({ ...editForm, baseUrl: text })}
+            />
+            <View style={styles.modalButtons}>
+              <Button variant="secondary" size="md" style={styles.modalButton} onPress={() => setEditingSource(null)}>
+                取消
+              </Button>
+              <Button variant="primary" size="md" style={styles.modalButton} onPress={handleSaveEdit}>
+                保存
               </Button>
             </View>
           </View>

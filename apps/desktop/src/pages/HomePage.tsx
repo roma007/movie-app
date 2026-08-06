@@ -336,11 +336,9 @@ export default function HomePage() {
           {isCollecting ? '采集中' : '增量采集'}
         </Button>
       </div>
-      <p className="text-sm text-muted-foreground mb-4">一键从所有视频源采集最新内容</p>
       {latestMedia.length > 0 && (
         <>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium">最新入库</span>
+          <div className="flex items-center justify-end mb-2">
             <Button variant="ghost" size="sm" onClick={() => navigate('/movie')} className="text-text-secondary text-xs">
               更多 <ChevronRightIcon className="size-3" />
             </Button>

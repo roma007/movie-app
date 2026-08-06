@@ -13,6 +13,12 @@ import type {
 } from '../types';
 
 /**
+ * 「未分类」子类型哨兵值：用于隐藏/取消隐藏没有任何子类型（genre 为空）的视频。
+ * 空 genre 媒体无法用 LIKE 匹配，需用专门的空 genre 谓词处理。
+ */
+export const UNCATEGORIZED_GENRE = '未分类';
+
+/**
  * 数据库访问抽象层接口。
  * 移动端用 expo-sqlite 实现（ExpoSqliteProvider），
  * 桌面端用 tauri-plugin-sql 实现（TauriSqlProvider）。
@@ -74,6 +80,7 @@ export interface DatabaseProvider {
   unhideMediaByGenres(genres: string[]): Promise<{ unhidden: number }>;
   getHiddenGenres(): Promise<string[]>;
   getHiddenMediaCount(): Promise<number>;
+  getUncategorizedCount(type?: string, includeHidden?: boolean): Promise<number>;
 
   // —— PlaySource DAO ——
   getPlaySourcesByEpisodeId(episodeId: string): Promise<PlaySource[]>;
@@ -100,6 +107,7 @@ export interface DatabaseProvider {
     avgResponseTime?: number;
   }): Promise<void>;
   updateSourceLastCollectedAt(id: string, time: string): Promise<void>;
+  updateSourceLastIncrementalCollectedAt(id: string, time: string): Promise<void>;
   incrementSourceRequestCount(id: string): Promise<void>;
   incrementSourceFailCount(id: string): Promise<void>;
 

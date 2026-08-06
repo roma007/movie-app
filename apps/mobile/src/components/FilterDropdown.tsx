@@ -114,11 +114,23 @@ export default function FilterDropdown({
       flexDirection: 'row',
       flexWrap: 'wrap',
       gap: 8,
+      marginTop: 4,
     },
     optionChip: {
       paddingHorizontal: 14,
       paddingVertical: 7,
       borderRadius: radius.sm,
+      backgroundColor: hexToRgba(colors.cardAccent, cardOpacity / 100 * 0.35),
+    },
+    optionChipText: {
+      color: colors.textSecondary,
+    },
+    optionChipActive: {
+      backgroundColor: hexToRgba(colors.mutedForeground, cardOpacity / 100 * 0.45),
+    },
+    optionChipActiveText: {
+      color: colors.buttonPrimaryText,
+      fontWeight: '600',
     },
     groupHeader: {
       flexDirection: 'row',
@@ -142,7 +154,7 @@ export default function FilterDropdown({
       gap: 8,
       paddingBottom: 8,
     },
-  }), [colors, hasActive, cardBg, s]);
+  }), [colors, hasActive, cardBg, cardOpacity, s]);
 
   if (options.length === 0) return null;
 
@@ -156,19 +168,19 @@ export default function FilterDropdown({
       {isExpanded && (
         <View style={styles.panel}>
           <ScrollView contentContainerStyle={styles.panelContent} showsVerticalScrollIndicator={false}>
-            <Button variant="secondary" size="sm" active={!hasActive} style={styles.optionChip} onPress={() => handleSelect(undefined)}>
-              全部
-            </Button>
-
             {grouped ? (
-              decades.map(group => (
-                <View key={group.decade}>
-                  <Button variant="ghost" size="sm" style={styles.groupHeader} onPress={() => handleToggleGroup(group.decade)}>
-                    <Text style={styles.groupHeaderText}>{group.decade}</Text>
-                    <Text style={styles.groupArrow}>{expandedGroup === group.decade ? '▲' : '▼'}</Text>
-                  </Button>
-                  {expandedGroup === group.decade && (
-                    <View style={styles.groupItems}>
+              <>
+                <Button variant="secondary" size="sm" active={!hasActive} style={[styles.optionChip, !hasActive && styles.optionChipActive]} textStyle={hasActive ? styles.optionChipText : styles.optionChipActiveText} onPress={() => handleSelect(undefined)}>
+                  全部
+                </Button>
+                {decades.map(group => (
+                  <View key={group.decade}>
+                    <Button variant="ghost" size="sm" style={styles.groupHeader} onPress={() => handleToggleGroup(group.decade)}>
+                      <Text style={styles.groupHeaderText}>{group.decade}</Text>
+                      <Text style={styles.groupArrow}>{expandedGroup === group.decade ? '▲' : '▼'}</Text>
+                    </Button>
+                    {expandedGroup === group.decade && (
+                      <View style={styles.groupItems}>
                         {group.items.map(opt => {
                           const isActive = selected === opt.value;
                           return (
@@ -177,19 +189,24 @@ export default function FilterDropdown({
                               variant="secondary"
                               size="sm"
                               active={isActive}
-                              style={styles.optionChip}
+                              style={[styles.optionChip, isActive && styles.optionChipActive]}
+                              textStyle={isActive ? styles.optionChipActiveText : styles.optionChipText}
                               onPress={() => handleSelect(isActive ? undefined : opt.value)}
                             >
                               {opt.label}
                             </Button>
-                        );
-                      })}
-                    </View>
-                  )}
-                </View>
-              ))
+                          );
+                        })}
+                      </View>
+                    )}
+                  </View>
+                ))}
+              </>
             ) : (
               <View style={styles.optionRow}>
+                <Button variant="secondary" size="sm" active={!hasActive} style={[styles.optionChip, !hasActive && styles.optionChipActive]} textStyle={hasActive ? styles.optionChipText : styles.optionChipActiveText} onPress={() => handleSelect(undefined)}>
+                  全部
+                </Button>
                 {options.map(opt => {
                   const isActive = selected === opt.value;
                   return (
@@ -198,7 +215,8 @@ export default function FilterDropdown({
                       variant="secondary"
                       size="sm"
                       active={isActive}
-                      style={styles.optionChip}
+                      style={[styles.optionChip, isActive && styles.optionChipActive]}
+                      textStyle={isActive ? styles.optionChipActiveText : styles.optionChipText}
                       onPress={() => handleSelect(isActive ? undefined : opt.value)}
                     >
                       {opt.label}

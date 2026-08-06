@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
-import { ArrowLeft } from 'lucide-react-native';
+import { ArrowLeft, X, Plus } from 'lucide-react-native';
 import { useAppStore, getProvider } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
@@ -11,15 +11,89 @@ import BlurredBackground from '../components/BlurredBackground';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import type { ShortDramaConfig } from '@movie-app/core';
+import { UNCATEGORIZED_GENRE } from '@movie-app/core';
 
 interface Props {
   navigation: any;
 }
 
+const CONFIG_TABS = [
+  { id: 1, badge: '①', label: '匹配模板' },
+  { id: 2, badge: '②', label: '探测时长' },
+  { id: 3, badge: '③', label: '关键词' },
+];
+
+interface TagEditorProps {
+  items: string[];
+  onRemove: (item: string) => void;
+  onAdd: () => void;
+  inputValue: string;
+  onChangeInput: (v: string) => void;
+  placeholder: string;
+  scrollable?: boolean;
+}
+
+function TagEditor({ items, onRemove, onAdd, inputValue, onChangeInput, placeholder, scrollable = false }: TagEditorProps) {
+  const colors = useThemeColors();
+  const cardOpacity = useThemeStore((s) => s.cardOpacity);
+  const s = useScaledFontSize();
+  const cardBg = hexToRgba(colors.card, cardOpacity / 100);
+  const styles = useMemo(() => StyleSheet.create({
+    tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+    tagButton: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 999, gap: 4, backgroundColor: cardBg },
+    tagInputRow: { flexDirection: 'row', gap: 8 },
+  }), [s, cardBg]);
+
+  const chipList = [...new Set(items)].map((item) => (
+    <Button
+      key={item}
+      variant="secondary"
+      size="sm"
+      style={styles.tagButton}
+      textStyle={{ color: colors.text }}
+      onPress={() => onRemove(item)}
+      rightIcon={<X size={12} color={colors.mutedForeground} />}
+    >
+      {item}
+    </Button>
+  ));
+
+  return (
+    <>
+      {scrollable ? (
+        <ScrollView
+          style={{ maxHeight: 160 }}
+          contentContainerStyle={styles.tagRow}
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={false}
+        >
+          {chipList}
+        </ScrollView>
+      ) : (
+        <View style={styles.tagRow}>{chipList}</View>
+      )}
+      <View style={styles.tagInputRow}>
+        <Input
+          size="sm"
+          style={{ flex: 1 }}
+          value={inputValue}
+          onChangeText={onChangeInput}
+          placeholder={placeholder}
+          onSubmitEditing={onAdd}
+          returnKeyType="done"
+        />
+        <Button variant="primary" size="sm" onPress={onAdd} leftIcon={<Plus size={12} color={colors.buttonPrimaryText} />}>
+          添加
+        </Button>
+      </View>
+    </>
+  );
+}
+
 export default function VideoManagementScreen({ navigation }: Props) {
   const {
     deleteAllMedia, deleteMediaWithoutPlaySource, deleteMediaByGenres,
-    getSubTypesByType, getHiddenMediaCount, hideMediaByGenres, unhideMediaByGenres,
+    getSubTypesByType, getHiddenMediaCount, getHiddenGenres, getUncategorizedCount, hideMediaByGenres, unhideMediaByGenres,
     shortDramaConfig, loadShortDramaConfig, updateShortDramaConfig, getDefaultShortDramaConfig,
     batchReprobeMedia, reprobeMediaCount, reprobeMediaList, loadReprobeMediaList,
     getFullReprobeMediaCount, startReprobeTask, startFullReprobeTask, cancelReprobeTask,
@@ -52,12 +126,13 @@ export default function VideoManagementScreen({ navigation }: Props) {
   const [hideMediaType, setHideMediaType] = useState('');
   const [hideAllGenres, setHideAllGenres] = useState<string[]>([]);
   const [visibleGenres, setVisibleGenres] = useState<string[]>([]);
+  const [hiddenGenres, setHiddenGenres] = useState<string[]>([]);
   const [togglingGenre, setTogglingGenre] = useState<string | null>(null);
 
   const [localConfig, setLocalConfig] = useState<ShortDramaConfig | null>(null);
-  const [configSaved, setConfigSaved] = useState(false);
   const [patternInput, setPatternInput] = useState('');
   const [keywordInput, setKeywordInput] = useState('');
+  const [activeLayer, setActiveLayer] = useState<number>(1);
 
   const [fullReprobeMediaCount, setFullReprobeMediaCount] = useState(0);
   const [fullReprobing, setFullReprobing] = useState(false);
@@ -76,23 +151,26 @@ export default function VideoManagementScreen({ navigation }: Props) {
   }, []);
 
   useEffect(() => {
-    setSelectedGenres([]);
     getSubTypesByType(deleteMediaType || undefined, true)
       .then(setAllGenres)
       .catch(() => {});
   }, [deleteMediaType]);
 
-  useEffect(() => {
-    Promise.all([
+  const loadHideGenres = useCallback(async () => {
+    const [all, visible, hidden, uncatVisible] = await Promise.all([
       getSubTypesByType(hideMediaType || undefined, true),
       getSubTypesByType(hideMediaType || undefined, false),
-    ])
-      .then(([all, visible]) => {
-        setHideAllGenres(all);
-        setVisibleGenres(visible);
-      })
-      .catch(() => {});
-  }, [hideMediaType]);
+      getHiddenGenres(),
+      getUncategorizedCount(hideMediaType || undefined, false),
+    ]);
+    setHideAllGenres(all);
+    setVisibleGenres([...new Set([...visible, ...(uncatVisible > 0 ? [UNCATEGORIZED_GENRE] : [])])]);
+    setHiddenGenres(hidden);
+  }, [getSubTypesByType, getHiddenGenres, getUncategorizedCount, hideMediaType]);
+
+  useEffect(() => {
+    loadHideGenres().catch(() => {});
+  }, [loadHideGenres]);
 
   useEffect(() => {
     if (shortDramaConfig) {
@@ -188,18 +266,12 @@ export default function VideoManagementScreen({ navigation }: Props) {
   };
 
   const reloadHideGenres = async () => {
-    const [all, visible] = await Promise.all([
-      getSubTypesByType(hideMediaType || undefined, true),
-      getSubTypesByType(hideMediaType || undefined, false),
-    ]);
-    setHideAllGenres(all);
-    setVisibleGenres(visible);
+    await loadHideGenres();
   };
 
-  const handleToggleHideGenre = async (genre: string) => {
+  const handleToggleHideGenre = async (genre: string, isCurrentlyHidden: boolean) => {
     setTogglingGenre(genre);
     try {
-      const isCurrentlyHidden = !visibleGenres.includes(genre);
       if (isCurrentlyHidden) {
         await unhideMediaByGenres([genre]);
       } else {
@@ -214,47 +286,69 @@ export default function VideoManagementScreen({ navigation }: Props) {
     }
   };
 
+  const persistConfig = useCallback(async (config: ShortDramaConfig) => {
+    try {
+      await updateShortDramaConfig(config);
+    } catch (err: any) {
+      Alert.alert('错误', err.message);
+    }
+  }, [updateShortDramaConfig]);
+
   const addPattern = useCallback(() => {
     const v = patternInput.trim();
     if (!v || !localConfig) return;
     if (localConfig.summaryPatterns.includes(v)) return;
-    setLocalConfig({ ...localConfig, summaryPatterns: [...localConfig.summaryPatterns, v] });
+    const next = { ...localConfig, summaryPatterns: [...localConfig.summaryPatterns, v] };
+    setLocalConfig(next);
     setPatternInput('');
-  }, [patternInput, localConfig]);
+    persistConfig(next);
+  }, [patternInput, localConfig, persistConfig]);
 
   const removePattern = useCallback((pattern: string) => {
     if (!localConfig) return;
-    setLocalConfig({ ...localConfig, summaryPatterns: localConfig.summaryPatterns.filter(p => p !== pattern) });
-  }, [localConfig]);
+    const next = { ...localConfig, summaryPatterns: localConfig.summaryPatterns.filter(p => p !== pattern) };
+    setLocalConfig(next);
+    persistConfig(next);
+  }, [localConfig, persistConfig]);
 
   const addKeyword = useCallback(() => {
     const v = keywordInput.trim();
     if (!v || !localConfig) return;
     if (localConfig.metaKeywords.includes(v)) return;
-    setLocalConfig({ ...localConfig, metaKeywords: [...localConfig.metaKeywords, v] });
+    const next = { ...localConfig, metaKeywords: [...localConfig.metaKeywords, v] };
+    setLocalConfig(next);
     setKeywordInput('');
-  }, [keywordInput, localConfig]);
+    persistConfig(next);
+  }, [keywordInput, localConfig, persistConfig]);
 
   const removeKeyword = useCallback((kw: string) => {
     if (!localConfig) return;
-    setLocalConfig({ ...localConfig, metaKeywords: localConfig.metaKeywords.filter(k => k !== kw) });
-  }, [localConfig]);
+    const next = { ...localConfig, metaKeywords: localConfig.metaKeywords.filter(k => k !== kw) };
+    setLocalConfig(next);
+    persistConfig(next);
+  }, [localConfig, persistConfig]);
 
-  const handleSaveConfig = useCallback(async () => {
+  const handleThresholdBlur = useCallback((text: string) => {
     if (!localConfig) return;
-    try {
-      await updateShortDramaConfig(localConfig);
-      setConfigSaved(true);
-      setTimeout(() => setConfigSaved(false), 2000);
-    } catch (err: any) {
-      Alert.alert('错误', err.message);
-    }
-  }, [localConfig, updateShortDramaConfig]);
+    const v = Math.max(1, parseInt(text) || 30);
+    const next = { ...localConfig, durationThresholdMinutes: v };
+    setLocalConfig(next);
+    persistConfig(next);
+  }, [localConfig, persistConfig]);
+
+  const handleProbeCountBlur = useCallback((text: string) => {
+    if (!localConfig) return;
+    const v = Math.max(1, parseInt(text) || 8);
+    const next = { ...localConfig, probeEpisodeCount: v };
+    setLocalConfig(next);
+    persistConfig(next);
+  }, [localConfig, persistConfig]);
 
   const handleResetConfig = useCallback(() => {
     const defaults = getDefaultShortDramaConfig();
     setLocalConfig(defaults);
-  }, [getDefaultShortDramaConfig]);
+    persistConfig(defaults);
+  }, [getDefaultShortDramaConfig, persistConfig]);
 
   const handleFullReprobe = useCallback(async () => {
     Alert.alert('全量重新探测', '将清除所有电视剧的判断结果并重新探测。确定继续？', [
@@ -374,16 +468,20 @@ export default function VideoManagementScreen({ navigation }: Props) {
     card: { backgroundColor: cardBg, borderRadius: radius.lg, padding: 16, gap: 12 },
     cardTitle: { fontSize: s(16), fontWeight: '600', color: colors.text },
     cardDesc: { fontSize: s(13), color: colors.mutedForeground, lineHeight: 18 },
-    text: { fontSize: s(14), color: colors.textSecondary, lineHeight: 22 },
-    configSection: { gap: 8 },
     configLabel: { fontSize: s(14), fontWeight: '500', color: colors.text },
-    flowRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
-    stepBadge: { width: 20, height: 20, borderRadius: 10, backgroundColor: hexToRgba(colors.buttonPrimaryBg, cardOpacity / 100 * 0.2), alignItems: 'center', justifyContent: 'center' },
-    stepBadgeText: { fontSize: s(11), fontWeight: '700', color: colors.buttonPrimaryText },
     configDesc: { fontSize: s(12), color: colors.mutedForeground, lineHeight: 16 },
     configInputRow: { flexDirection: 'row', gap: 8 },
-    tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-    configActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
+    panelDivider: { height: StyleSheet.hairlineWidth, backgroundColor: hexToRgba(colors.mutedForeground, 0.2), marginVertical: 2 },
+    tabWrap: { gap: 0 },
+    segmentRow: { flexDirection: 'row', gap: 6, alignItems: 'flex-end' },
+    segment: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 7, borderTopLeftRadius: radius.md, borderTopRightRadius: radius.md, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, backgroundColor: hexToRgba(colors.cardDim, cardOpacity / 100) },
+    segmentActive: { paddingVertical: 10, backgroundColor: hexToRgba(colors.cardAccent, cardOpacity / 100) },
+    segmentBadge: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+    segmentBadgeText: { fontSize: s(15), fontWeight: '700', color: colors.buttonSecondaryText },
+    segmentBadgeTextActive: { color: colors.buttonPrimaryText },
+    segmentText: { fontSize: s(12), fontWeight: '500', color: colors.buttonSecondaryText },
+    segmentTextActive: { color: colors.buttonPrimaryText, fontWeight: '600' },
+    configPanel: { backgroundColor: hexToRgba(colors.cardAccent, cardOpacity / 100), borderTopLeftRadius: 0, borderTopRightRadius: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: 12, gap: 10 },
     progressSection: { gap: 8 },
     progressBar: { height: 6, backgroundColor: colors.trackBg, borderRadius: radius.progress, overflow: 'hidden' },
     progressFill: { height: '100%', backgroundColor: colors.mutedForeground, borderRadius: radius.progress },
@@ -402,9 +500,9 @@ export default function VideoManagementScreen({ navigation }: Props) {
     runningText: { fontSize: s(13), color: colors.text, fontWeight: '500' },
     chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     sectionLabel: { fontSize: s(13), fontWeight: '500', color: colors.mutedForeground },
-    chipBox: { padding: 12, backgroundColor: surfaceBg, borderRadius: radius.md, gap: 8, minHeight: 56 },
-    chipBoxDashed: { padding: 12, backgroundColor: hexToRgba(colors.mutedForeground, 0.06), borderRadius: radius.md, gap: 8, minHeight: 56, borderWidth: 1, borderStyle: 'dashed', borderColor: hexToRgba(colors.mutedForeground, 0.35) },
-    selectedSummary: { fontSize: s(12), color: colors.mutedForeground, lineHeight: 18 },
+    pendingBox: { padding: 12, backgroundColor: hexToRgba(colors.error, 0.05), borderRadius: radius.md, gap: 8 },
+    hiddenBox: { padding: 12, backgroundColor: hexToRgba(colors.warning, 0.05), borderRadius: radius.md, gap: 8 },
+    pendingTagButton: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 999, gap: 4, backgroundColor: cardBg },
   }), [colors, cardBg, surfaceBg, s]);
 
   return (
@@ -427,107 +525,96 @@ export default function VideoManagementScreen({ navigation }: Props) {
 
           {localConfig && (
             <>
-              <View style={styles.configSection}>
-                <View style={styles.flowRow}>
-                  <View style={styles.stepBadge}><Text style={styles.stepBadgeText}>1</Text></View>
-                  <Text style={styles.configLabel}>第1层：从简介提取时长的匹配模板</Text>
+              <View style={styles.tabWrap}>
+                <View style={styles.segmentRow}>
+                  {CONFIG_TABS.map((tab) => {
+                    const isActive = activeLayer === tab.id;
+                    return (
+                      <TouchableOpacity
+                        key={tab.id}
+                        style={[styles.segment, isActive && styles.segmentActive]}
+                        activeOpacity={0.7}
+                        onPress={() => setActiveLayer(tab.id)}
+                      >
+                        <View style={styles.segmentBadge}>
+                          <Text style={[styles.segmentBadgeText, isActive && styles.segmentBadgeTextActive]}>
+                            {tab.badge}
+                          </Text>
+                        </View>
+                        <Text style={[styles.segmentText, isActive && styles.segmentTextActive]}>
+                          {tab.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
-                <Text style={styles.configDesc}>用 {'{N}'} 代表数字，例如「{'{N}'}分钟」可匹配"30分钟"</Text>
-                <View style={styles.tagRow}>
-                  {localConfig.summaryPatterns.map((p, i) => (
-                    <Button key={i} variant="secondary" size="sm" onPress={() => removePattern(p)}>
-                      {p} x
-                    </Button>
-                  ))}
-                </View>
-                <View style={styles.configInputRow}>
-                  <Input
-                    size="sm"
-                    style={{ flex: 1 }}
-                    value={patternInput}
-                    onChangeText={setPatternInput}
-                    placeholder="输入模板，如 {N}分钟"
-                    onSubmitEditing={addPattern}
-                    returnKeyType="done"
-                  />
-                  <Button variant="primary" size="sm" onPress={addPattern}>
-                    添加
-                  </Button>
-                </View>
-              </View>
 
-              <View style={styles.configSection}>
-                <View style={styles.flowRow}>
-                  <View style={styles.stepBadge}><Text style={styles.stepBadgeText}>2</Text></View>
-                  <Text style={styles.configLabel}>第2层：探测视频实际时长</Text>
-                </View>
-                <Text style={styles.configDesc}>逐集探测视频流时长，成功1集即止；根据探测结果与下方阈值判断长短剧</Text>
-                <View style={styles.configInputRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.configLabel}>短剧判定阈值（分钟）</Text>
-                    <Text style={styles.configDesc}>单集时长低于阈值为短剧</Text>
-                    <Input
-                      size="sm"
-                      style={{ marginTop: 6 }}
-                      keyboardType="number-pad"
-                      value={String(localConfig.durationThresholdMinutes)}
-                      onChangeText={(v) => setLocalConfig({ ...localConfig, durationThresholdMinutes: Math.max(1, parseInt(v) || 30) })}
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.configLabel}>探测集数上限</Text>
-                    <Text style={styles.configDesc}>最多探测N集视频流</Text>
-                    <Input
-                      size="sm"
-                      style={{ marginTop: 6 }}
-                      keyboardType="number-pad"
-                      value={String(localConfig.probeEpisodeCount)}
-                      onChangeText={(v) => setLocalConfig({ ...localConfig, probeEpisodeCount: Math.max(1, parseInt(v) || 8) })}
-                    />
-                  </View>
-                </View>
-              </View>
-
-              <View style={styles.configSection}>
-                <View style={styles.flowRow}>
-                  <View style={styles.stepBadge}><Text style={styles.stepBadgeText}>3</Text></View>
-                  <Text style={styles.configLabel}>第3层：元数据关键词列表</Text>
-                </View>
-                <Text style={styles.configDesc}>当第1、2层均未命中时，根据简介、标题、类型中的关键词判断</Text>
-                <View style={styles.tagRow}>
-                  {localConfig.metaKeywords.slice(0, 30).map((kw, i) => (
-                    <Button key={i} variant="secondary" size="sm" onPress={() => removeKeyword(kw)}>
-                      {kw} x
-                    </Button>
-                  ))}
-                  {localConfig.metaKeywords.length > 30 && (
-                    <Text style={[styles.configDesc, { alignSelf: 'center' }]}>...还有 {localConfig.metaKeywords.length - 30} 个</Text>
+                <View style={styles.configPanel}>
+                  {activeLayer === 1 && (
+                    <>
+                      <Text style={styles.configDesc}>用 {'{N}'} 代表数字，例如「{'{N}'}分钟」可匹配"30分钟"、"每集30分钟"等文本中的时长</Text>
+                      <TagEditor
+                        items={localConfig.summaryPatterns}
+                        onRemove={removePattern}
+                        onAdd={addPattern}
+                        inputValue={patternInput}
+                        onChangeInput={setPatternInput}
+                        placeholder="输入模板，如 {N}分钟，按回车添加"
+                      />
+                    </>
+                  )}
+                  {activeLayer === 2 && (
+                    <>
+                      <Text style={styles.configDesc}>逐集探测视频流时长，成功1集即止；根据探测结果与下方阈值判断长短剧</Text>
+                      <View style={styles.configInputRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.configLabel}>短剧判定阈值（分钟）</Text>
+                          <Text style={styles.configDesc}>单集时长低于阈值为短剧</Text>
+                          <Input
+                            size="sm"
+                            style={{ marginTop: 6 }}
+                            keyboardType="number-pad"
+                            value={String(localConfig.durationThresholdMinutes)}
+                            onChangeText={(v) => setLocalConfig({ ...localConfig, durationThresholdMinutes: Math.max(1, parseInt(v) || 30) })}
+                            onEndEditing={(e) => handleThresholdBlur(e.nativeEvent.text)}
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.configLabel}>探测集数上限</Text>
+                          <Text style={styles.configDesc}>最多探测N集视频流</Text>
+                          <Input
+                            size="sm"
+                            style={{ marginTop: 6 }}
+                            keyboardType="number-pad"
+                            value={String(localConfig.probeEpisodeCount)}
+                            onChangeText={(v) => setLocalConfig({ ...localConfig, probeEpisodeCount: Math.max(1, parseInt(v) || 8) })}
+                            onEndEditing={(e) => handleProbeCountBlur(e.nativeEvent.text)}
+                          />
+                        </View>
+                      </View>
+                    </>
+                  )}
+                  {activeLayer === 3 && (
+                    <>
+                      <Text style={styles.configDesc}>当第1、2层均未命中时，根据简介、标题、类型中是否包含这些关键词来判断</Text>
+                      <TagEditor
+                        items={localConfig.metaKeywords}
+                        onRemove={removeKeyword}
+                        onAdd={addKeyword}
+                        inputValue={keywordInput}
+                        onChangeInput={setKeywordInput}
+                        placeholder="输入关键词后按回车添加"
+                        scrollable
+                      />
+                    </>
                   )}
                 </View>
-                <View style={styles.configInputRow}>
-                  <Input
-                    size="sm"
-                    style={{ flex: 1 }}
-                    value={keywordInput}
-                    onChangeText={setKeywordInput}
-                    placeholder="输入关键词后添加"
-                    onSubmitEditing={addKeyword}
-                    returnKeyType="done"
-                  />
-                  <Button variant="primary" size="sm" onPress={addKeyword}>
-                    添加
-                  </Button>
-                </View>
               </View>
 
-              <View style={styles.configActions}>
-                <Button variant="secondary" size="sm" onPress={handleResetConfig}>
-                  恢复默认
-                </Button>
-                <Button variant="primary" size="sm" style={{ flex: 1 }} onPress={handleSaveConfig}>
-                  {configSaved ? '已保存' : '保存配置'}
-                </Button>
-              </View>
+              <View style={styles.panelDivider} />
+              <Button variant="secondary" size="md" fullWidth onPress={handleResetConfig}>
+                恢复默认配置
+              </Button>
             </>
           )}
         </View>
@@ -688,31 +775,60 @@ export default function VideoManagementScreen({ navigation }: Props) {
           <Text style={[styles.cardTitle, { color: colors.error }]}>按子类型删除视频</Text>
           <Text style={styles.cardDesc}>先选择大类，再选择该大类下的子类型进行删除。此操作不可恢复。</Text>
 
-          <View style={styles.chipRow}>
-            {MEDIA_TYPES.map(mt => (
-              <Button
-                key={mt.value}
-                variant="secondary"
-                size="sm"
-                active={deleteMediaType === mt.value}
-                onPress={() => setDeleteMediaType(mt.value)}
-              >
-                {mt.label}
-              </Button>
-            ))}
+          <View style={styles.tabWrap}>
+            <View style={styles.segmentRow}>
+              {MEDIA_TYPES.map(mt => {
+                const isActive = deleteMediaType === mt.value;
+                return (
+                  <TouchableOpacity
+                    key={mt.value}
+                    style={[styles.segment, isActive && styles.segmentActive]}
+                    activeOpacity={0.7}
+                    onPress={() => setDeleteMediaType(mt.value)}
+                  >
+                    <Text style={[styles.segmentText, isActive && styles.segmentTextActive]}>{mt.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={styles.configPanel}>
+              {allGenres.length === 0 ? (
+                <Text style={styles.configDesc}>暂无子类型数据</Text>
+              ) : (
+                <View style={styles.chipRow}>
+                  {allGenres.map(genre => (
+                    <Button
+                      key={genre}
+                      variant={selectedGenres.includes(genre) ? 'destructive' : 'secondary'}
+                      size="sm"
+                      onPress={() => toggleGenre(genre)}
+                    >
+                      {genre}
+                    </Button>
+                  ))}
+                </View>
+              )}
+            </View>
           </View>
 
-          <View style={styles.chipBox}>
-            {allGenres.length === 0 ? (
-              <Text style={styles.configDesc}>暂无子类型数据</Text>
+          <View style={styles.pendingBox}>
+            <Text style={[styles.sectionLabel, { color: colors.error }]}>
+              待删除子类 ({selectedGenres.length})
+            </Text>
+            {selectedGenres.length === 0 ? (
+              <Text style={styles.configDesc}>请在上方各分类中选择要删除的子类型</Text>
             ) : (
               <View style={styles.chipRow}>
-                {allGenres.map(genre => (
+                {selectedGenres.map(genre => (
                   <Button
                     key={genre}
-                    variant={selectedGenres.includes(genre) ? 'destructive' : 'secondary'}
+                    variant="secondary"
                     size="sm"
+                    style={{ ...styles.pendingTagButton, backgroundColor: hexToRgba(colors.error, 0.15) }}
+                    textStyle={{ color: colors.error }}
                     onPress={() => toggleGenre(genre)}
+                    rightIcon={<X size={12} color={colors.error} />}
                   >
                     {genre}
                   </Button>
@@ -720,10 +836,6 @@ export default function VideoManagementScreen({ navigation }: Props) {
               </View>
             )}
           </View>
-
-          {selectedGenres.length > 0 && (
-            <Text style={styles.selectedSummary}>已选：{selectedGenres.join('、')}</Text>
-          )}
 
           {deleteResult && !deleting && (
             <View style={styles.resultBox}>
@@ -751,59 +863,67 @@ export default function VideoManagementScreen({ navigation }: Props) {
           <Text style={styles.cardTitle}>按子类型隐藏视频</Text>
           <Text style={styles.cardDesc}>点击子类型立即切换隐藏状态，无需确认。隐藏后视频将从各列表移除。</Text>
 
-          <View style={styles.infoRow}>
-            <Text style={styles.infoText}>当前已隐藏：<Text style={styles.infoBold}>{hiddenCount} 部视频</Text></Text>
-          </View>
-
-          <View style={styles.chipRow}>
-            {MEDIA_TYPES.map(mt => (
-              <Button
-                key={mt.value}
-                variant="secondary"
-                size="sm"
-                active={hideMediaType === mt.value}
-                onPress={() => setHideMediaType(mt.value)}
-              >
-                {mt.label}
-              </Button>
-            ))}
-          </View>
-
-          <Text style={styles.sectionLabel}>未隐藏 ({visibleGenres.length})</Text>
-          <View style={styles.chipBox}>
-            {visibleGenres.length === 0 ? (
-              <Text style={styles.configDesc}>暂无未隐藏的子类型</Text>
-            ) : (
-              <View style={styles.chipRow}>
-                {visibleGenres.map(genre => (
-                  <Button
-                    key={genre}
-                    variant="secondary"
-                    size="sm"
-                    disabled={togglingGenre === genre}
-                    onPress={() => handleToggleHideGenre(genre)}
+          <View style={styles.tabWrap}>
+            <View style={styles.segmentRow}>
+              {MEDIA_TYPES.map(mt => {
+                const isActive = hideMediaType === mt.value;
+                return (
+                  <TouchableOpacity
+                    key={mt.value}
+                    style={[styles.segment, isActive && styles.segmentActive]}
+                    activeOpacity={0.7}
+                    onPress={() => setHideMediaType(mt.value)}
                   >
-                    {togglingGenre === genre ? '...' : genre}
-                  </Button>
-                ))}
+                    <Text style={[styles.segmentText, isActive && styles.segmentTextActive]}>{mt.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={styles.configPanel}>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoText}>当前已隐藏：<Text style={styles.infoBold}>{hiddenCount} 部视频</Text></Text>
               </View>
-            )}
+
+              <Text style={styles.sectionLabel}>未隐藏 ({visibleGenres.length})</Text>
+              {visibleGenres.length === 0 ? (
+                <Text style={styles.configDesc}>暂无未隐藏的子类型</Text>
+              ) : (
+                <View style={styles.chipRow}>
+                  {visibleGenres.map(genre => (
+                    <Button
+                      key={genre}
+                      variant="secondary"
+                      size="sm"
+                      disabled={togglingGenre === genre}
+                      onPress={() => handleToggleHideGenre(genre, false)}
+                    >
+                      {togglingGenre === genre ? '...' : genre}
+                    </Button>
+                  ))}
+                </View>
+              )}
+            </View>
           </View>
 
-          <Text style={styles.sectionLabel}>已隐藏 ({hideAllGenres.length - visibleGenres.length})</Text>
-          <View style={styles.chipBoxDashed}>
-            {hideAllGenres.length - visibleGenres.length === 0 ? (
+          <View style={styles.hiddenBox}>
+            <Text style={[styles.sectionLabel, { color: colors.warning }]}>
+              已隐藏子类 ({hiddenGenres.length})
+            </Text>
+            {hiddenGenres.length === 0 ? (
               <Text style={styles.configDesc}>暂无已隐藏的子类型</Text>
             ) : (
               <View style={styles.chipRow}>
-                {hideAllGenres.filter(g => !visibleGenres.includes(g)).map(genre => (
+                {hiddenGenres.map(genre => (
                   <Button
                     key={genre}
                     variant="secondary"
                     size="sm"
                     active
+                    style={{ backgroundColor: hexToRgba(colors.warning, 0.1) }}
+                    textStyle={{ color: colors.warning }}
                     disabled={togglingGenre === genre}
-                    onPress={() => handleToggleHideGenre(genre)}
+                    onPress={() => handleToggleHideGenre(genre, true)}
                   >
                     {togglingGenre === genre ? '...' : genre}
                   </Button>

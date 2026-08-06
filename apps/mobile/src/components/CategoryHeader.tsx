@@ -11,6 +11,7 @@ import SearchBar from './SearchBar';
 const TAB_GAP = 0;
 const TAB_PADDING_H = 16;
 const SCREEN_PADDING = 15;
+const TAB_MARGIN_TOP = 16;
 
 const TYPES = [
   { key: 'HOME', label: '首页', route: 'Home' },
@@ -32,6 +33,7 @@ export default function CategoryHeader({ activeType, tabsHiddenAnim }: CategoryH
   const s = useScaledFontSize();
   const scrollRef = useRef<ScrollView>(null);
   const [tabWidths, setTabWidths] = useState<number[]>([]);
+  const [tabsHeight, setTabsHeight] = useState(0);
   const screenWidth = Dimensions.get('window').width;
   const insets = useSafeAreaInsets();
 
@@ -80,6 +82,12 @@ export default function CategoryHeader({ activeType, tabsHiddenAnim }: CategoryH
     navigation.replace(route);
   }, [navigation]);
 
+  const fontSizeNormal = s(16);
+  const fontSizeActive = s(20);
+  const lineHeightNormal = Math.round(fontSizeNormal * 1.4);
+  const lineHeightActive = Math.round(fontSizeActive * 1.4);
+  const tabPaddingV = Math.max(10, Math.round(12 * (fontSizeNormal / 16)));
+
   const styles = useMemo(() => StyleSheet.create({
     headerRow: {
       flexDirection: 'row',
@@ -92,7 +100,7 @@ export default function CategoryHeader({ activeType, tabsHiddenAnim }: CategoryH
       padding: 6,
     },
     typeTabs: {
-      marginTop: 16,
+      marginTop: TAB_MARGIN_TOP,
     },
     typeTabsContent: {
       paddingHorizontal: SCREEN_PADDING,
@@ -100,32 +108,41 @@ export default function CategoryHeader({ activeType, tabsHiddenAnim }: CategoryH
     },
     typeTab: {
       paddingHorizontal: TAB_PADDING_H,
-      paddingVertical: 8,
+      paddingVertical: tabPaddingV,
       marginRight: TAB_GAP,
     },
     typeTabText: {
-      fontSize: s(16),
+      fontSize: fontSizeNormal,
+      lineHeight: lineHeightNormal,
       color: colors.textSecondary,
       fontWeight: '400',
     },
     typeTabTextActive: {
-      fontSize: s(20),
+      fontSize: fontSizeActive,
+      lineHeight: lineHeightActive,
       color: colors.text,
       fontWeight: '700',
     },
-  }), [colors, s]);
+  }), [colors, fontSizeNormal, fontSizeActive, lineHeightNormal, lineHeightActive, tabPaddingV]);
 
   const { open: openSidebar } = useSidebarStore();
-  const tabsHeightRef = useRef(0);
-  const [tabsReady, setTabsReady] = useState(false);
 
-  const animHeight = tabsReady && tabsHiddenAnim
-    ? tabsHiddenAnim.interpolate({
+  // 折叠容器用 maxHeight（封顶）而非 height（强制）：横向 ScrollView 一旦有确定
+  // 高度，视口被固定，字形/行盒残差会在底部被裁；maxHeight 下 ScrollView 始终按
+  // 实际渲染内容自撑，视口恒等于真实内容高，天然不裁。
+  // tabsHeight 取自真实容器/内容高度的测量（内层 View onLayout + onContentSizeChange），
+  // 特大字号下标签行实际渲染高度大于各 tab 布局盒之和，必须按真实高度 + 余量封顶。
+  const animContainerStyle = useMemo(() => {
+    if (!tabsHiddenAnim) return {};
+    return {
+      maxHeight: tabsHiddenAnim.interpolate({
         inputRange: [0, 1],
-        outputRange: [tabsHeightRef.current, 0],
+        outputRange: [tabsHeight + 20, 0],
         extrapolate: 'clamp',
-      })
-    : tabsHeightRef.current || 60;
+      }),
+      overflow: 'hidden' as const,
+    };
+  }, [tabsHiddenAnim, tabsHeight]);
 
   return (
     <View style={{ paddingTop: insets.top + 8, paddingBottom: 12 }}>
@@ -136,19 +153,27 @@ export default function CategoryHeader({ activeType, tabsHiddenAnim }: CategoryH
         <SearchBar />
       </View>
 
-      <Animated.View style={{ height: animHeight, overflow: 'hidden' }}>
-        <View onLayout={(e) => {
-          if (!tabsReady) {
-            tabsHeightRef.current = e.nativeEvent.layout.height;
-            setTabsReady(true);
-          }
-        }}>
+      <Animated.View style={animContainerStyle}>
+        <View
+          style={{ flexShrink: 0 }}
+          onLayout={(e) => {
+            const h = e.nativeEvent.layout.height;
+            if (h > 0) {
+              setTabsHeight(prev => Math.max(prev, h));
+            }
+          }}
+        >
           <ScrollView
             ref={scrollRef}
             horizontal
             showsHorizontalScrollIndicator={false}
             style={styles.typeTabs}
             contentContainerStyle={styles.typeTabsContent}
+            onContentSizeChange={(w, h) => {
+              if (h > 0) {
+                setTabsHeight(prev => Math.max(prev, h + TAB_MARGIN_TOP));
+              }
+            }}
           >
             {TYPES.map((t, i) => {
               const isActive = activeType === t.label;
@@ -159,7 +184,7 @@ export default function CategoryHeader({ activeType, tabsHiddenAnim }: CategoryH
                   onPress={() => handleTabPress(t.route)}
                   onLayout={(e) => handleTabLayout(i, e.nativeEvent.layout.width)}
                 >
-                  <Text style={[styles.typeTabText, isActive && styles.typeTabTextActive, isActive && { transform: [{ translateY: -4 }] }]}>{t.label}</Text>
+                  <Text style={[styles.typeTabText, isActive && styles.typeTabTextActive]}>{t.label}</Text>
                 </TouchableOpacity>
               );
             })}

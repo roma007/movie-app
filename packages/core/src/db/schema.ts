@@ -106,6 +106,7 @@ export const SCHEMA_SQL = `
     last_success_at TEXT,
     avg_response_time INTEGER,
     last_collected_at TEXT,
+    last_incremental_collected_at TEXT,
     created_at TEXT,
     fail_count INTEGER DEFAULT 0,
     total_requests INTEGER DEFAULT 0

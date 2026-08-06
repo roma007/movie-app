@@ -1,15 +1,16 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Trash2, Radar, Loader2, CheckCircle2, AlertCircle, Film, Tv, Video, Disc, FileText, Database, EyeOff, X, Save, RotateCcw, Plus, BarChart3, SlidersHorizontal, RefreshCw, Unlink } from 'lucide-react';
+import { ArrowLeft, Trash2, Radar, Loader2, CheckCircle2, AlertCircle, Film, Tv, Video, Disc, FileText, Database, EyeOff, X, RotateCcw, Plus, BarChart3, SlidersHorizontal, RefreshCw, Unlink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useAppStore, getProvider } from '../useAppStore';
 import { useConfirm } from '@/components/ConfirmProvider';
 import { useToast } from '@/components/Layout';
 import type { ShortDramaConfig } from '@movie-app/core';
+import { UNCATEGORIZED_GENRE } from '@movie-app/core';
 import { useBackgroundStore } from '../themes/backgroundStore';
 
 interface MediaStats {
@@ -37,6 +38,8 @@ export default function VideoManagementPage() {
     hideMediaByGenres,
     unhideMediaByGenres,
     getHiddenMediaCount,
+    getHiddenGenres,
+    getUncategorizedCount,
     runningReprobeTask,
     startReprobeTask,
     startFullReprobeTask,
@@ -61,6 +64,7 @@ export default function VideoManagementPage() {
   const [hideMediaType, setHideMediaType] = useState<string>('');
   const [hideAllGenres, setHideAllGenres] = useState<string[]>([]);
   const [visibleGenres, setVisibleGenres] = useState<string[]>([]);
+  const [hiddenGenres, setHiddenGenres] = useState<string[]>([]);
   const [togglingGenre, setTogglingGenre] = useState<string | null>(null);
   const [reprobing, setReprobing] = useState(false);
   const [fullReprobing, setFullReprobing] = useState(false);
@@ -73,7 +77,6 @@ export default function VideoManagementPage() {
   } | null>(null);
   const [fullReprobeMediaCount, setFullReprobeMediaCount] = useState(0);
   const [localConfig, setLocalConfig] = useState<ShortDramaConfig | null>(null);
-  const [configSaved, setConfigSaved] = useState(false);
   const [patternInput, setPatternInput] = useState('');
   const [keywordInput, setKeywordInput] = useState('');
   const [reprobeResult, setReprobeResult] = useState<{
@@ -128,7 +131,6 @@ export default function VideoManagementPage() {
   }, []);
 
   useEffect(() => {
-    setSelectedGenres([]);
     getSubTypesByType(deleteMediaType || undefined, true).then(genres => setAllGenres(genres));
   }, [deleteMediaType]);
 
@@ -138,15 +140,21 @@ export default function VideoManagementPage() {
     }
   }, [shortDramaConfig]);
 
-  useEffect(() => {
-    Promise.all([
+  const loadHideGenres = useCallback(async () => {
+    const [all, visible, hidden, uncatVisible] = await Promise.all([
       getSubTypesByType(hideMediaType || undefined, true),
       getSubTypesByType(hideMediaType || undefined, false),
-    ]).then(([all, visible]) => {
-      setHideAllGenres(all);
-      setVisibleGenres(visible);
-    });
-  }, [hideMediaType]);
+      getHiddenGenres(),
+      getUncategorizedCount(hideMediaType || undefined, false),
+    ]);
+    setHideAllGenres(all);
+    setVisibleGenres([...new Set([...visible, ...(uncatVisible > 0 ? [UNCATEGORIZED_GENRE] : [])])]);
+    setHiddenGenres(hidden);
+  }, [getSubTypesByType, getHiddenGenres, getUncategorizedCount, hideMediaType]);
+
+  useEffect(() => {
+    loadHideGenres();
+  }, [loadHideGenres]);
 
   const handleDeleteAllMedia = async () => {
     const ok = await confirm({
@@ -211,18 +219,12 @@ export default function VideoManagementPage() {
   };
 
   const reloadHideGenres = async () => {
-    const [all, visible] = await Promise.all([
-      getSubTypesByType(hideMediaType || undefined, true),
-      getSubTypesByType(hideMediaType || undefined, false),
-    ]);
-    setHideAllGenres(all);
-    setVisibleGenres(visible);
+    await loadHideGenres();
   };
 
-  const handleToggleHideGenre = async (genre: string) => {
+  const handleToggleHideGenre = async (genre: string, isCurrentlyHidden: boolean) => {
     setTogglingGenre(genre);
     try {
-      const isCurrentlyHidden = !visibleGenres.includes(genre);
       if (isCurrentlyHidden) {
         await unhideMediaByGenres([genre]);
       } else {
@@ -237,16 +239,18 @@ export default function VideoManagementPage() {
     }
   };
 
-  const handleSaveConfig = async () => {
-    if (!localConfig) return;
-    await updateShortDramaConfig(localConfig);
-    setConfigSaved(true);
-    setTimeout(() => setConfigSaved(false), 2000);
+  const persistConfig = async (config: ShortDramaConfig) => {
+    try {
+      await updateShortDramaConfig(config);
+    } catch (err: any) {
+      toast(err.message || '保存配置失败', 'error');
+    }
   };
 
   const handleResetConfig = () => {
     const defaults = getDefaultShortDramaConfig();
     setLocalConfig({ ...defaults });
+    persistConfig(defaults);
   };
 
   const addPattern = () => {
@@ -257,13 +261,17 @@ export default function VideoManagementPage() {
       setPatternInput('');
       return;
     }
-    setLocalConfig({ ...localConfig, summaryPatterns: [...localConfig.summaryPatterns, p] });
+    const next = { ...localConfig, summaryPatterns: [...localConfig.summaryPatterns, p] };
+    setLocalConfig(next);
     setPatternInput('');
+    persistConfig(next);
   };
 
   const removePattern = (pattern: string) => {
     if (!localConfig) return;
-    setLocalConfig({ ...localConfig, summaryPatterns: localConfig.summaryPatterns.filter(p => p !== pattern) });
+    const next = { ...localConfig, summaryPatterns: localConfig.summaryPatterns.filter(p => p !== pattern) };
+    setLocalConfig(next);
+    persistConfig(next);
   };
 
   const addKeyword = () => {
@@ -274,13 +282,33 @@ export default function VideoManagementPage() {
       setKeywordInput('');
       return;
     }
-    setLocalConfig({ ...localConfig, metaKeywords: [...localConfig.metaKeywords, kw] });
+    const next = { ...localConfig, metaKeywords: [...localConfig.metaKeywords, kw] };
+    setLocalConfig(next);
     setKeywordInput('');
+    persistConfig(next);
   };
 
   const removeKeyword = (keyword: string) => {
     if (!localConfig) return;
-    setLocalConfig({ ...localConfig, metaKeywords: localConfig.metaKeywords.filter(k => k !== keyword) });
+    const next = { ...localConfig, metaKeywords: localConfig.metaKeywords.filter(k => k !== keyword) };
+    setLocalConfig(next);
+    persistConfig(next);
+  };
+
+  const handleThresholdBlur = (value: string) => {
+    if (!localConfig) return;
+    const v = Math.max(1, parseInt(value) || 30);
+    const next = { ...localConfig, durationThresholdMinutes: v };
+    setLocalConfig(next);
+    persistConfig(next);
+  };
+
+  const handleProbeCountBlur = (value: string) => {
+    if (!localConfig) return;
+    const v = Math.max(1, parseInt(value) || 8);
+    const next = { ...localConfig, probeEpisodeCount: v };
+    setLocalConfig(next);
+    persistConfig(next);
   };
 
   const handleFullReprobe = async () => {
@@ -513,15 +541,15 @@ export default function VideoManagementPage() {
             先选择大类，再选择该大类下的子类型进行删除。此操作不可恢复。
           </p>
 
-          <div className="flex flex-wrap gap-2 mb-4">
+          <div className="w-full flex items-end gap-1.5">
             {MEDIA_TYPES.map(mt => (
               <button
                 key={mt.value}
                 onClick={() => setDeleteMediaType(mt.value)}
-                className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
+                className={`flex-1 rounded-t-md rounded-b-none transition-all duration-150 ${
                   deleteMediaType === mt.value
-                    ? 'bg-destructive text-white border-destructive'
-                    : 'bg-card text-text hover:border-destructive/50'
+                    ? 'bg-[var(--color-card-accent-alpha)] text-[var(--color-button-primary-text)] py-2.5 shadow-none'
+                    : 'bg-[var(--color-card-dim-alpha)] text-[var(--color-button-secondary-text)] py-1.5'
                 }`}
               >
                 {mt.label}
@@ -529,33 +557,51 @@ export default function VideoManagementPage() {
             ))}
           </div>
 
-          <div className="flex flex-wrap gap-2 max-h-60 overflow-y-auto mb-4">
-            {allGenres.length === 0 && (
-              <span className="text-xs text-muted-foreground">暂无子类型数据</span>
-            )}
-            {allGenres.map(genre => (
-              <button
-                key={genre}
-                onClick={() => toggleGenre(genre)}
-                className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
-                  selectedGenres.includes(genre)
-                    ? 'bg-destructive text-white border-destructive'
-                    : 'bg-card text-text hover:border-destructive/50'
-                }`}
-              >
-                {genre}
-              </button>
-            ))}
+          <div className="rounded-t-none rounded-b-md bg-[var(--color-card-accent-alpha)] p-4">
+            <div className="flex flex-wrap gap-2 max-h-60 overflow-y-auto">
+              {allGenres.length === 0 && (
+                <span className="text-xs text-muted-foreground">暂无子类型数据</span>
+              )}
+              {allGenres.map(genre => (
+                <button
+                  key={genre}
+                  onClick={() => toggleGenre(genre)}
+                  className={`px-2.5 py-1 rounded-full text-xs transition-colors ${
+                    selectedGenres.includes(genre)
+                      ? 'bg-destructive/15 text-destructive'
+                      : 'bg-secondary text-secondary-foreground hover:bg-destructive/10'
+                  }`}
+                >
+                  {genre}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {selectedGenres.length > 0 && (
-            <p className="text-xs text-muted-foreground mb-4">
-              已选：{selectedGenres.join('、')}
-            </p>
-          )}
+          <div className="mt-4 p-4 rounded-lg bg-destructive/5">
+            <div className="text-xs font-medium text-destructive mb-2">
+              待删除子类 ({selectedGenres.length})
+            </div>
+            {selectedGenres.length === 0 ? (
+              <span className="text-xs text-muted-foreground">请在上方各分类中选择要删除的子类型</span>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {selectedGenres.map(genre => (
+                  <button
+                    key={genre}
+                    onClick={() => toggleGenre(genre)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs transition-colors bg-destructive/15 text-destructive hover:bg-destructive/25"
+                  >
+                    {genre}
+                    <X className="size-3 text-destructive" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           {deleteResult && !deleting && (
-            <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary mb-4">
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary mt-4">
               {deleteResult.deleted > 0 ? (
                 <CheckCircle2 className="size-5 text-success shrink-0 mt-0.5" />
               ) : (
@@ -577,7 +623,7 @@ export default function VideoManagementPage() {
             onClick={handleDeleteByGenre}
             disabled={deleting || selectedGenres.length === 0}
             variant="destructive"
-            className="w-full"
+            className="w-full mt-4"
           >
             <Trash2 className={`size-4 mr-2 ${deleting ? 'animate-spin' : ''}`} />
             {deleting ? '删除中...' : `删除所选子类型 (${selectedGenres.length})`}
@@ -590,18 +636,18 @@ export default function VideoManagementPage() {
             <h2 className="text-lg font-semibold text-amber-600">按子类型隐藏视频</h2>
           </div>
           <p className="text-sm text-muted-foreground mb-4">
-            点击子类型立即切换隐藏状态，无需确认。左栏点击可隐藏，右栏点击可取消隐藏。
+            点击子类型立即切换隐藏状态，无需确认。未隐藏列表点击可隐藏，已隐藏列表点击可取消隐藏。
           </p>
 
-          <div className="flex flex-wrap gap-2 mb-4">
+          <div className="w-full flex items-end gap-1.5">
             {MEDIA_TYPES.map(mt => (
               <button
                 key={mt.value}
                 onClick={() => setHideMediaType(mt.value)}
-                className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
+                className={`flex-1 rounded-t-md rounded-b-none transition-all duration-150 ${
                   hideMediaType === mt.value
-                    ? 'bg-muted-foreground text-background border-muted-foreground'
-                    : 'bg-card text-text hover:border-muted-foreground/50'
+                    ? 'bg-[var(--color-card-accent-alpha)] text-[var(--color-button-primary-text)] py-2.5 shadow-none'
+                    : 'bg-[var(--color-card-dim-alpha)] text-[var(--color-button-secondary-text)] py-1.5'
                 }`}
               >
                 {mt.label}
@@ -609,21 +655,20 @@ export default function VideoManagementPage() {
             ))}
           </div>
 
-          <div className="flex gap-4">
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
-                未隐藏 ({visibleGenres.length})
-              </div>
-              <div className="flex flex-wrap gap-2 min-h-[3rem] p-3 rounded-lg bg-secondary/30">
-                {visibleGenres.length === 0 && (
-                  <span className="text-xs text-muted-foreground">暂无未隐藏的子类型</span>
-                )}
+          <div className="rounded-t-none rounded-b-md bg-[var(--color-card-accent-alpha)] p-4">
+            <div className="text-xs font-medium text-muted-foreground mb-2">
+              未隐藏 ({visibleGenres.length})
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {visibleGenres.length === 0 && (
+                <span className="text-xs text-muted-foreground">暂无未隐藏的子类型</span>
+              )}
                 {visibleGenres.map(genre => (
                   <button
                     key={genre}
-                    onClick={() => handleToggleHideGenre(genre)}
+                    onClick={() => handleToggleHideGenre(genre, false)}
                     disabled={togglingGenre === genre}
-                    className="px-2.5 py-1 rounded-full text-xs transition-colors bg-card text-text hover:border-amber-500 hover:bg-amber-500/10 disabled:opacity-50"
+                    className="px-2.5 py-1 rounded-full text-xs transition-colors bg-secondary text-secondary-foreground hover:border-warning hover:bg-warning/10 disabled:opacity-50"
                   >
                     {togglingGenre === genre ? '...' : genre}
                   </button>
@@ -631,26 +676,26 @@ export default function VideoManagementPage() {
               </div>
             </div>
 
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
-                已隐藏 ({hideAllGenres.length - visibleGenres.length})
-              </div>
-              <div className="flex flex-wrap gap-2 min-h-[3rem] p-3 rounded-lg border border-dashed border-amber-500/40 bg-secondary/50">
-                {hideAllGenres.length - visibleGenres.length === 0 && (
-                  <span className="text-xs text-muted-foreground">暂无已隐藏的子类型</span>
-                )}
-                {hideAllGenres.filter(g => !visibleGenres.includes(g)).map(genre => (
+          <div className="mt-4 p-4 rounded-lg bg-warning/5">
+            <div className="text-xs font-medium text-warning mb-2">
+              已隐藏子类 ({hiddenGenres.length})
+            </div>
+            {hiddenGenres.length === 0 ? (
+              <span className="text-xs text-muted-foreground">暂无已隐藏的子类型</span>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {hiddenGenres.map(genre => (
                   <button
                     key={genre}
-                    onClick={() => handleToggleHideGenre(genre)}
+                    onClick={() => handleToggleHideGenre(genre, true)}
                     disabled={togglingGenre === genre}
-                    className="px-2.5 py-1 rounded-full text-xs border border-dashed border-amber-500/40 transition-colors bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 disabled:opacity-50 inline-flex items-center gap-1"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs transition-colors bg-warning/10 text-warning hover:bg-warning/20 disabled:opacity-50"
                   >
                     {togglingGenre === genre ? '...' : <><EyeOff className="size-3" />{genre}</>}
                   </button>
                 ))}
               </div>
-            </div>
+            )}
           </div>
         </Card>
 
@@ -664,114 +709,120 @@ export default function VideoManagementPage() {
           </p>
 
           {localConfig && (
-            <div className="space-y-5">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Badge className="size-5 justify-center p-0 rounded-full bg-[var(--color-muted-alpha)] text-button-primary-text">1</Badge>
-                  <Label className="text-sm font-medium">第1层：从简介提取时长的匹配模板</Label>
-                </div>
-                <p className="text-xs text-muted-foreground">用 {'{'}N{'}'} 代表数字，例如「{'{'}N{'}'}分钟」可匹配"30分钟"、"每集30分钟"等文本中的时长</p>
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {localConfig.summaryPatterns.map((pattern, i) => (
-                    <button
-                      key={i}
-                      onClick={() => removePattern(pattern)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs transition-colors bg-card text-text hover:border-destructive/50 hover:text-destructive"
+            <>
+              <Tabs defaultValue="1">
+                <TabsList className="w-full items-end gap-1.5 h-auto bg-transparent p-0 rounded-none">
+                  {[
+                    { v: '1', b: '①', t: '匹配模板' },
+                    { v: '2', b: '②', t: '探测时长' },
+                    { v: '3', b: '③', t: '关键词' },
+                  ].map((tab) => (
+                    <TabsTrigger
+                      key={tab.v}
+                      value={tab.v}
+                      className="flex-1 rounded-t-md rounded-b-none transition-all duration-150 data-[state=active]:py-2.5 data-[state=inactive]:py-1.5 data-[state=active]:bg-[var(--color-card-accent-alpha)] data-[state=inactive]:bg-[var(--color-card-dim-alpha)] data-[state=active]:text-[var(--color-button-primary-text)] data-[state=inactive]:text-[var(--color-button-secondary-text)] data-[state=active]:shadow-none"
                     >
-                      {pattern}
-                      <X className="size-3" />
-                    </button>
+                      <span className="inline-flex size-7 items-center justify-center rounded-full text-[17px]">{tab.b}</span>
+                      {tab.t}
+                    </TabsTrigger>
                   ))}
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    value={patternInput}
-                    onChange={(e) => setPatternInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addPattern(); } }}
-                    placeholder="输入模板，如 {N}分钟，按回车添加"
-                    className="flex-1 text-xs"
-                  />
-                  <Button onClick={addPattern} variant="default" size="sm">
-                    <Plus className="size-3 mr-1" />添加
-                  </Button>
-                </div>
-              </div>
+                </TabsList>
 
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Badge className="size-5 justify-center p-0 rounded-full bg-[var(--color-muted-alpha)] text-button-primary-text">2</Badge>
-                  <Label className="text-sm font-medium">第2层：探测视频实际时长</Label>
-                </div>
-                <p className="text-xs text-muted-foreground">逐集探测视频流时长，成功1集即止；根据探测结果与下方阈值判断长短剧</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="text-sm font-medium">短剧判定阈值（分钟）</Label>
-                    <p className="text-xs text-muted-foreground">单集时长低于阈值为短剧</p>
-                    <Input
-                      type="number"
-                      min="1"
-                      max="120"
-                      value={localConfig.durationThresholdMinutes}
-                      onChange={(e) => setLocalConfig({ ...localConfig, durationThresholdMinutes: Math.max(1, parseInt(e.target.value) || 30) })}
-                    />
+                <TabsContent value="1" className="mt-0 rounded-t-none rounded-b-md bg-[var(--color-card-accent-alpha)] p-4 space-y-2">
+                  <p className="text-xs text-muted-foreground">用 {'{'}N{'}'} 代表数字，例如「{'{'}N{'}'}分钟」可匹配"30分钟"、"每集30分钟"等文本中的时长</p>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {[...new Set(localConfig.summaryPatterns)].map((pattern) => (
+                      <button
+                        key={pattern}
+                        onClick={() => removePattern(pattern)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs transition-colors bg-[var(--color-card-alpha)] text-text hover:border-destructive/50 hover:text-destructive"
+                      >
+                        {pattern}
+                        <X className="size-3 text-muted-foreground" />
+                      </button>
+                    ))}
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-sm font-medium">探测集数上限</Label>
-                    <p className="text-xs text-muted-foreground">逐集探测视频时长，成功1集即止；最多探测N集</p>
+                  <div className="flex gap-2">
                     <Input
-                      type="number"
-                      min="1"
-                      max="20"
-                      value={localConfig.probeEpisodeCount}
-                      onChange={(e) => setLocalConfig({ ...localConfig, probeEpisodeCount: Math.max(1, parseInt(e.target.value) || 8) })}
+                      value={patternInput}
+                      onChange={(e) => setPatternInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addPattern(); } }}
+                      placeholder="输入模板，如 {N}分钟，按回车添加"
+                      className="flex-1 text-xs"
                     />
+                    <Button onClick={addPattern} variant="default" size="sm">
+                      <Plus className="size-3 mr-1" />添加
+                    </Button>
                   </div>
-                </div>
-              </div>
+                </TabsContent>
 
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Badge className="size-5 justify-center p-0 rounded-full bg-[var(--color-muted-alpha)] text-button-primary-text">3</Badge>
-                  <Label className="text-sm font-medium">第3层：元数据关键词列表</Label>
-                </div>
-                <p className="text-xs text-muted-foreground">当第1、2层均未命中时，根据简介、标题、类型中是否包含这些关键词来判断</p>
-                <div className="flex flex-wrap gap-2 mb-2 max-h-40 overflow-y-auto">
-                  {localConfig.metaKeywords.map((kw, i) => (
-                    <button
-                      key={i}
-                      onClick={() => removeKeyword(kw)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs transition-colors bg-card text-text hover:border-destructive/50 hover:text-destructive"
-                    >
-                      {kw}
-                      <X className="size-3" />
-                    </button>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    value={keywordInput}
-                    onChange={(e) => setKeywordInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(); } }}
-                    placeholder="输入关键词后按回车添加"
-                    className="flex-1"
-                  />
-                  <Button onClick={addKeyword} variant="default" size="sm">
-                    <Plus className="size-3 mr-1" />添加
-                  </Button>
-                </div>
-              </div>
+                <TabsContent value="2" className="mt-0 rounded-t-none rounded-b-md bg-[var(--color-card-accent-alpha)] p-4 space-y-2">
+                  <p className="text-xs text-muted-foreground">逐集探测视频流时长，成功1集即止；根据探测结果与下方阈值判断长短剧</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">短剧判定阈值（分钟）</Label>
+                      <p className="text-xs text-muted-foreground">单集时长低于阈值为短剧</p>
+                      <Input
+                        type="number"
+                        min="1"
+                        max="120"
+                        value={localConfig.durationThresholdMinutes}
+                        onChange={(e) => setLocalConfig({ ...localConfig, durationThresholdMinutes: Math.max(1, parseInt(e.target.value) || 30) })}
+                        onBlur={(e) => handleThresholdBlur(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">探测集数上限</Label>
+                      <p className="text-xs text-muted-foreground">逐集探测视频时长，成功1集即止；最多探测N集</p>
+                      <Input
+                        type="number"
+                        min="1"
+                        max="20"
+                        value={localConfig.probeEpisodeCount}
+                        onChange={(e) => setLocalConfig({ ...localConfig, probeEpisodeCount: Math.max(1, parseInt(e.target.value) || 8) })}
+                        onBlur={(e) => handleProbeCountBlur(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </TabsContent>
 
-              <div className="flex justify-between items-center pt-2">
+                <TabsContent value="3" className="mt-0 rounded-t-none rounded-b-md bg-[var(--color-card-accent-alpha)] p-4 space-y-2">
+                  <p className="text-xs text-muted-foreground">当第1、2层均未命中时，根据简介、标题、类型中是否包含这些关键词来判断</p>
+                  <div className="flex flex-wrap gap-2 mb-2 max-h-40 overflow-y-auto">
+                    {[...new Set(localConfig.metaKeywords)].map((kw) => (
+                      <button
+                        key={kw}
+                        onClick={() => removeKeyword(kw)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs transition-colors bg-[var(--color-card-alpha)] text-text hover:border-destructive/50 hover:text-destructive"
+                      >
+                        {kw}
+                        <X className="size-3 text-muted-foreground" />
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      value={keywordInput}
+                      onChange={(e) => setKeywordInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(); } }}
+                      placeholder="输入关键词后按回车添加"
+                      className="flex-1"
+                    />
+                    <Button onClick={addKeyword} variant="default" size="sm">
+                      <Plus className="size-3 mr-1" />添加
+                    </Button>
+                  </div>
+                </TabsContent>
+              </Tabs>
+
+              <div className="flex items-center justify-between pt-2">
                 <Button variant="ghost" onClick={handleResetConfig} className="text-xs">
                   <RotateCcw className="size-3.5 mr-1.5" />
                   恢复默认
                 </Button>
-                <Button onClick={handleSaveConfig}>
-                  <Save className="size-4 mr-2" />
-                  {configSaved ? '已保存' : '保存配置'}
-                </Button>
+                <span className="text-xs text-muted-foreground">修改后自动保存</span>
               </div>
-            </div>
+            </>
           )}
         </Card>
 
@@ -863,7 +914,7 @@ export default function VideoManagementPage() {
           </Button>
         </Card>
 
-        <Card className="p-6">
+        <Card className="p-6 mb-6">
           <div className="flex items-center gap-3 mb-4">
             <Radar className="size-4 text-muted-foreground" />
             <h2 className="text-lg font-semibold">批量重新探测长短剧</h2>

@@ -3,6 +3,35 @@ import type { DatabaseProvider } from '../db/provider';
 import type { Media, VideoSource, ImportSourceItem, ParsedImportSource, Favorite, WatchHistory, PaginatedMeta, CollectTask, CollectionLog, CollectPreviewItem, UserUsageType } from '../types';
 import type { CollectConfig, ShortDramaConfig } from '../services/systemConfigService';
 
+const STORE_API_VERSION_KEY = '__MOVIE_APP_STORE_API_VERSION__';
+const STORE_API_STAMP_KEY = '__movieAppStoreApiVersion';
+
+declare global {
+  var __MOVIE_APP_STORE_API_VERSION__: string | undefined;
+}
+
+// store API 自动指纹：基于 createAppStore 源码哈希。createStore.ts 被（Fast Refresh）重新执行时
+// 自动刷新 globalThis 上的当前指纹，与 store 实例创建时打的指纹对比，不一致说明单例是旧代码建的，
+// init 层 getStore() 据此整包重载。无需手动维护版本号。
+function fingerprintSource(src: string): string {
+  let h = 5381;
+  for (let i = 0; i < src.length; i++) {
+    h = ((h << 5) + h) ^ src.charCodeAt(i);
+    h >>>= 0;
+  }
+  return h.toString(36);
+}
+
+(globalThis as any)[STORE_API_VERSION_KEY] = fingerprintSource(createAppStore.toString());
+
+export function getCurrentStoreApiVersion(): string | undefined {
+  return (globalThis as any)[STORE_API_VERSION_KEY];
+}
+
+export function getStoreApiVersion(store: unknown): string | undefined {
+  return (store as any)?.[STORE_API_STAMP_KEY];
+}
+
 export interface AppState {
   mediaList: Media[];
   mediaMeta: PaginatedMeta | null;
@@ -134,6 +163,8 @@ hasShortDrama: (type?: string) => Promise<boolean>;
   hideMediaByGenres: (genres: string[]) => Promise<{ hidden: number }>;
   unhideMediaByGenres: (genres: string[]) => Promise<{ unhidden: number }>;
   getHiddenMediaCount: () => Promise<number>;
+  getHiddenGenres: () => Promise<string[]>;
+  getUncategorizedCount: (type?: string, includeHidden?: boolean) => Promise<number>;
 
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
@@ -900,6 +931,14 @@ export function createAppStore(db: DatabaseProvider) {
       return await db.getHiddenMediaCount();
     },
 
+    getHiddenGenres: async () => {
+      return await db.getHiddenGenres();
+    },
+
+    getUncategorizedCount: async (type?: string, includeHidden?: boolean) => {
+      return await db.getUncategorizedCount(type, includeHidden);
+    },
+
     setLoading: (loading: boolean) => set({ isLoading: loading }),
     setError: (error: string | null) => set({ error }),
 
@@ -988,6 +1027,7 @@ export function createAppStore(db: DatabaseProvider) {
     store.getState().addCollectionLog(log);
   });
 
+  (store as any)[STORE_API_STAMP_KEY] = fingerprintSource(createAppStore.toString());
   return store;
 }
 

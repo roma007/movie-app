@@ -1,5 +1,5 @@
 import { TauriSqlProvider } from './db/tauriSqlProvider';
-import { createAppStore, setHttpClient, setVideoFetchFn, backfillSeriesGroup, reclassifyShortDramaMovies, repairDeadPosterUrls, mergeDuplicateSeriesMedia, type AppStore, type AppState, type HttpClient } from '@movie-app/core';
+import { createAppStore, setHttpClient, setVideoFetchFn, backfillSeriesGroup, reclassifyShortDramaMovies, repairDeadPosterUrls, mergeDuplicateSeriesMedia, getCurrentStoreApiVersion, getStoreApiVersion, type AppStore, type AppState, type HttpClient } from '@movie-app/core';
 
 let _provider: TauriSqlProvider | null = null;
 let _store: AppStore | null = null;
@@ -276,6 +276,13 @@ export async function initApp(onProgress?: (step: string) => void): Promise<void
 
 export function getStore(): AppStore {
   if (!_store) throw new Error('initApp() must be called before getStore()');
+  // 开发期 HMR 替换 createStore.ts 后，旧 _store 单例缺少新 API，重载窗口重建
+  const current = getCurrentStoreApiVersion();
+  if (typeof current === 'string' && getStoreApiVersion(_store) !== current) {
+    if (import.meta.env.DEV) {
+      window.location.reload();
+    }
+  }
   return _store;
 }
 

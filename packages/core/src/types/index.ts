@@ -65,6 +65,7 @@ export interface VideoSource {
   healthStatus?: string | null;
   lastCheckAt?: string | null;
   lastCollectedAt?: string | null;
+  lastIncrementalCollectedAt?: string | null;
   lastSuccessAt?: string | null;
   failCount?: number;
   totalRequests?: number;

@@ -5,7 +5,7 @@ import { useBackgroundStore } from '../themes/backgroundStore';
 import { usePlayerStore } from '../stores/playerStore';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, ChevronRight } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Loader2 } from 'lucide-react';
 
 const typeLabel: Record<string, string> = {
   MOVIE: '电影',
@@ -42,8 +42,9 @@ export default function PlayPage() {
   const selectedSourceId = activeSession?.selectedSourceId ?? null;
 
   const [currentSeason, setCurrentSeason] = useState(1);
-  const [displayedSourceId, setDisplayedSourceId] = useState<string | null>(null);
   const [slotReady, setSlotReady] = useState(false);
+  const [sourcesLoaded, setSourcesLoaded] = useState(false);
+  const [episodeListSwitching, setEpisodeListSwitching] = useState(false);
   const playerSlotRef = useRef<HTMLDivElement | null>(null);
 
   const urlSourceIdRef = useRef<string | null>(null);
@@ -94,8 +95,9 @@ export default function PlayPage() {
 
   useEffect(() => {
     if (!ready || !media?.id || currentSeason === 0) return;
-    loadEpisodeSources(media.id, currentSeason);
-  }, [ready, media?.id, currentSeason]);
+    setSourcesLoaded(false);
+    loadEpisodeSources(media.id, currentSeason).then(() => setSourcesLoaded(true));
+  }, [ready, media?.id, currentSeason, loadEpisodeSources]);
 
   useEffect(() => {
     if (!ready || !media?.id || currentSeason === 0 || !selectedSourceId) return;
@@ -114,10 +116,6 @@ export default function PlayPage() {
       setCurrentSeason(seasons[0]);
     }
   }, [seasons]);
-
-  useEffect(() => {
-    if (!episodesLoading) setDisplayedSourceId(selectedSourceId);
-  }, [episodesLoading, selectedSourceId]);
 
   useEffect(() => {
     updateNextEpisode();
@@ -148,10 +146,9 @@ export default function PlayPage() {
     return () => setSlotRect(null);
   }, [setSlotRect]);
 
-  const filteredEpisodes = useMemo(() => {
-    if (!displayedSourceId) return episodes;
-    return episodes.filter((ep: any) => ep.sourceId === displayedSourceId);
-  }, [episodes, displayedSourceId]);
+  useEffect(() => {
+    if (!episodesLoading) setEpisodeListSwitching(false);
+  }, [episodesLoading]);
 
   const availableCmsSources = useMemo(() => {
     return episodeSources.map((s) => ({ id: s.id, name: s.name }));
@@ -179,7 +176,6 @@ export default function PlayPage() {
       navigate(`/media/${targetId}`, { replace: true });
     } else {
       setCurrentSeason(s);
-      setDisplayedSourceId(null);
     }
   };
 
@@ -313,19 +309,22 @@ export default function PlayPage() {
             </div>
           )}
 
-          {media?.type !== 'MOVIE' && filteredEpisodes.length > 0 && (
-            <div className="rounded-lg overflow-hidden bg-[var(--color-card-alpha)] backdrop-blur-sm">
+          {media?.type !== 'MOVIE' && (
+            <div className="rounded-md overflow-hidden">
               <div className="flex">
                 {availableCmsSources.length > 1 && (
-                  <div className="w-28 shrink-0">
+                  <div className="shrink-0 flex flex-col items-end gap-1.5 pl-3 py-2">
                     {availableCmsSources.map((cms) => (
                       <button
                         key={cms.id}
-                        onClick={() => switchCmsSource(cms.id)}
-                        className={`w-full text-left px-3 py-2.5 transition-colors rounded-lg ${
+                        onClick={() => {
+                          setEpisodeListSwitching(true);
+                          switchCmsSource(cms.id);
+                        }}
+                        className={`w-24 text-left truncate rounded-l-md rounded-r-none transition-all duration-150 ${
                           selectedSourceId === cms.id
-                            ? 'bg-muted-foreground/20 text-text'
-                            : 'bg-[var(--color-card-alpha)] hover:bg-[var(--color-hover-alpha)] text-text-secondary hover:text-text'
+                            ? 'bg-[var(--color-card-accent-alpha)] text-[var(--color-button-primary-text)] py-2.5 px-3 shadow-none'
+                            : 'bg-[var(--color-card-dim-alpha)] text-[var(--color-button-secondary-text)] py-1.5 px-2 hover:text-text'
                         }`}
                       >
                         {cms.name}
@@ -334,24 +333,33 @@ export default function PlayPage() {
                   </div>
                 )}
 
-                <div className="flex-1 min-w-0 p-4">
-                  <div className="flex flex-wrap gap-1.5">
-                    {filteredEpisodes.map((ep: any) => (
-                      <button
-                        key={ep.id}
-                        type="button"
-                        onClick={() => {
-                          if (ep.id !== activeSession?.episodeId) {
-                            navigate(`/play/${ep.id}`, { replace: true });
-                          }
-                        }}
-                        title="点击播放"
-                        className={`relative px-3 py-1.5 rounded text-xs font-medium transition-all duration-200 bg-[var(--color-card-alpha)] text-text-secondary cursor-pointer hover:text-text hover:bg-[var(--color-hover-alpha)]${ep.id === activeSession?.episodeId ? ' bg-muted-foreground/20 text-text' : ''}${ep.id !== activeSession?.episodeId && watchedEpisodes.has(ep.id) ? ' opacity-50' : ''}`}
-                      >
-                        {ep.title || `第${ep.episodeNumber}集`}
-                      </button>
-                    ))}
-                  </div>
+                <div className="flex-1 min-w-0 rounded-l-none rounded-r-md bg-[var(--color-card-accent-alpha)] p-4">
+                  {episodesLoading || episodeListSwitching || !sourcesLoaded || (episodeSources.length > 0 && !selectedSourceId) ? (
+                    <div className="flex items-center gap-2 py-3 text-sm text-text-secondary">
+                      <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                      剧集加载中...
+                    </div>
+                  ) : episodes.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {episodes.map((ep: any) => (
+                        <button
+                          key={ep.id}
+                          type="button"
+                          onClick={() => {
+                            if (ep.id !== activeSession?.episodeId) {
+                              navigate(`/play/${ep.id}`, { replace: true });
+                            }
+                          }}
+                          title="点击播放"
+                          className={`relative px-3 py-1.5 rounded text-xs font-medium transition-all duration-200 bg-[var(--color-card-dim-alpha)] text-text-secondary cursor-pointer hover:text-text hover:bg-[var(--color-hover-alpha)]${ep.id === activeSession?.episodeId ? ' bg-[var(--color-card-accent-alpha)] text-[var(--color-button-primary-text)]' : ''}${ep.id !== activeSession?.episodeId && watchedEpisodes.has(ep.id) ? ' opacity-50' : ''}`}
+                        >
+                          {ep.title || `第${ep.episodeNumber}集`}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="py-3 text-sm text-muted-foreground">暂无剧集</div>
+                  )}
                 </div>
               </div>
             </div>

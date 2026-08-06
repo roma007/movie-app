@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { TouchableOpacity, Text, ActivityIndicator, StyleSheet, ViewStyle, TextStyle } from 'react-native';
+import { TouchableOpacity, Text, ActivityIndicator, StyleSheet, ViewStyle, TextStyle, StyleProp } from 'react-native';
 import { useThemeColors } from '../../themes/useThemeColors';
 import { useThemeStore } from '../../themes/store';
 import { useScaledFontSize } from '../../themes/useScaledFontSize';
@@ -20,8 +20,8 @@ interface ButtonProps {
   rightIcon?: React.ReactNode;
   onPress?: () => void;
   children?: React.ReactNode;
-  style?: ViewStyle;
-  textStyle?: TextStyle;
+  style?: StyleProp<ViewStyle>;
+  textStyle?: StyleProp<TextStyle>;
 }
 
 export function Button({

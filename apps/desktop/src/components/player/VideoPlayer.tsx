@@ -24,6 +24,8 @@ interface VideoPlayerProps {
   sources: PlaySource[];
   initialSourceId?: string;
   initialCurrentTime?: number;
+  volume?: number;
+  muted?: boolean;
   playerRef?: React.Ref<MediaPlayerInstance>;
   keyTarget?: 'document' | 'player';
   overlays?: ReactNode;
@@ -31,12 +33,15 @@ interface VideoPlayerProps {
   onEnded?: () => void;
   onSourceChange?: (source: PlaySource) => void;
   onSourceFail?: (sourceId: string) => void;
+  onVolumeChange?: (volume: number, muted: boolean) => void;
 }
 
 export function VideoPlayer({
   sources,
   initialSourceId,
   initialCurrentTime,
+  volume,
+  muted,
   playerRef,
   keyTarget = 'document',
   overlays,
@@ -44,6 +49,7 @@ export function VideoPlayer({
   onEnded,
   onSourceChange,
   onSourceFail,
+  onVolumeChange,
 }: VideoPlayerProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +103,7 @@ export function VideoPlayer({
   const onEndedRef = useRef(onEnded);
   const initialSeekDoneRef = useRef(false);
   const hlsProviderRef = useRef<any>(null);
+  const onVolumeChangeRef = useRef(onVolumeChange);
   useEffect(() => {
     currentIndexRef.current = currentIndex;
   }, [currentIndex]);
@@ -115,6 +122,9 @@ export function VideoPlayer({
   useEffect(() => {
     onEndedRef.current = onEnded;
   }, [onEnded]);
+  useEffect(() => {
+    onVolumeChangeRef.current = onVolumeChange;
+  }, [onVolumeChange]);
 
   useEffect(() => {
     initialSeekDoneRef.current = false;
@@ -312,9 +322,14 @@ export function VideoPlayer({
         ref={playerRef}
         src={src}
         autoPlay
+        volume={volume}
+        muted={muted}
         keyTarget={keyTarget}
         className="w-full h-full"
         onProviderChange={handleProviderChange}
+        onVolumeChange={(event) => {
+          onVolumeChangeRef.current?.(event.volume, event.muted);
+        }}
         onLoadStart={() => {
           if (currentSource) setLoading(true);
         }}
@@ -347,6 +362,7 @@ export function VideoPlayer({
         <DefaultVideoLayout
           icons={defaultLayoutIcons}
           colorScheme="dark"
+          smallLayoutWhen={false}
           translations={ZH_TRANSLATIONS}
           slots={{
             settingsMenuItemsStart: (

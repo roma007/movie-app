@@ -6,6 +6,7 @@ import {
   defaultSources,
   splitSqlStatements,
   MEDIA_FILE_EXTENSIONS,
+  UNCATEGORIZED_GENRE,
   rowToMedia,
   rowToEpisode,
   rowToPlaySource,
@@ -212,6 +213,8 @@ export class TauriSqlProvider implements DatabaseProvider {
     // 增量迁移：为已有 video_source 表补齐健康检查相关列
     await this.addColumnIfMissing('video_source', 'last_success_at', 'TEXT');
     await this.addColumnIfMissing('video_source', 'avg_response_time', 'INTEGER');
+    // 增量迁移：为已有 video_source 表补齐增量采集时间列
+    await this.addColumnIfMissing('video_source', 'last_incremental_collected_at', 'TEXT');
 
     // 始终重建 FTS5：确保虚拟表和辅助表状态一致，不受历史损坏影响
     await this.rebuildFts5();
@@ -875,8 +878,17 @@ export class TauriSqlProvider implements DatabaseProvider {
 
   async hideMediaByGenres(genres: string[]): Promise<{ hidden: number }> {
     if (genres.length === 0) return { hidden: 0 };
-    const conditions = genres.map(() => 'genre LIKE ?');
-    const params = genres.map(g => `%${g}%`);
+    const isUncategorized = (g: string) => g === UNCATEGORIZED_GENRE;
+    const normalGenres = genres.filter(g => !isUncategorized(g));
+    let conditions: string[] = [];
+    const params: any[] = [];
+    if (normalGenres.length > 0) {
+      conditions.push(...normalGenres.map(() => 'genre LIKE ?'));
+      params.push(...normalGenres.map(g => `%${g}%`));
+    }
+    if (genres.some(isUncategorized)) {
+      conditions.push("(genre IS NULL OR genre = '' OR genre = '[]' OR json_extract(genre, '$[0]') IS NULL OR json_extract(genre, '$[0]') = '')");
+    }
     await this.db!.execute(
       `UPDATE media SET hidden = 1 WHERE ${conditions.join(' OR ')}`,
       params
@@ -889,7 +901,7 @@ export class TauriSqlProvider implements DatabaseProvider {
       );
     }
     const rows = await this.db!.select<{ count: number }[]>(
-      `SELECT COUNT(*) as count FROM media WHERE hidden = 1 AND ${conditions.join(' OR ')}`,
+      `SELECT COUNT(*) as count FROM media WHERE hidden = 1 AND (${conditions.join(' OR ')})`,
       params
     );
     return { hidden: rows[0]?.count || 0 };
@@ -897,8 +909,17 @@ export class TauriSqlProvider implements DatabaseProvider {
 
   async unhideMediaByGenres(genres: string[]): Promise<{ unhidden: number }> {
     if (genres.length === 0) return { unhidden: 0 };
-    const conditions = genres.map(() => 'genre LIKE ?');
-    const params = genres.map(g => `%${g}%`);
+    const isUncategorized = (g: string) => g === UNCATEGORIZED_GENRE;
+    const normalGenres = genres.filter(g => !isUncategorized(g));
+    let conditions: string[] = [];
+    const params: any[] = [];
+    if (normalGenres.length > 0) {
+      conditions.push(...normalGenres.map(() => 'genre LIKE ?'));
+      params.push(...normalGenres.map(g => `%${g}%`));
+    }
+    if (genres.some(isUncategorized)) {
+      conditions.push("(genre IS NULL OR genre = '' OR genre = '[]' OR json_extract(genre, '$[0]') IS NULL OR json_extract(genre, '$[0]') = '')");
+    }
     await this.db!.execute(
       `UPDATE media SET hidden = 0 WHERE ${conditions.join(' OR ')}`,
       params
@@ -907,7 +928,7 @@ export class TauriSqlProvider implements DatabaseProvider {
       await this.db!.execute('DELETE FROM hidden_genre WHERE sub_type = ?', [genre]);
     }
     const rows = await this.db!.select<{ count: number }[]>(
-      `SELECT COUNT(*) as count FROM media WHERE hidden = 0 AND ${conditions.join(' OR ')}`,
+      `SELECT COUNT(*) as count FROM media WHERE hidden = 0 AND (${conditions.join(' OR ')})`,
       params
     );
     return { unhidden: rows[0]?.count || 0 };
@@ -923,6 +944,23 @@ export class TauriSqlProvider implements DatabaseProvider {
   async getHiddenMediaCount(): Promise<number> {
     const rows = await this.db!.select<{ count: number }[]>(
       'SELECT COUNT(*) as count FROM media WHERE hidden = 1'
+    );
+    return rows[0]?.count || 0;
+  }
+
+  async getUncategorizedCount(type?: string, includeHidden?: boolean): Promise<number> {
+    let whereClause = " WHERE (genre IS NULL OR genre = '' OR genre = '[]' OR json_extract(genre, '$[0]') IS NULL OR json_extract(genre, '$[0]') = '')";
+    if (!includeHidden) {
+      whereClause += ' AND (hidden IS NULL OR hidden = 0)';
+    }
+    const params: any[] = [];
+    if (type) {
+      whereClause += ' AND type = ?';
+      params.push(type);
+    }
+    const rows = await this.db!.select<{ count: number }[]>(
+      `SELECT COUNT(*) as count FROM media${whereClause}`,
+      params
     );
     return rows[0]?.count || 0;
   }
@@ -1103,6 +1141,10 @@ export class TauriSqlProvider implements DatabaseProvider {
 
   async updateSourceLastCollectedAt(id: string, time: string): Promise<void> {
     await this.db!.execute('UPDATE video_source SET last_collected_at = ? WHERE id = ?', [time, id]);
+  }
+
+  async updateSourceLastIncrementalCollectedAt(id: string, time: string): Promise<void> {
+    await this.db!.execute('UPDATE video_source SET last_incremental_collected_at = ? WHERE id = ?', [time, id]);
   }
 
   async incrementSourceRequestCount(id: string): Promise<void> {

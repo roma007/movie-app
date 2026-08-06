@@ -290,7 +290,7 @@ export default function SourceManagerPage() {
   const handleDeleteSource = async (source: VideoSource) => {
     const ok = await confirm({
       title: '删除视频源',
-      description: `确定要删除「${source.name}」吗？此操作无法撤销。`,
+      description: `确定要删除「${source.name}」吗？此操作无法撤销。\n\n仅删除视频源配置，不会删除该源采集的视频数据。如需删除数据请使用「删视频」。`,
       confirmText: '删除',
       variant: 'destructive',
     });
@@ -436,18 +436,18 @@ export default function SourceManagerPage() {
     const failRate = totalRequests > 0 ? (failCount / totalRequests) * 100 : 0;
 
     if (status === 'DOWN' || status === 'unhealthy') {
-      return { label: '源不可用，建议降速', color: '#ef4444' };
+      return { label: '不可用，请检查', color: '#ef4444' };
     }
     if (failRate > 20) {
-      return { label: '失败较多，建议降速', color: '#ef4444' };
+      return { label: '失败多，需降速', color: '#ef4444' };
     }
     if (status === 'DEGRADED' || status === 'degraded' || failRate > 10) {
-      return { label: '状态不稳定，建议降速', color: '#eab308' };
+      return { label: '不稳定，需降速', color: '#eab308' };
     }
     if (failRate < 5 && (source.rateLimit || 0) < 5) {
-      return { label: '状态良好，可以加速', color: '#22c55e' };
+      return { label: '非常好，可加速', color: '#22c55e' };
     }
-    return { label: '状态稳定，保持速率', color: '#22c55e' };
+    return { label: '很稳定，可保持', color: '#22c55e' };
   };
 
   return (
@@ -593,7 +593,10 @@ export default function SourceManagerPage() {
                         上次检查: {source.lastCheckAt ? new Date(source.lastCheckAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '从未'}
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        上次采集: {source.lastCollectedAt ? new Date(source.lastCollectedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '从未'}
+                        上次全量采集: {source.lastCollectedAt ? new Date(source.lastCollectedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '从未'}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        上次增量采集: {source.lastIncrementalCollectedAt ? new Date(source.lastIncrementalCollectedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '从未'}
                       </span>
                     </div>
                   </div>
@@ -658,7 +661,7 @@ export default function SourceManagerPage() {
                       {(collecting || isPending) && collectingType === 'increment' ? (
                         <><Loader2 className="size-3.5 mr-1 animate-spin" /> 采集中 {progress}%</>
                       ) : (
-                        <><Play className="size-3.5 mr-1" /> 增量</>
+                        <><Play className="size-3.5 mr-1" /> 增量采集</>
                       )}
                     </Button>
 
@@ -672,7 +675,7 @@ export default function SourceManagerPage() {
                       {(collecting || isPending) && collectingType === 'full' ? (
                         <><Loader2 className="size-3.5 mr-1 animate-spin" /> 采集中 {progress}%</>
                       ) : (
-                        <><RefreshCw className="size-3.5 mr-1" /> 全量</>
+                        <><RefreshCw className="size-3.5 mr-1" /> 全量采集</>
                       )}
                     </Button>
 
@@ -700,7 +703,7 @@ export default function SourceManagerPage() {
                       className="h-7 px-2 text-xs text-red-600"
                       onClick={() => handleDeleteSource(source)}
                     >
-                      <Trash2 className="size-3.5 mr-1" /> 删除视频源
+                      <Trash2 className="size-3.5 mr-1" /> 删源
                     </Button>
 
                     <Button
@@ -713,7 +716,7 @@ export default function SourceManagerPage() {
                       {pendingDelete.has(source.id) ? (
                         <><Loader2 className="size-3.5 mr-1 animate-spin" /> 删除中...</>
                       ) : (
-                        <><Database className="size-3.5 mr-1" /> 删除抓取的数据</>
+                        <><Database className="size-3.5 mr-1" /> 删视频</>
                       )}
                     </Button>
                   </div>

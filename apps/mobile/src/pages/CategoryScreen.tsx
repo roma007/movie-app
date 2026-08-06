@@ -190,11 +190,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
   const hasAnyFilter = subTypes.length > 0 || years.length > 0 || areas.length > 0 || showShortDramaFilter;
 
   const renderHeader = () => (
-    <View>
-      {meta && !isLoading && mediaList.length > 0 && (
-        <Text style={styles.count}>共 {meta.total} 部</Text>
-      )}
-    </View>
+    <View />
   );
 
   const renderFooter = () => {
@@ -240,15 +236,8 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
       flexWrap: 'wrap',
       gap: 8,
       paddingHorizontal: 15,
-      marginTop: 12,
-      paddingBottom: 12,
-    },
-    count: {
-      fontSize: s(13),
-      color: colors.disabledForeground,
-      paddingHorizontal: 15,
-      marginTop: 8,
-      marginBottom: 8,
+      marginTop: 0,
+      paddingVertical: 6,
     },
     row: {
       paddingHorizontal: 15,

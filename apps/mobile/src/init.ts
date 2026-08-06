@@ -1,5 +1,6 @@
 import { ExpoSqliteProvider } from './db/expoSqliteProvider';
-import { createAppStore, CollectorService, backfillSeriesGroup, reclassifyShortDramaMovies, repairDeadPosterUrls, mergeDuplicateSeriesMedia, type AppStore, type AppState } from '@movie-app/core';
+import { DevSettings } from 'react-native';
+import { createAppStore, CollectorService, backfillSeriesGroup, reclassifyShortDramaMovies, repairDeadPosterUrls, mergeDuplicateSeriesMedia, getCurrentStoreApiVersion, getStoreApiVersion, type AppStore, type AppState } from '@movie-app/core';
 
 /**
  * 单例容器挂在 globalThis 上，保证 RN Fast Refresh（模块重执行）后单例不丢失。
@@ -98,6 +99,14 @@ export async function initApp(): Promise<void> {
 export function getStore(): AppStore {
   const store = getSingletons().store;
   if (!store) throw new Error('initApp() must be called before getStore()');
+  // store 单例由 globalThis 承载，Fast Refresh 不会重建它。若 core 的 store API 版本已升级
+  //（createStore.ts 被热更新替换），旧单例缺少新方法，须整包重载重建。
+  const current = getCurrentStoreApiVersion();
+  if (typeof current === 'string' && getStoreApiVersion(store) !== current) {
+    if (__DEV__) {
+      DevSettings.reload();
+    }
+  }
   return store;
 }
 

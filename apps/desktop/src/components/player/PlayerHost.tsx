@@ -41,6 +41,9 @@ export function PlayerHost() {
   const handleTimeUpdate = usePlayerStore((s) => s.handleTimeUpdate);
   const handleSourceFail = usePlayerStore((s) => s.handleSourceFail);
   const switchEpisode = usePlayerStore((s) => s.switchEpisode);
+  const volume = usePlayerStore((s) => s.volume);
+  const muted = usePlayerStore((s) => s.muted);
+  const setVolume = usePlayerStore((s) => s.setVolume);
 
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -415,6 +418,9 @@ export function PlayerHost() {
             sources={session.sources}
             initialSourceId={session.playSourceId ?? undefined}
             initialCurrentTime={session.currentTime}
+            volume={volume}
+            muted={muted}
+            onVolumeChange={setVolume}
             onTimeUpdate={handlePlayerTimeUpdate}
             onSourceChange={handleSourceChange}
             onSourceFail={handleSourceFail}

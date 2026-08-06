@@ -8,6 +8,8 @@ export interface ThemeColors {
   background: string;
   sidebar: string;
   card: string;
+  cardAccent: string;
+  cardDim: string;
   hover: string;
   text: string;
   foreground: string;

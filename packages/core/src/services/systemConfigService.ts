@@ -46,7 +46,7 @@ const DEFAULT_SHORT_DRAMA_CONFIG: ShortDramaConfig = {
   durationThresholdMinutes: 30,
   metaKeywords: [
     '短剧', '微短剧', '竖屏', '短劇', '微短劇', '竪屏',
-    '竖屏短剧', '竖屏剧', '短剧集', '竪屏短劇', '微短劇',
+    '竖屏短剧', '竖屏剧', '短剧集', '竪屏短劇',
     '系统', '重生', '穿越', '仙帝', '神级', '全服', '全民',
     '末世', '诡异', '觉醒', '转职', '签到', '无敌', '最强',
     '大佬', '逆袭', '赘婿', '神医', '战神', '兵王', '仙尊',
@@ -226,7 +226,7 @@ export class SystemConfigService {
     return {
       summaryPatterns: stored.summaryPatterns ?? DEFAULT_SHORT_DRAMA_CONFIG.summaryPatterns,
       durationThresholdMinutes: stored.durationThresholdMinutes ?? DEFAULT_SHORT_DRAMA_CONFIG.durationThresholdMinutes,
-      metaKeywords: stored.metaKeywords ?? DEFAULT_SHORT_DRAMA_CONFIG.metaKeywords,
+      metaKeywords: [...new Set(stored.metaKeywords ?? DEFAULT_SHORT_DRAMA_CONFIG.metaKeywords)],
       probeEpisodeCount: stored.probeEpisodeCount ?? DEFAULT_SHORT_DRAMA_CONFIG.probeEpisodeCount,
     };
   }

@@ -7,6 +7,7 @@ import {
   defaultSources,
   splitSqlStatements,
   MEDIA_FILE_EXTENSIONS,
+  UNCATEGORIZED_GENRE,
   rowToMedia,
   rowToEpisode,
   rowToPlaySource,
@@ -177,6 +178,11 @@ const MIGRATIONS: Migration[] = [
           );
           CREATE INDEX IF NOT EXISTS idx_collection_log_ts ON collection_log(timestamp);
           CREATE INDEX IF NOT EXISTS idx_collection_log_task ON collection_log(task_id);`,
+  },
+  {
+    version: 20,
+    description: 'add_last_incremental_collected_at_to_video_source',
+    sql: `ALTER TABLE video_source ADD COLUMN last_incremental_collected_at TEXT;`,
   },
 ];
 
@@ -799,8 +805,17 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async hideMediaByGenres(genres: string[]): Promise<{ hidden: number }> {
     if (genres.length === 0) return { hidden: 0 };
-    const conditions = genres.map(() => 'genre LIKE ?');
-    const params = genres.map(g => `%${g}%`);
+    const isUncategorized = (g: string) => g === UNCATEGORIZED_GENRE;
+    const normalGenres = genres.filter(g => !isUncategorized(g));
+    let conditions: string[] = [];
+    const params: any[] = [];
+    if (normalGenres.length > 0) {
+      conditions.push(...normalGenres.map(() => 'genre LIKE ?'));
+      params.push(...normalGenres.map(g => `%${g}%`));
+    }
+    if (genres.some(isUncategorized)) {
+      conditions.push("(genre IS NULL OR genre = '' OR genre = '[]' OR json_extract(genre, '$[0]') IS NULL OR json_extract(genre, '$[0]') = '')");
+    }
     await this.db!.runAsync(
       `UPDATE media SET hidden = 1 WHERE ${conditions.join(' OR ')}`,
       params
@@ -813,7 +828,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
       );
     }
     const result = await this.db!.getFirstAsync<{ count: number }>(
-      `SELECT COUNT(*) as count FROM media WHERE hidden = 1 AND ${conditions.join(' OR ')}`,
+      `SELECT COUNT(*) as count FROM media WHERE hidden = 1 AND (${conditions.join(' OR ')})`,
       params
     );
     return { hidden: result?.count || 0 };
@@ -821,8 +836,17 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async unhideMediaByGenres(genres: string[]): Promise<{ unhidden: number }> {
     if (genres.length === 0) return { unhidden: 0 };
-    const conditions = genres.map(() => 'genre LIKE ?');
-    const params = genres.map(g => `%${g}%`);
+    const isUncategorized = (g: string) => g === UNCATEGORIZED_GENRE;
+    const normalGenres = genres.filter(g => !isUncategorized(g));
+    let conditions: string[] = [];
+    const params: any[] = [];
+    if (normalGenres.length > 0) {
+      conditions.push(...normalGenres.map(() => 'genre LIKE ?'));
+      params.push(...normalGenres.map(g => `%${g}%`));
+    }
+    if (genres.some(isUncategorized)) {
+      conditions.push("(genre IS NULL OR genre = '' OR genre = '[]' OR json_extract(genre, '$[0]') IS NULL OR json_extract(genre, '$[0]') = '')");
+    }
     await this.db!.runAsync(
       `UPDATE media SET hidden = 0 WHERE ${conditions.join(' OR ')}`,
       params
@@ -831,7 +855,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
       await this.db!.runAsync('DELETE FROM hidden_genre WHERE sub_type = ?', [genre]);
     }
     const result = await this.db!.getFirstAsync<{ count: number }>(
-      `SELECT COUNT(*) as count FROM media WHERE hidden = 0 AND ${conditions.join(' OR ')}`,
+      `SELECT COUNT(*) as count FROM media WHERE hidden = 0 AND (${conditions.join(' OR ')})`,
       params
     );
     return { unhidden: result?.count || 0 };
@@ -847,6 +871,23 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   async getHiddenMediaCount(): Promise<number> {
     const result = await this.db!.getFirstAsync<{ count: number }>(
       'SELECT COUNT(*) as count FROM media WHERE hidden = 1'
+    );
+    return result?.count || 0;
+  }
+
+  async getUncategorizedCount(type?: string, includeHidden?: boolean): Promise<number> {
+    let whereClause = " WHERE (genre IS NULL OR genre = '' OR genre = '[]' OR json_extract(genre, '$[0]') IS NULL OR json_extract(genre, '$[0]') = '')";
+    if (!includeHidden) {
+      whereClause += ' AND (hidden IS NULL OR hidden = 0)';
+    }
+    const params: any[] = [];
+    if (type) {
+      whereClause += ' AND type = ?';
+      params.push(type);
+    }
+    const result = await this.db!.getFirstAsync<{ count: number }>(
+      `SELECT COUNT(*) as count FROM media${whereClause}`,
+      params
     );
     return result?.count || 0;
   }
@@ -1026,6 +1067,10 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async updateSourceLastCollectedAt(id: string, time: string): Promise<void> {
     await this.db!.runAsync('UPDATE video_source SET last_collected_at = ? WHERE id = ?', [time, id]);
+  }
+
+  async updateSourceLastIncrementalCollectedAt(id: string, time: string): Promise<void> {
+    await this.db!.runAsync('UPDATE video_source SET last_incremental_collected_at = ? WHERE id = ?', [time, id]);
   }
 
   async incrementSourceRequestCount(id: string): Promise<void> {

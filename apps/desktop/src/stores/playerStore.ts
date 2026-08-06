@@ -32,7 +32,10 @@ interface PlayerState {
   miniSize: { width: number; height: number };
   collapsed: boolean;
   miniPrefsInitialized: boolean;
+  volume: number;
+  muted: boolean;
 
+  setVolume: (volume: number, muted: boolean) => void;
   openPlayback: (episodeId: string, opts?: { sourceId?: string | null }) => Promise<void>;
   switchEpisode: (episodeId: string) => Promise<void>;
   closePlayback: () => Promise<void>;
@@ -50,6 +53,7 @@ interface PlayerState {
 
 const MINI_POS_KEY = 'movie_app_mini_pos';
 const MINI_SIZE_KEY = 'movie_app_mini_size';
+const VOLUME_KEY = 'movie_app_volume';
 const MINI_HEADER_H = 36;
 const MINI_WIDTH_MIN = 240;
 const MINI_HEIGHT_MIN = 160;
@@ -83,15 +87,43 @@ function clampMiniSize(size: { width: number; height?: number }): { width: numbe
   return { width: w, height: h };
 }
 
-export const usePlayerStore = create<PlayerState>((set, get) => ({
-  session: null,
-  slotRect: null,
-  miniPos: null,
-  miniSize: { width: 400, height: Math.round((400 * 9) / 16) + MINI_HEADER_H },
-  collapsed: false,
-  miniPrefsInitialized: false,
+function loadVolumePrefs(): { volume: number; muted: boolean } {
+  try {
+    const p = localStorage.getItem(VOLUME_KEY);
+    if (p) {
+      const parsed = JSON.parse(p);
+      const volume = typeof parsed.volume === 'number' ? Math.min(1, Math.max(0, parsed.volume)) : 1;
+      const muted = parsed.muted === true;
+      return { volume, muted };
+    }
+  } catch {}
+  return { volume: 1, muted: false };
+}
 
-  initMiniPrefs: () => {
+function saveVolumePrefs(volume: number, muted: boolean): void {
+  try {
+    localStorage.setItem(VOLUME_KEY, JSON.stringify({ volume, muted }));
+  } catch {}
+}
+
+export const usePlayerStore = create<PlayerState>((set, get) => {
+  const volumePrefs = loadVolumePrefs();
+  return {
+    session: null,
+    slotRect: null,
+    miniPos: null,
+    miniSize: { width: 400, height: Math.round((400 * 9) / 16) + MINI_HEADER_H },
+    collapsed: false,
+    miniPrefsInitialized: false,
+    volume: volumePrefs.volume,
+    muted: volumePrefs.muted,
+
+    setVolume: (volume, muted) => {
+      set({ volume, muted });
+      saveVolumePrefs(volume, muted);
+    },
+
+    initMiniPrefs: () => {
     if (get().miniPrefsInitialized) return;
     let pos = null;
     let size = null;
@@ -321,4 +353,5 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     lastSaveRef.value = 0;
     set({ session: null, slotRect: null, collapsed: false });
   },
-}));
+  };
+});

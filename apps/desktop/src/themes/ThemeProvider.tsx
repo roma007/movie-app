@@ -17,6 +17,8 @@ function applyTheme(colors: ThemeColors, cardOpacity: number): void {
 
   const opacity = cardOpacity / 100;
   root.style.setProperty('--color-card-alpha', hexToRgba(colors.card, opacity));
+  root.style.setProperty('--color-card-accent-alpha', hexToRgba(colors.cardAccent, opacity));
+  root.style.setProperty('--color-card-dim-alpha', hexToRgba(colors.cardDim, opacity));
   root.style.setProperty('--color-surface-alpha', hexToRgba(colors.surface, opacity * 0.85));
   root.style.setProperty('--color-surface-elevated-alpha', hexToRgba(colors.surfaceElevated, opacity * 0.95));
   root.style.setProperty('--color-input-alpha', hexToRgba(colors.input, opacity * 0.9));

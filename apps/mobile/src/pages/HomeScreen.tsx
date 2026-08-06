@@ -182,7 +182,7 @@ export default function HomeScreen() {
   };
 
   const renderSearchFirstCard = () => (
-    <View style={styles.usageCard}>
+    <View style={[styles.usageCard, styles.searchFirstCard]}>
       <View style={styles.titleRow}>
         <Sparkles size={18} color={colors.text} />
         <Text style={styles.usageCardTitle}>快速搜索采集</Text>
@@ -267,7 +267,6 @@ export default function HomeScreen() {
       </View>
       {latestMedia.length > 0 && (
         <>
-          <Text style={styles.usageCardSubtitle}>最新入库</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {latestMedia.map((m) => (
               <MediaCard
@@ -431,6 +430,9 @@ export default function HomeScreen() {
       borderRadius: radius.lg,
       padding: 14,
     },
+    searchFirstCard: {
+      marginTop: 0,
+    },
     titleRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -450,19 +452,13 @@ export default function HomeScreen() {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: 4,
+      marginBottom: 12,
     },
     emptyCardText: {
       fontSize: s(13),
       color: colors.mutedForeground,
       textAlign: 'center',
       paddingVertical: 16,
-    },
-    usageCardSubtitle: {
-      fontSize: s(13),
-      color: colors.textSecondary,
-      marginTop: 10,
-      marginBottom: 8,
     },
     quickSearchRow: {
       flexDirection: 'row',

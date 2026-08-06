@@ -6,6 +6,8 @@ export interface ThemeColors {
   background: string;
   surface: string;
   card: string;
+  cardAccent: string;
+  cardDim: string;
   surfaceElevated: string;
   hover: string;
   foreground: string;

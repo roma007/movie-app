@@ -4,6 +4,7 @@ import { mapType, isBlacklisted, refineTypeByEpisodes, isVersionTitle, needsShor
 import { SOURCE_ID_TO_NAME_MAP, PLAY_SOURCE_TYPE_MAP, isPlayableMediaUrl } from '../utils/constants';
 import { isKnownDeadPosterUrl, isUsablePosterUrl } from '../utils/posterHost';
 import type { DatabaseProvider } from '../db/provider';
+import { UNCATEGORIZED_GENRE } from '../db/provider';
 import type { CMSMediaItem, Media, Episode, PlaySource, VideoSource, CollectTask, TaskStatus, TaskErrorType, CollectionLog, CollectPreviewItem } from '../types';
 import { SystemConfigService } from './systemConfigService';
 import type { ShortDramaConfig } from './systemConfigService';
@@ -196,9 +197,13 @@ export class CollectorService {
       const description = await normalizer.normalizeDescription(item.vod_content);
 
       let hidden = existing?.hidden ?? false;
-      if (!existing && genres.length > 0) {
+      if (!existing) {
         const hiddenGenres = await this.db.getHiddenGenres();
-        if (hiddenGenres.some(hg => {
+        if (genres.length === 0) {
+          if (hiddenGenres.includes(UNCATEGORIZED_GENRE)) {
+            hidden = true;
+          }
+        } else if (hiddenGenres.some(hg => {
           const needle = hg.toLowerCase();
           return genres.some(g => g.toLowerCase().includes(needle));
         })) {
@@ -808,8 +813,9 @@ export class CollectorService {
 
       // 断点续采: 计算时间窗口
       let hours: number | undefined;
-      if (source.lastCollectedAt) {
-        const lastCollected = new Date(source.lastCollectedAt).getTime();
+      const lastIncremental = source.lastIncrementalCollectedAt || source.lastCollectedAt;
+      if (lastIncremental) {
+        const lastCollected = new Date(lastIncremental).getTime();
         const hoursSinceLast = Math.ceil((Date.now() - lastCollected) / 3600000) + 2;
         hours = Math.min(hoursSinceLast, config.maxIncrementalHours);
       }
@@ -886,7 +892,7 @@ export class CollectorService {
           completedAt: new Date().toISOString(),
         });
 
-        await this.db.updateSourceLastCollectedAt(source.id, new Date().toISOString());
+        await this.db.updateSourceLastIncrementalCollectedAt(source.id, new Date().toISOString());
 
         await this.logToDb(`批采 ${source.name} 完成: ${collected}条, ${failed}次失败`, 'info', {
           sourceCode: source.code,
@@ -1084,8 +1090,9 @@ export class CollectorService {
 
     // 断点续采: 计算时间窗口
     let hours: number | undefined;
-    if (source.lastCollectedAt) {
-      const lastCollected = new Date(source.lastCollectedAt).getTime();
+    const lastIncremental = source.lastIncrementalCollectedAt || source.lastCollectedAt;
+    if (lastIncremental) {
+      const lastCollected = new Date(lastIncremental).getTime();
       const hoursSinceLast = Math.ceil((Date.now() - lastCollected) / 3600000) + 2;
       hours = Math.min(hoursSinceLast, config.maxIncrementalHours);
       this.emitLog('info', `断点续采模式: 上次采集${Math.round(hoursSinceLast - 2)}小时前，追溯${hours}小时`, sourceCode, source.name, taskId);
@@ -1171,7 +1178,7 @@ export class CollectorService {
           status: 'COMPLETED' as TaskStatus,
           completedAt: new Date().toISOString(),
         });
-        await this.db.updateSourceLastCollectedAt(source.id, new Date().toISOString());
+        await this.db.updateSourceLastIncrementalCollectedAt(source.id, new Date().toISOString());
         await this.logToDb(`增量采集完成: ${collected}条, ${failed}次失败`, 'info', {
           sourceCode,
           sourceName: source.name,

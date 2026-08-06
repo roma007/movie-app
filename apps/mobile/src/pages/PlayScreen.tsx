@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { getProvider } from '../init';
 import { useAppStore } from '../useAppStore';
@@ -23,7 +23,7 @@ interface Props {
 export default function PlayScreen({ route, navigation }: Props) {
   const { episodeId, mediaId: paramMediaId, sourceId: paramSourceId, title: paramTitle } = route.params;
   const {
-    saveWatchProgress, episodes, seasons, episodeSources, seriesMedia,
+    saveWatchProgress, episodes, episodesLoading, seasons, episodeSources, seriesMedia,
     loadEpisodes, loadSeasons, loadEpisodeSources, loadSeriesMedia,
   } = useAppStore();
 
@@ -57,6 +57,8 @@ export default function PlayScreen({ route, navigation }: Props) {
   const [lastSaveTime, setLastSaveTime] = useState(0);
 
   const [bgImageUrl, setBgImageUrl] = useState<string | null>(null);
+  const [sourcesLoaded, setSourcesLoaded] = useState(false);
+  const [episodeListSwitching, setEpisodeListSwitching] = useState(false);
 
   useEffect(() => {
     if (!media?.posterUrl) {
@@ -70,6 +72,8 @@ export default function PlayScreen({ route, navigation }: Props) {
   const cardOpacity = useThemeStore((s) => s.cardOpacity);
   const cardBg = hexToRgba(colors.card, cardOpacity / 100);
   const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100);
+  const accentBg = hexToRgba(colors.cardAccent, cardOpacity / 100);
+  const dimBg = hexToRgba(colors.cardDim, cardOpacity / 100);
   const sf = useScaledFontSize();
 
   const styles = useMemo(() => StyleSheet.create({
@@ -93,10 +97,23 @@ export default function PlayScreen({ route, navigation }: Props) {
     sectionLabel: { fontSize: sf(14), color: colors.mutedForeground, marginBottom: 10 },
     row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.sm },
+    sourceEpisodeRow: { flexDirection: 'row', alignItems: 'stretch' },
+    sourceTabCol: { flexDirection: 'column', alignItems: 'flex-end', gap: 6, paddingLeft: 12, paddingVertical: 10 },
+    sourceTab: { borderTopLeftRadius: radius.md, borderBottomLeftRadius: radius.md, borderTopRightRadius: 0, borderBottomRightRadius: 0 },
+    sourceTabActive: { backgroundColor: accentBg, paddingVertical: 10, paddingHorizontal: 12, width: 92 },
+    sourceTabInactive: { backgroundColor: dimBg, paddingVertical: 6, paddingHorizontal: 8, width: 84 },
+    sourceTabText: { fontSize: sf(12), fontWeight: '500', textAlign: 'left' },
+    episodePanel: { flex: 1, minWidth: 0, backgroundColor: accentBg, borderTopRightRadius: radius.md, borderBottomRightRadius: radius.md, padding: 12 },
+    episodesPlaceholder: { paddingVertical: 30, alignItems: 'center' },
+    episodesPlaceholderText: { color: colors.mutedForeground, fontSize: sf(14) },
     episodeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-    episodeBtn: { width: '22%', paddingVertical: 10, borderRadius: radius.sm },
-    episodeTextActive: { color: colors.text },
-  }), [colors, cardBg, surfaceBg, sf]);
+    episodeBtn: { width: '30%', paddingVertical: 10, paddingHorizontal: 6, borderRadius: radius.sm, alignItems: 'center' },
+    episodeBtnIdle: { backgroundColor: dimBg },
+    episodeBtnActive: { backgroundColor: accentBg },
+    episodeBtnWatched: { opacity: 0.5 },
+    episodeBtnText: { color: colors.textSecondary, fontSize: sf(12), fontWeight: '500', textAlign: 'center' },
+    episodeBtnTextActive: { color: colors.buttonPrimaryText },
+  }), [colors, cardBg, surfaceBg, accentBg, dimBg, sf]);
 
   useEffect(() => {
     if (!mediaId) return;
@@ -106,8 +123,9 @@ export default function PlayScreen({ route, navigation }: Props) {
 
   useEffect(() => {
     if (!mediaId || currentSeason === 0) return;
-    loadEpisodeSources(mediaId, currentSeason);
-  }, [mediaId, currentSeason]);
+    setSourcesLoaded(false);
+    loadEpisodeSources(mediaId, currentSeason).then(() => setSourcesLoaded(true));
+  }, [mediaId, currentSeason, loadEpisodeSources]);
 
   useEffect(() => {
     if (episodeSources.length === 0) return;
@@ -120,6 +138,10 @@ export default function PlayScreen({ route, navigation }: Props) {
     if (!mediaId || currentSeason === 0 || !selectedSourceId) return;
     loadEpisodes(mediaId, currentSeason, selectedSourceId);
   }, [mediaId, currentSeason, selectedSourceId]);
+
+  useEffect(() => {
+    if (!episodesLoading) setEpisodeListSwitching(false);
+  }, [episodesLoading]);
 
   useEffect(() => {
     if (seasons.length > 0 && !seasons.includes(currentSeason)) {
@@ -276,10 +298,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   };
 
   // 功能2: 下一集
-  const filteredEpisodes = useMemo(() => {
-    if (!selectedSourceId) return episodes;
-    return episodes.filter(ep => ep.sourceId === selectedSourceId);
-  }, [episodes, selectedSourceId]);
+  const filteredEpisodes = episodes;
 
   const nextEpisode = useMemo(() => {
     if (!currentEpisodeId || filteredEpisodes.length === 0 || media?.type === 'MOVIE') return null;
@@ -321,6 +340,7 @@ export default function PlayScreen({ route, navigation }: Props) {
 
   const handleSourceChange = (sourceId: string) => {
     setSelectedSourceId(sourceId);
+    setEpisodeListSwitching(true);
   };
 
   const handleEpisodePress = (ep: Episode) => {
@@ -432,26 +452,6 @@ export default function PlayScreen({ route, navigation }: Props) {
           );
         })()}
 
-        {episodeSources.length > 1 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>视频源</Text>
-            <View style={styles.row}>
-              {episodeSources.map((s: VideoSource) => (
-                <Button
-                  key={s.id}
-                  variant="secondary"
-                  size="sm"
-                  active={selectedSourceId === s.id}
-                  style={styles.chip}
-                  onPress={() => handleSourceChange(s.id)}
-                >
-                  {s.name}
-                </Button>
-              ))}
-            </View>
-          </View>
-        )}
-
         {displaySeasons.length > 1 && (
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>季数</Text>
@@ -475,27 +475,61 @@ export default function PlayScreen({ route, navigation }: Props) {
           </View>
         )}
 
-        {/* 功能3: 已看剧集标记 */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>剧集（{filteredEpisodes.length}集）</Text>
-          <View style={styles.episodeGrid}>
-            {filteredEpisodes.map((ep: Episode) => {
-              const isWatched = watchedEpisodes.has(ep.id) && ep.id !== currentEpisodeId;
-              return (
-                <Button
-                  key={ep.id}
-                  variant="secondary"
-                  size="sm"
-                  active={ep.id === currentEpisodeId}
-                  disabled={isWatched}
-                  style={styles.episodeBtn}
-                  textStyle={ep.id === currentEpisodeId ? styles.episodeTextActive : undefined}
-                  onPress={() => handleEpisodePress(ep)}
-                >
-                  {ep.title || `第${ep.episodeNumber}集`}
-                </Button>
-              );
-            })}
+          <View style={styles.sourceEpisodeRow}>
+            {episodeSources.length > 1 && (
+              <View style={styles.sourceTabCol}>
+                {episodeSources.map((s: VideoSource) => {
+                  const active = selectedSourceId === s.id;
+                  return (
+                    <TouchableOpacity
+                      key={s.id}
+                      activeOpacity={0.7}
+                      onPress={() => handleSourceChange(s.id)}
+                      style={[styles.sourceTab, active ? styles.sourceTabActive : styles.sourceTabInactive]}
+                    >
+                      <Text numberOfLines={1} style={[styles.sourceTabText, { color: active ? colors.buttonPrimaryText : colors.buttonSecondaryText }]}>
+                        {s.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+
+            <View style={styles.episodePanel}>
+              {episodesLoading || episodeListSwitching || !sourcesLoaded || (episodeSources.length > 0 && !selectedSourceId) ? (
+                <View style={styles.episodesPlaceholder}>
+                  <ActivityIndicator size="small" color={colors.mutedForeground} />
+                  <Text style={styles.episodesPlaceholderText}>加载中...</Text>
+                </View>
+              ) : filteredEpisodes.length === 0 ? (
+                <View style={styles.episodesPlaceholder}>
+                  <Text style={styles.episodesPlaceholderText}>暂无剧集</Text>
+                </View>
+              ) : (
+                <View style={styles.episodeGrid}>
+                  {filteredEpisodes.map((ep: Episode) => {
+                    const isActive = ep.id === currentEpisodeId;
+                    const isWatched = watchedEpisodes.has(ep.id) && !isActive;
+                    return (
+                      <TouchableOpacity
+                        key={ep.id}
+                        activeOpacity={0.7}
+                        disabled={isWatched}
+                        style={[styles.episodeBtn, isActive ? styles.episodeBtnActive : styles.episodeBtnIdle, isWatched && styles.episodeBtnWatched]}
+                        onPress={() => handleEpisodePress(ep)}
+                      >
+                        <Text numberOfLines={1} style={[styles.episodeBtnText, isActive && styles.episodeBtnTextActive]}>
+                          {ep.title || `第${ep.episodeNumber}集`}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
           </View>
         </View>
       </ScrollView>

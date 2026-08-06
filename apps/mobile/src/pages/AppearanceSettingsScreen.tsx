@@ -182,7 +182,7 @@ export default function AppearanceSettingsScreen({ navigation }: Props) {
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>视觉与透明度</Text>
+            <Text style={styles.cardTitle}>背景</Text>
             <View style={styles.compactSliderLabelRow}>
               <Text style={styles.compactSliderLabel}>磨砂强度</Text>
               <Text style={styles.compactSliderValue}>{blurIntensity}</Text>
@@ -238,7 +238,7 @@ export default function AppearanceSettingsScreen({ navigation }: Props) {
             <View style={styles.compactDivider} />
 
             <View style={styles.compactSliderLabelRow}>
-              <Text style={styles.compactSliderLabel}>卡片透明度</Text>
+              <Text style={styles.compactSliderLabel}>透明度</Text>
               <Text style={styles.compactSliderValue}>{cardOpacity}%</Text>
             </View>
             <View style={styles.compactSliderTrack}>
@@ -266,6 +266,7 @@ export default function AppearanceSettingsScreen({ navigation }: Props) {
                     size="sm"
                     active={fontSizeScale === preset.scale}
                     style={styles.compactFontBtn}
+                    textStyle={{ fontSize: Math.round(12 * preset.scale) }}
                     onPress={() => setFontSizeScale(preset.scale)}
                   >
                     {preset.label}

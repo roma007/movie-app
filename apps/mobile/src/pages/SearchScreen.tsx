@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useAppStore, getCollector, getProvider } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
@@ -28,52 +28,51 @@ export default function SearchScreen({ navigation, route }: Props) {
   const [searchHistory, setSearchHistory] = useState<{ keyword: string; count: number }[]>([]);
   const [hotSearches, setHotSearches] = useState<{ keyword: string; count: number }[]>([]);
   const { mediaList, searchMedia } = useAppStore();
+  const searchIdRef = useRef(0);
 
-  useEffect(() => {
+  const refreshHistory = () => {
     const provider = getProvider();
     provider.getSearchHistory(10).then(setSearchHistory).catch(() => {});
     provider.getHotSearches(10).then(setHotSearches).catch(() => {});
-  }, []);
+  };
+
+  const runSearch = async (kw: string) => {
+    const id = ++searchIdRef.current;
+    setSearching(true);
+    try {
+      const provider = getProvider();
+      await provider.addSearchHistory(kw);
+      const collector = getCollector();
+      await collector.collectByKeyword(kw);
+      if (id !== searchIdRef.current) return;
+      await searchMedia(kw);
+      if (id !== searchIdRef.current) return;
+      refreshHistory();
+    } catch (err) {
+      if (id === searchIdRef.current) console.error('搜索失败:', err);
+    } finally {
+      if (id === searchIdRef.current) setSearching(false);
+    }
+  };
 
   useEffect(() => {
     const kw = route?.params?.keyword;
     if (kw) {
       setKeyword(kw);
       getProvider().addSearchHistory(kw).catch(() => {});
-      const collector = getCollector();
-      setSearching(true);
-      collector.collectByKeyword(kw)
-        .then(() => searchMedia(kw))
-        .then(() => {
-          getProvider().getSearchHistory(10).then(setSearchHistory).catch(() => {});
-          getProvider().getHotSearches(10).then(setHotSearches).catch(() => {});
-        })
-        .catch(() => {})
-        .finally(() => setSearching(false));
+      runSearch(kw);
     }
   }, [route?.params?.keyword]);
 
-  const handleSearch = async () => {
-    if (!keyword.trim()) return;
-    setSearching(true);
-    try {
-      const provider = getProvider();
-      await provider.addSearchHistory(keyword.trim());
-      const collector = getCollector();
-      await collector.collectByKeyword(keyword.trim());
-      await searchMedia(keyword.trim());
-      provider.getSearchHistory(10).then(setSearchHistory).catch(() => {});
-      provider.getHotSearches(10).then(setHotSearches).catch(() => {});
-    } catch (err) {
-      console.error('搜索失败:', err);
-    } finally {
-      setSearching(false);
-    }
+  const handleSearch = () => {
+    const kw = keyword.trim();
+    if (!kw) return;
+    runSearch(kw);
   };
 
-  const handleHistoryClick = async (kw: string) => {
+  const handleHistoryClick = (kw: string) => {
     setKeyword(kw);
-    await handleSearch();
+    runSearch(kw);
   };
 
   const handleClearHistory = async () => {
@@ -162,8 +161,8 @@ export default function SearchScreen({ navigation, route }: Props) {
           onSubmitEditing={handleSearch}
           returnKeyType="search"
         />
-        <Button variant="primary" size="md" onPress={handleSearch} loading={searching}>
-          {searching ? '' : '搜索'}
+        <Button variant="primary" size="md" onPress={handleSearch}>
+          搜索
         </Button>
       </View>
 

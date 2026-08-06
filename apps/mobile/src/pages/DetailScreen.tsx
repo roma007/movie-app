@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal } from 'react-native';
 import { useAppStore } from '../useAppStore';
 import { getProvider } from '../init';
-import { VideoDurationService } from '@movie-app/core';
+import { VideoDurationService, UNCATEGORIZED_GENRE } from '@movie-app/core';
 import { Heart, ArrowLeft, EyeOff } from 'lucide-react-native';
 import type { Episode, PlaySource, VideoSource } from '@movie-app/core';
 import { useThemeColors } from '../themes/useThemeColors';
@@ -25,6 +25,8 @@ export default function DetailScreen({ route, navigation }: Props) {
   const colors = useThemeColors();
   const cardOpacity = useThemeStore((s) => s.cardOpacity);
   const cardBg = hexToRgba(colors.card, cardOpacity / 100);
+  const accentBg = hexToRgba(colors.cardAccent, cardOpacity / 100);
+  const dimBg = hexToRgba(colors.cardDim, cardOpacity / 100);
   const s = useScaledFontSize();
   const [currentSeason, setCurrentSeason] = useState(1);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
@@ -65,10 +67,10 @@ export default function DetailScreen({ route, navigation }: Props) {
     header: { flexDirection: 'row', padding: 20, paddingTop: 10 },
     poster: { width: 120, height: 170, borderRadius: radius.md, backgroundColor: cardBg },
     info: { flex: 1, marginLeft: 15, justifyContent: 'center' },
-    titleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 },
-    title: { fontSize: s(20), fontWeight: 'bold', color: colors.text, flex: 1, marginRight: 8 },
+    titleRow: { marginBottom: 6 },
+    title: { fontSize: s(20), fontWeight: 'bold', color: colors.text },
     favButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.sm, gap: 4 },
-    favGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    favGroup: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
     alias: { fontSize: s(13), color: colors.mutedForeground, marginBottom: 4 },
     subtitle: { fontSize: s(14), color: colors.textSecondary, marginBottom: 4 },
     updateTime: { fontSize: s(13), color: colors.error, marginBottom: 8 },
@@ -82,13 +84,21 @@ export default function DetailScreen({ route, navigation }: Props) {
     nameLink: { fontSize: s(14), color: colors.textSecondary, marginRight: 4 },
     seasonRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
     seasonButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: radius.md },
-    sourceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-    sourceButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: radius.md },
+    sourceEpisodeRow: { flexDirection: 'row', alignItems: 'stretch' },
+    sourceTabCol: { flexDirection: 'column', alignItems: 'flex-end', gap: 6, paddingLeft: 12, paddingVertical: 10 },
+    sourceTab: { borderTopLeftRadius: radius.md, borderBottomLeftRadius: radius.md, borderTopRightRadius: 0, borderBottomRightRadius: 0 },
+    sourceTabActive: { backgroundColor: accentBg, paddingVertical: 10, paddingHorizontal: 12, width: 92 },
+    sourceTabInactive: { backgroundColor: dimBg, paddingVertical: 6, paddingHorizontal: 8, width: 84 },
+    sourceTabText: { fontSize: s(12), fontWeight: '500', textAlign: 'left' },
+    episodePanel: { flex: 1, minWidth: 0, backgroundColor: accentBg, borderTopRightRadius: radius.md, borderBottomRightRadius: radius.md, padding: 12 },
     episodesPlaceholder: { paddingVertical: 30, alignItems: 'center' },
     episodesPlaceholderText: { color: colors.mutedForeground, fontSize: s(14) },
     episodesPlaceholderHint: { color: colors.disabledForeground, fontSize: s(12), marginTop: 4 },
     episodeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-    episodeButton: { width: '22%', paddingVertical: 10, borderRadius: radius.sm },
+    episodeButton: { width: '22%', paddingVertical: 10, paddingHorizontal: 6, borderRadius: radius.sm, alignItems: 'center' },
+    episodeButtonIdle: { backgroundColor: dimBg },
+    episodeButtonWatched: { opacity: 0.5 },
+    episodeButtonText: { color: colors.textSecondary, fontSize: s(12), fontWeight: '500', textAlign: 'center' },
     episodeDuration: { color: colors.disabledForeground, fontSize: s(11), marginTop: 4 },
     error: { color: colors.error, textAlign: 'center', marginTop: 50 },
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
@@ -100,7 +110,7 @@ export default function DetailScreen({ route, navigation }: Props) {
     genreChipText: { fontSize: s(13), color: colors.text },
     modalButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12 },
     modalButton: { paddingHorizontal: 16, paddingVertical: 8 },
-  }), [colors, cardBg, s]);
+  }), [colors, cardBg, accentBg, dimBg, s]);
 
   useEffect(() => {
     loadMediaDetail(id);
@@ -207,7 +217,7 @@ export default function DetailScreen({ route, navigation }: Props) {
   };
 
   const openHideModal = () => {
-    if (!currentMedia?.genres?.length) return;
+    if (!currentMedia) return;
     setSelectedHideGenres([]);
     setHideModalVisible(true);
   };
@@ -277,29 +287,27 @@ export default function DetailScreen({ route, navigation }: Props) {
         <View style={styles.info}>
           <View style={styles.titleRow}>
             <Text style={styles.title} numberOfLines={2}>{currentMedia.title}</Text>
-            <View style={styles.favGroup}>
-              {currentMedia.genres.length > 0 && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  style={styles.favButton}
-                  leftIcon={<EyeOff size={16} color={colors.textSecondary} />}
-                  onPress={openHideModal}
-                >
-                  隐藏此类视频
-                </Button>
-              )}
-              <Button
-                variant="secondary"
-                size="sm"
-                active={isFav}
-                style={styles.favButton}
-                leftIcon={<Heart size={16} color={isFav ? colors.text : colors.textSecondary} fill={isFav ? colors.text : 'none'} />}
-                onPress={handleFav}
-              >
-                {isFav ? '已收藏' : '收藏'}
-              </Button>
-            </View>
+          </View>
+          <View style={styles.favGroup}>
+            <Button
+              variant="secondary"
+              size="sm"
+              style={styles.favButton}
+              leftIcon={<EyeOff size={16} color={colors.textSecondary} />}
+              onPress={openHideModal}
+            >
+              隐藏此类视频
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              active={isFav}
+              style={styles.favButton}
+              leftIcon={<Heart size={16} color={isFav ? colors.text : colors.textSecondary} fill={isFav ? colors.text : 'none'} />}
+              onPress={handleFav}
+            >
+              {isFav ? '已收藏' : '收藏'}
+            </Button>
           </View>
           {currentMedia.alias && (
             <Text style={styles.alias}>又名：{currentMedia.alias}</Text>
@@ -376,97 +384,104 @@ export default function DetailScreen({ route, navigation }: Props) {
         </View>
       )}
 
-      {episodeSources.length > 1 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>视频源</Text>
-          <View style={styles.sourceRow}>
-            {episodeSources.map((s: VideoSource) => (
-              <Button
-                key={s.id}
-                variant="secondary"
-                size="sm"
-                active={selectedSourceId === s.id}
-                style={styles.sourceButton}
-                onPress={() => handleSourceChange(s.id)}
-              >
-                {s.name}
-              </Button>
-            ))}
-          </View>
-        </View>
-      )}
-
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>{isMovie ? '播放源' : `剧集 (${episodes.length}集)`}</Text>
-        {isEpisodesLoading ? (
-          <View style={styles.episodesPlaceholder}>
-            <ActivityIndicator size="small" color={colors.mutedForeground} />
-            <Text style={styles.episodesPlaceholderText}>加载中...</Text>
-          </View>
-        ) : episodes.length === 0 ? (
-          <View style={styles.episodesPlaceholder}>
-            <Text style={styles.episodesPlaceholderText}>暂无集数信息</Text>
-            <Text style={styles.episodesPlaceholderHint}>请尝试重新采集数据或切换视频源</Text>
-          </View>
-        ) : isMovie ? (
-          // 功能4: 电影多线路播放
-          <View style={styles.episodeGrid}>
-            {episodes.map((ep: Episode) => {
-              const sources = allPlaySources[ep.id] || [];
-              const sourceKeyMap = new Map<string, number>();
-              sources.forEach(s => {
-                const key = `${s.sourceName || ''}_${s.quality || ''}`;
-                sourceKeyMap.set(key, (sourceKeyMap.get(key) || 0) + 1);
-              });
-              const keyIndexMap = new Map<string, number>();
-              return sources.map((source: PlaySource, idx: number) => {
-                const key = `${source.sourceName || ''}_${source.quality || ''}`;
-                const count = sourceKeyMap.get(key) || 1;
-                const idxInGroup = (keyIndexMap.get(key) || 0) + 1;
-                keyIndexMap.set(key, idxInGroup);
-                const baseTitle = `${source.sourceName || ''}${source.quality ? ` · ${source.quality}` : ''}`.trim() || '正片';
-                const suffix = count > 1 ? ` (${idxInGroup})` : '';
-                const title = `${baseTitle}${suffix}`;
+        <View style={styles.sourceEpisodeRow}>
+          {episodeSources.length > 1 && (
+            <View style={styles.sourceTabCol}>
+              {episodeSources.map((s: VideoSource) => {
+                const active = selectedSourceId === s.id;
                 return (
-                  <Button
-                    key={`${ep.id}-${source.id || idx}`}
-                    variant="primary"
-                    size="sm"
-                    style={styles.episodeButton}
-                    onPress={() => navigation.navigate('Play', { episodeId: ep.id, mediaId: id, sourceId: source.sourceId, title: currentMedia.title + ' · ' + title })}
+                  <TouchableOpacity
+                    key={s.id}
+                    activeOpacity={0.7}
+                    onPress={() => handleSourceChange(s.id)}
+                    style={[styles.sourceTab, active ? styles.sourceTabActive : styles.sourceTabInactive]}
                   >
-                    {title}
-                  </Button>
-                );
-              });
-            })}
-          </View>
-        ) : (
-          // 功能5: 已看剧集标记
-          <View style={styles.episodeGrid}>
-            {episodes.map((ep: any) => {
-              const duration = episodeDurations[ep.id];
-              const isWatched = watchedEpisodes.has(ep.id);
-              return (
-                <Button
-                  key={ep.id}
-                  variant="primary"
-                  size="sm"
-                  disabled={isWatched}
-                  style={styles.episodeButton}
-                  onPress={() => navigation.navigate('Play', { episodeId: ep.id, mediaId: id, sourceId: selectedSourceId, title: currentMedia.title + (ep.title ? ` · ${ep.title}` : ` · 第${ep.episodeNumber}集`) })}
-                >
-                  {ep.title || `第${ep.episodeNumber}集`}
-                  {duration !== null && (
-                    <Text style={styles.episodeDuration}>
-                      {Math.floor(duration / 60)}:{String(duration % 60).padStart(2, '0')}
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.sourceTabText, { color: active ? colors.buttonPrimaryText : colors.buttonSecondaryText }]}
+                    >
+                      {s.name}
                     </Text>
-                  )}
-                </Button>
-              );
-            })}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+
+          <View style={styles.episodePanel}>
+            {isEpisodesLoading ? (
+              <View style={styles.episodesPlaceholder}>
+                <ActivityIndicator size="small" color={colors.mutedForeground} />
+                <Text style={styles.episodesPlaceholderText}>加载中...</Text>
+              </View>
+            ) : episodes.length === 0 ? (
+              <View style={styles.episodesPlaceholder}>
+                <Text style={styles.episodesPlaceholderText}>暂无集数信息</Text>
+                <Text style={styles.episodesPlaceholderHint}>请尝试重新采集数据或切换视频源</Text>
+              </View>
+            ) : isMovie ? (
+              // 功能4: 电影多线路播放
+              <View style={styles.episodeGrid}>
+                {episodes.map((ep: Episode) => {
+                  const sources = allPlaySources[ep.id] || [];
+                  const sourceKeyMap = new Map<string, number>();
+                  sources.forEach(s => {
+                    const key = `${s.sourceName || ''}_${s.quality || ''}`;
+                    sourceKeyMap.set(key, (sourceKeyMap.get(key) || 0) + 1);
+                  });
+                  const keyIndexMap = new Map<string, number>();
+                  return sources.map((source: PlaySource, idx: number) => {
+                    const key = `${source.sourceName || ''}_${source.quality || ''}`;
+                    const count = sourceKeyMap.get(key) || 1;
+                    const idxInGroup = (keyIndexMap.get(key) || 0) + 1;
+                    keyIndexMap.set(key, idxInGroup);
+                    const baseTitle = `${source.sourceName || ''}${source.quality ? ` · ${source.quality}` : ''}`.trim() || '正片';
+                    const suffix = count > 1 ? ` (${idxInGroup})` : '';
+                    const title = `${baseTitle}${suffix}`;
+                    return (
+                      <TouchableOpacity
+                        key={`${ep.id}-${source.id || idx}`}
+                        activeOpacity={0.7}
+                        style={[styles.episodeButton, styles.episodeButtonIdle]}
+                        onPress={() => navigation.navigate('Play', { episodeId: ep.id, mediaId: id, sourceId: source.sourceId, title: currentMedia.title + ' · ' + title })}
+                      >
+                        <Text numberOfLines={1} style={styles.episodeButtonText}>{title}</Text>
+                      </TouchableOpacity>
+                    );
+                  });
+                })}
+              </View>
+            ) : (
+              // 功能5: 已看剧集标记
+              <View style={styles.episodeGrid}>
+                {episodes.map((ep: any) => {
+                  const duration = episodeDurations[ep.id];
+                  const isWatched = watchedEpisodes.has(ep.id);
+                  return (
+                    <TouchableOpacity
+                      key={ep.id}
+                      activeOpacity={0.7}
+                      disabled={isWatched}
+                      style={[styles.episodeButton, styles.episodeButtonIdle, isWatched && styles.episodeButtonWatched]}
+                      onPress={() => navigation.navigate('Play', { episodeId: ep.id, mediaId: id, sourceId: selectedSourceId, title: currentMedia.title + (ep.title ? ` · ${ep.title}` : ` · 第${ep.episodeNumber}集`) })}
+                    >
+                      <Text numberOfLines={1} style={styles.episodeButtonText}>
+                        {ep.title || `第${ep.episodeNumber}集`}
+                      </Text>
+                      {duration !== null && (
+                        <Text style={styles.episodeDuration}>
+                          {Math.floor(duration / 60)}:{String(duration % 60).padStart(2, '0')}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
           </View>
-        )}
+        </View>
       </View>
 
       <Modal
@@ -480,7 +495,7 @@ export default function DetailScreen({ route, navigation }: Props) {
             <Text style={styles.modalTitle}>隐藏此类视频</Text>
             <Text style={styles.modalDesc}>选择要隐藏的子类型，隐藏后此类视频将不再显示。</Text>
             <View style={styles.modalGenres}>
-              {currentMedia.genres.map((g: string) => {
+              {(currentMedia.genres.length === 0 ? [UNCATEGORIZED_GENRE] : currentMedia.genres).map((g: string) => {
                 const selected = selectedHideGenres.includes(g);
                 return (
                   <TouchableOpacity

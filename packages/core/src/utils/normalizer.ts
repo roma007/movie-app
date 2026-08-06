@@ -88,7 +88,7 @@ export class DataNormalizer {
       if (mediaType === 'DOCUMENTARY' && ['电影', '电视剧', '综艺', '动漫', 'AI漫剧', '漫剧'].includes(g)) return false;
       return true;
     });
-    return filtered;
+    return [...new Set(filtered)];
   }
 
   async normalizePersonList(persons: string): Promise<string[]> {
@@ -326,7 +326,7 @@ export class DataNormalizer {
     const metaKeywords = keywords || [];
     const shortDramaKeywords = metaKeywords.filter(k =>
       ['短剧', '微短剧', '竖屏', '短劇', '微短劇', '竪屏',
-       '竖屏短剧', '竖屏剧', '短剧集', '竪屏短劇', '微短劇'].includes(k)
+       '竖屏短剧', '竖屏剧', '短剧集', '竪屏短劇'].includes(k)
     );
     const summaryKeywords = metaKeywords.filter(k =>
       ['竖屏短剧', '微短剧', '竖屏剧', '短剧集', '竪屏短劇', '微短劇'].includes(k)

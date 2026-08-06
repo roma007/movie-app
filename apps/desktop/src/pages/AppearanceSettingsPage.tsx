@@ -118,12 +118,12 @@ export default function AppearanceSettingsPage() {
         <div className="flex items-start gap-6">
           <div className="flex items-center gap-3 w-40 shrink-0 pt-1">
             <Layers className="size-4 text-muted-foreground" />
-            <span className="font-medium">视觉效果</span>
+            <span className="font-medium">背景</span>
           </div>
           <div className="flex items-start gap-5 flex-1 min-w-0 flex-wrap justify-end">
             <div className="w-36 space-y-2">
               <div className="flex items-center gap-1.5">
-                <span className="text-sm">卡片透明度</span>
+                <span className="text-sm">透明度</span>
                 <span className="text-sm text-muted-foreground">{cardOpacity}%</span>
               </div>
               <input

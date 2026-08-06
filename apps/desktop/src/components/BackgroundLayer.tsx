@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useThemeStore } from '../themes/store';
 import { useBackgroundStore, DEFAULT_BG_IMAGE } from '../themes/backgroundStore';
 
@@ -6,6 +6,10 @@ const OVERLAY_RGB: Record<'dark' | 'light', [number, number, number]> = {
   dark: [0, 0, 0],
   light: [255, 255, 255],
 };
+
+const FADE_DURATION_MS = 300;
+
+const loadedBgUrls = new Set<string>();
 
 export function BackgroundLayer() {
   const bgImageBlur = useThemeStore((s) => s.bgImageBlur);
@@ -15,14 +19,40 @@ export function BackgroundLayer() {
   const currentTheme = useThemeStore((s) => s.currentTheme);
   const dynamicBg = useBackgroundStore((s) => s.currentBgImage);
 
-  const effectiveBg = dynamicBg || DEFAULT_BG_IMAGE;
+  const [displayedBg, setDisplayedBg] = useState<string | null>(null);
+  const [bgOpacity, setBgOpacity] = useState(1);
 
   useEffect(() => {
-    if (dynamicBg) {
-      document.body.classList.add('bg-image-active');
-    } else {
-      document.body.classList.remove('bg-image-active');
+    document.body.classList.toggle('bg-image-active', Boolean(dynamicBg));
+  }, [dynamicBg]);
+
+  useEffect(() => {
+    if (!dynamicBg) {
+      setDisplayedBg(null);
+      setBgOpacity(1);
+      return;
     }
+    if (loadedBgUrls.has(dynamicBg)) {
+      setDisplayedBg(dynamicBg);
+      setBgOpacity(1);
+      return;
+    }
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (cancelled) return;
+      loadedBgUrls.add(dynamicBg);
+      setDisplayedBg(dynamicBg);
+      setBgOpacity(0);
+      requestAnimationFrame(() => {
+        if (!cancelled) setBgOpacity(1);
+      });
+    };
+    img.src = dynamicBg;
+    return () => {
+      cancelled = true;
+      img.src = '';
+    };
   }, [dynamicBg]);
 
   const scaleValue = bgImageScale;
@@ -35,11 +65,23 @@ export function BackgroundLayer() {
       <div
         className="absolute inset-0 bg-cover bg-center"
         style={{
-          backgroundImage: `url(${effectiveBg})`,
+          backgroundImage: `url(${DEFAULT_BG_IMAGE})`,
           filter: `blur(${bgImageBlur}px)`,
           transform: `scale(${scaleValue})`,
         }}
       />
+      {displayedBg && (
+        <div
+          className="absolute inset-0 bg-cover bg-center"
+          style={{
+            backgroundImage: `url(${displayedBg})`,
+            filter: `blur(${bgImageBlur}px)`,
+            transform: `scale(${scaleValue})`,
+            opacity: bgOpacity,
+            transition: `opacity ${FADE_DURATION_MS}ms ease`,
+          }}
+        />
+      )}
       {blurIntensity > 0 && (
         <div
           className="absolute inset-0"
