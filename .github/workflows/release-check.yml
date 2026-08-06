@@ -21,26 +21,32 @@ jobs:
         run: git fetch --tags --force
 
       - name: Ensure release tag
+        id: tag
         run: |
           VERSION=$(node -p "require('./package.json').version")
           TAG="v$VERSION"
           echo "Target tag: $TAG"
           if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
             echo "Tag $TAG already exists, skip."
+            echo "created=false" >> "$GITHUB_OUTPUT"
           else
             git tag "$TAG"
-            git push origin "$TAG" || {
+            if git push origin "$TAG"; then
+              echo "created=true" >> "$GITHUB_OUTPUT"
+            else
               echo "Tag push failed (likely raced with another run); re-checking..."
               git fetch --tags --force
               if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
                 echo "Tag $TAG still missing after fetch" >&2
                 exit 1
               fi
-            }
+              echo "created=true" >> "$GITHUB_OUTPUT"
+            fi
           fi
           echo "tag=$TAG" >> "$GITHUB_ENV"
 
       - name: Trigger release build on tag
+        if: steps.tag.outputs.created == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
