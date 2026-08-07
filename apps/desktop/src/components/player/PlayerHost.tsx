@@ -39,7 +39,6 @@ export function PlayerHost() {
   const closePlayback = usePlayerStore((s) => s.closePlayback);
   const handleSourceChange = usePlayerStore((s) => s.handleSourceChange);
   const handleTimeUpdate = usePlayerStore((s) => s.handleTimeUpdate);
-  const handleSourceFail = usePlayerStore((s) => s.handleSourceFail);
   const switchEpisode = usePlayerStore((s) => s.switchEpisode);
   const volume = usePlayerStore((s) => s.volume);
   const muted = usePlayerStore((s) => s.muted);
@@ -134,7 +133,7 @@ export function PlayerHost() {
 
   const mode: 'full' | 'mini' = isPlayRoute ? 'full' : 'mini';
 
-  const activeSources = session.sources.filter((s) => s.isActive !== false);
+  const activeSources = session.sources;
   const showPlayer = activeSources.length > 0 || !session.loading;
   const canPiP = typeof document !== 'undefined' && !!document.pictureInPictureEnabled;
 
@@ -423,7 +422,6 @@ export function PlayerHost() {
             onVolumeChange={setVolume}
             onTimeUpdate={handlePlayerTimeUpdate}
             onSourceChange={handleSourceChange}
-            onSourceFail={handleSourceFail}
             overlays={
               <PlayerOverlays
                 nextEpisodeTitle={nextEpisodeTitle}

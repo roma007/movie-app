@@ -42,7 +42,6 @@ interface PlayerState {
   switchCmsSource: (sourceId: string) => void;
   handleSourceChange: (source: PlaySource) => void;
   handleTimeUpdate: (currentTime: number, duration: number) => void;
-  handleSourceFail: (sourceId: string) => Promise<void>;
   updateNextEpisode: () => void;
   setSlotRect: (rect: Rect | null) => void;
   setMiniPos: (pos: { x: number; y: number }) => void;
@@ -199,7 +198,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       ]);
       if (seq !== loadSeq) return;
 
-      const activePs = ps.filter((p) => p.isActive !== false);
+      const activePs = ps;
       const effective = opts?.sourceId ?? ep.sourceId ?? null;
       let playSourceId: string | null = null;
       if (effective) {
@@ -285,9 +284,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
   switchCmsSource: (sourceId) => {
     const s = get().session;
     if (!s) return;
-    const matching =
-      s.sources.find((p) => p.sourceId === sourceId && p.isActive !== false) ||
-      s.sources.find((p) => p.sourceId === sourceId);
+    const matching = s.sources.find((p) => p.sourceId === sourceId);
     set({ session: { ...s, selectedSourceId: sourceId, playSourceId: matching?.id ?? s.playSourceId } });
   },
 
@@ -308,14 +305,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       void getStore()
         .getState()
         .saveWatchProgress(s.media.id, s.episodeId || null, Math.floor(currentTime), Math.floor(duration));
-    }
-  },
-
-  handleSourceFail: async (sourceId) => {
-    try {
-      await getProvider().reportPlaySourceFail(sourceId);
-    } catch (err) {
-      console.error('[playerStore] 上报线路失败出错:', err);
     }
   },
 

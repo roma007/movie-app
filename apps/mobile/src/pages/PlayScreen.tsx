@@ -264,23 +264,6 @@ export default function PlayScreen({ route, navigation }: Props) {
     return () => clearInterval(interval);
   }, [player, outroThresholdMinutes, showNextEpisodeOverlay]);
 
-  const handlePlaySourceFail = async (sourceId: string) => {
-    const provider = getProvider();
-    await provider.reportPlaySourceFail(sourceId);
-    const nextIdx = activePlayIdx + 1;
-    if (nextIdx < playSources.length) {
-      setError(`线路 ${activePlayIdx + 1} 失败，正在尝试线路 ${nextIdx + 1}...`);
-      setTimeout(() => {
-        setActivePlayIdx(nextIdx);
-        setVideoUrl(playSources[nextIdx].url);
-        setIsLoading(true);
-        setError(null);
-      }, 1500);
-    } else {
-      setError('所有线路均失败，请稍后重试');
-    }
-  };
-
   const handlePlaySourceChange = (idx: number) => {
     setActivePlayIdx(idx);
     setVideoUrl(playSources[idx].url);
@@ -438,12 +421,10 @@ export default function PlayScreen({ route, navigation }: Props) {
                       variant="secondary"
                       size="sm"
                       active={i === activePlayIdx}
-                      disabled={s.isActive === false}
                       style={styles.chip}
-                      onPress={() => s.isActive !== false && handlePlaySourceChange(i)}
+                      onPress={() => handlePlaySourceChange(i)}
                     >
                       {baseName}{qualityStr}{suffix}
-                      {s.isActive === false && ' (不可用)'}
                     </Button>
                   );
                 })}

@@ -272,12 +272,10 @@ export default function PlayPage() {
                         key={s.id}
                         variant="outline"
                         size="sm"
-                        disabled={s.isActive === false}
-                        className={`${s.isActive === false ? 'opacity-50 cursor-not-allowed' : ''} ${s.id === activeSource?.id ? 'bg-muted-foreground/20 text-text' : ''}`}
+                        className={`${s.id === activeSource?.id ? 'bg-muted-foreground/20 text-text' : ''}`}
                         onClick={() => handleSourceChange(s)}
                       >
                         {baseName}{qualityStr}{suffix}
-                        {s.isActive === false && ' (不可用)'}
                       </Button>
                     );
                   });

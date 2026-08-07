@@ -1041,42 +1041,6 @@ export class TauriSqlProvider implements DatabaseProvider {
     );
   }
 
-  async reportPlaySourceFail(sourceId: string): Promise<void> {
-    const FAIL_COUNT_WINDOW_MS = 24 * 60 * 60 * 1000;
-    const MAX_FAIL_COUNT = 5;
-    const FAIL_COOLDOWN_MS = 60 * 60 * 1000;
-
-    const now = new Date().toISOString();
-    const row = await this.db!.select<{ fail_count: number; last_fail_at: string; is_active: number }[]>(
-      'SELECT fail_count, last_fail_at, is_active FROM play_source WHERE id = ?',
-      [sourceId]
-    );
-
-    if (row.length === 0) return;
-
-    let currentFailCount = row[0].fail_count || 0;
-    const lastFailAt = row[0].last_fail_at;
-
-    if (lastFailAt) {
-      const timeSinceLastFail = Date.now() - new Date(lastFailAt).getTime();
-      if (timeSinceLastFail > FAIL_COUNT_WINDOW_MS) {
-        currentFailCount = 0;
-      }
-    }
-
-    const newFailCount = currentFailCount + 1;
-    const isActive = newFailCount < MAX_FAIL_COUNT ? 1 : 0;
-
-    await this.db!.execute(
-      `UPDATE play_source SET
-         fail_count = ?,
-         last_fail_at = ?,
-         is_active = ?
-       WHERE id = ?`,
-      [newFailCount, now, isActive, sourceId]
-    );
-  }
-
   // —— VideoSource DAO ——
   async getAllVideoSources(): Promise<VideoSource[]> {
     const rows = await this.db!.select<any[]>('SELECT * FROM video_source ORDER BY id ASC');

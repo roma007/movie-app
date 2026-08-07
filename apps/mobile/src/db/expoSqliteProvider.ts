@@ -973,41 +973,6 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     );
   }
 
-  async reportPlaySourceFail(sourceId: string): Promise<void> {
-    const FAIL_COUNT_WINDOW_MS = 24 * 60 * 60 * 1000;
-    const MAX_FAIL_COUNT = 5;
-
-    const now = new Date().toISOString();
-    const row = await this.db!.getFirstAsync<{ fail_count: number; last_fail_at: string }>(
-      'SELECT fail_count, last_fail_at FROM play_source WHERE id = ?',
-      [sourceId]
-    );
-
-    if (!row) return;
-
-    let currentFailCount = row.fail_count || 0;
-    const lastFailAt = row.last_fail_at;
-
-    if (lastFailAt) {
-      const timeSinceLastFail = Date.now() - new Date(lastFailAt).getTime();
-      if (timeSinceLastFail > FAIL_COUNT_WINDOW_MS) {
-        currentFailCount = 0;
-      }
-    }
-
-    const newFailCount = currentFailCount + 1;
-    const isActive = newFailCount < MAX_FAIL_COUNT ? 1 : 0;
-
-    await this.db!.runAsync(
-      `UPDATE play_source SET
-         fail_count = ?,
-         last_fail_at = ?,
-         is_active = ?
-       WHERE id = ?`,
-      [newFailCount, now, isActive, sourceId]
-    );
-  }
-
   // —— VideoSource DAO ——
   async getAllVideoSources(): Promise<VideoSource[]> {
     const rows = await this.db!.getAllAsync<any>('SELECT * FROM video_source ORDER BY id ASC');

@@ -32,7 +32,6 @@ interface VideoPlayerProps {
   onTimeUpdate?: (currentTime: number, duration: number) => void;
   onEnded?: () => void;
   onSourceChange?: (source: PlaySource) => void;
-  onSourceFail?: (sourceId: string) => void;
   onVolumeChange?: (volume: number, muted: boolean) => void;
 }
 
@@ -48,7 +47,6 @@ export function VideoPlayer({
   onTimeUpdate,
   onEnded,
   onSourceChange,
-  onSourceFail,
   onVolumeChange,
 }: VideoPlayerProps) {
   const [loading, setLoading] = useState(true);
@@ -80,7 +78,7 @@ export function VideoPlayer({
     return () => clearTimeout(timer);
   }, [applyColorFilter]);
 
-  const activeSources = useMemo(() => sources.filter((s) => s.isActive !== false), [sources]);
+  const activeSources = useMemo(() => sources, [sources]);
   const initialIndex = useMemo(
     () => (initialSourceId ? activeSources.findIndex((s) => s.id === initialSourceId) : 0),
     [activeSources, initialSourceId],
@@ -97,7 +95,6 @@ export function VideoPlayer({
 
   const currentIndexRef = useRef(currentIndex);
   const activeSourcesRef = useRef(activeSources);
-  const onSourceFailRef = useRef(onSourceFail);
   const onSourceChangeRef = useRef(onSourceChange);
   const onTimeUpdateRef = useRef(onTimeUpdate);
   const onEndedRef = useRef(onEnded);
@@ -110,9 +107,6 @@ export function VideoPlayer({
   useEffect(() => {
     activeSourcesRef.current = activeSources;
   }, [activeSources]);
-  useEffect(() => {
-    onSourceFailRef.current = onSourceFail;
-  }, [onSourceFail]);
   useEffect(() => {
     onSourceChangeRef.current = onSourceChange;
   }, [onSourceChange]);
@@ -179,8 +173,6 @@ export function VideoPlayer({
     console.error(
       `[VideoPlayer] 剩余线路: ${sourcesList.length - idx - 1}, 总线路数: ${sourcesList.length}`,
     );
-
-    onSourceFailRef.current?.(src.id);
 
     const nextIndex = idx + 1;
     if (nextIndex < sourcesList.length) {

@@ -90,7 +90,6 @@ export interface DatabaseProvider {
   upsertPlaySource(playSource: PlaySource): Promise<void>;
   deletePlaySourcesByMediaId(mediaId: string): Promise<void>;
   deletePlaySourcesByMediaIdAndSourceId(mediaId: string, sourceId: string): Promise<void>;
-  reportPlaySourceFail(sourceId: string): Promise<void>;
 
   // —— VideoSource DAO ——
   getAllVideoSources(): Promise<VideoSource[]>;
