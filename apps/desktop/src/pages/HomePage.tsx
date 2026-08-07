@@ -394,7 +394,6 @@ export default function HomePage() {
               const media = mediaMap[h.mediaId];
               if (!media) return null;
               const history = watchedHistoryMap[media.id] ?? [];
-              const isWatched = (wh: WatchHistory) => wh.episodeId && (wh.progress > 60 || (wh.duration > 0 && wh.progress / wh.duration >= 0.1));
               let recentSourceId: string | null = null;
               for (const wh of history) {
                 if (wh.episodeId) {
@@ -403,17 +402,9 @@ export default function HomePage() {
                 }
               }
               const sourceCount = recentSourceId ? (sourceTotalMap[media.id]?.[recentSourceId] ?? 0) : 0;
-              const distinctKey = (wh: WatchHistory) => {
-                const e = wh.episodeId ? episodeMap[wh.episodeId] : null;
-                return e ? `${e.seasonNumber}:${e.episodeNumber}` : `ep:${wh.episodeId}`;
-              };
-              const watchedRows = history.filter(isWatched);
-              const watchedCount = sourceCount > 0
-                ? new Set(watchedRows.filter((wh) => {
-                    const e = wh.episodeId ? episodeMap[wh.episodeId] : null;
-                    return e?.sourceId === recentSourceId;
-                  }).map(distinctKey)).size
-                : new Set(watchedRows.map(distinctKey)).size;
+              const recentWh = history[0];
+              const recentEp = recentWh?.episodeId ? episodeMap[recentWh.episodeId] : null;
+              const watchedCount = recentEp ? recentEp.episodeNumber : 0;
               const totalCount = sourceCount > 0 ? sourceCount : (media.totalEpisodes ?? media.currentEpisodes ?? episodeTotalMap[media.id] ?? 0);
               const progressPct = totalCount > 0
                 ? Math.min(Math.round((watchedCount / totalCount) * 100), 100)

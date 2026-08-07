@@ -232,25 +232,23 @@ export default function CollectConfigPage() {
               id="maxPages"
               type="number"
               min="1"
-              max="200"
               value={localConfig.maxPages}
-              onChange={(e) => setLocalConfig({ ...localConfig, maxPages: Math.min(200, Math.max(1, parseInt(e.target.value) || 10)) })}
+              onChange={(e) => setLocalConfig({ ...localConfig, maxPages: Math.max(1, parseInt(e.target.value) || 10) })}
             />
             <p className="text-xs text-muted-foreground">全量采集时最多采集多少页数据</p>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="incrementalMaxPages">增量采集最大页数（安全上限）</Label>
+            <Label htmlFor="incrementalMaxPages">增量采集最大页数</Label>
             <Input
               id="incrementalMaxPages"
               type="number"
               min="1"
-              max="200"
               value={localConfig.incrementalMaxPages}
-              onChange={(e) => setLocalConfig({ ...localConfig, incrementalMaxPages: Math.min(200, Math.max(1, parseInt(e.target.value) || 10)) })}
+              onChange={(e) => setLocalConfig({ ...localConfig, incrementalMaxPages: Math.max(1, parseInt(e.target.value) || 10) })}
               onBlur={() => handleFieldBlur('incrementalMaxPages', localConfig.incrementalMaxPages)}
             />
-            <p className="text-xs text-muted-foreground">增量采集的安全上限，断点和定额模式均受此限制</p>
+            <p className="text-xs text-muted-foreground">断点和定额模式均受此限制</p>
           </div>
 
           <div className="space-y-2">
