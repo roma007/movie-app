@@ -374,10 +374,10 @@ export default function SourceManagerScreen({ navigation }: Props) {
     const selectedItems = previewResults.filter(r => selectedPreviewIds.has(r.previewId));
     setIsSaving(true);
     try {
-      const count = await saveSelectedPreviewItems(selectedItems, {
+      const count = (await saveSelectedPreviewItems(selectedItems, {
         ignoreBlacklist: relaxBlacklist,
         unlimitedYear: relaxYear,
-      });
+      })).saved;
       showToast(`已保存 ${count} 条视频`, 'success');
       clearPreviewResults();
       setKeywordModalVisible(false);

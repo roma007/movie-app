@@ -19,6 +19,18 @@ fn log_line(msg: &str) {
     }
 }
 
+/// 递归输出完整的错误链（reqwest 的错误只打 `to_string()` 只能看到顶层
+/// "error sending request for url (...)"，真正的 DNS/connect/TLS 原因在 source() 链上）。
+fn log_err(msg: &str, e: &dyn std::error::Error) {
+    let mut s = format!("{}: {}", msg, e);
+    let mut src = e.source();
+    while let Some(cause) = src {
+        s.push_str(&format!("\n    caused by: {}", cause));
+        src = cause.source();
+    }
+    log_line(&s);
+}
+
 /// 全局常驻连接池客户端。
 /// 所有视频相关请求共享同一 reqwest::Client，从而复用 TCP/TLS 连接（keep-alive），
 /// 避免每次分片请求都重新握手（plugin-http 的 fetch 每次新建 client，无复用）。
@@ -51,7 +63,7 @@ pub async fn video_fetch(
 ) -> Result<Response, String> {
     let mut req = http_client().get(&url).timeout(Duration::from_secs(60));
 
-    if let Some(headers) = headers {
+    if let Some(ref headers) = headers {
         for (name, value) in headers {
             let Ok(name) = reqwest::header::HeaderName::from_bytes(name.as_bytes()) else {
                 continue;
@@ -67,7 +79,7 @@ pub async fn video_fetch(
     }
 
     let resp = req.send().await.map_err(|e| {
-        log_line(&format!("[video_fetch] 请求失败 {}: {}", url, e));
+        log_err(&format!("[video_fetch] 请求失败 {} (headers={:?})", url, headers), &e);
         e.to_string()
     })?;
 
@@ -81,7 +93,7 @@ pub async fn video_fetch(
     }
 
     let bytes = resp.bytes().await.map_err(|e| {
-        log_line(&format!("[video_fetch] 响应读取失败 {}: {}", url, e));
+        log_err(&format!("[video_fetch] 响应读取失败 {}", url), &e);
         e.to_string()
     })?;
 
@@ -119,12 +131,11 @@ pub async fn prewarm(url: String) {
             log_line(&format!("[prewarm] {}: ok({}) {}ms", url, status, start.elapsed().as_millis()));
         }
         Err(e) => {
-            log_line(&format!(
-                "[prewarm] {}: fail {} {}ms",
+            log_err(&format!(
+                "[prewarm] {}: fail {}ms",
                 url,
-                e,
                 start.elapsed().as_millis()
-            ));
+            ), &e);
         }
     }
 }

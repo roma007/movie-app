@@ -123,37 +123,6 @@ export default function AppearanceSettingsPage() {
           <div className="flex items-start gap-5 flex-1 min-w-0 flex-wrap justify-end">
             <div className="w-36 space-y-2">
               <div className="flex items-center gap-1.5">
-                <span className="text-sm">透明度</span>
-                <span className="text-sm text-muted-foreground">{cardOpacity}%</span>
-              </div>
-              <input
-                type="range"
-                min={10}
-                max={100}
-                value={cardOpacity}
-                onChange={(e) => setCardOpacity(Number(e.target.value))}
-                className={sliderClasses}
-              />
-            </div>
-
-            <div className="w-36 space-y-2">
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm">磨砂强度</span>
-                <span className="text-sm text-muted-foreground">{blurIntensity}</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={5}
-                value={blurIntensity}
-                onChange={(e) => setBlurIntensity(Number(e.target.value))}
-                className={sliderClasses}
-              />
-            </div>
-
-            <div className="w-36 space-y-2">
-              <div className="flex items-center gap-1.5">
                 <span className="text-sm">背景图模糊</span>
                 <span className="text-sm text-muted-foreground">{bgImageBlur}</span>
               </div>
@@ -179,6 +148,37 @@ export default function AppearanceSettingsPage() {
                 max={50}
                 value={bgImageScale}
                 onChange={(e) => setBgImageScale(Number(e.target.value))}
+                className={sliderClasses}
+              />
+            </div>
+
+            <div className="w-36 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm">磨砂强度</span>
+                <span className="text-sm text-muted-foreground">{blurIntensity}</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={blurIntensity}
+                onChange={(e) => setBlurIntensity(Number(e.target.value))}
+                className={sliderClasses}
+              />
+            </div>
+
+            <div className="w-36 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm">透明度</span>
+                <span className="text-sm text-muted-foreground">{cardOpacity}%</span>
+              </div>
+              <input
+                type="range"
+                min={10}
+                max={100}
+                value={cardOpacity}
+                onChange={(e) => setCardOpacity(Number(e.target.value))}
                 className={sliderClasses}
               />
             </div>

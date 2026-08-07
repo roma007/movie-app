@@ -184,6 +184,11 @@ const MIGRATIONS: Migration[] = [
     description: 'add_last_incremental_collected_at_to_video_source',
     sql: `ALTER TABLE video_source ADD COLUMN last_incremental_collected_at TEXT;`,
   },
+  {
+    version: 21,
+    description: 'add_episode_media_season_source_index',
+    sql: `CREATE INDEX IF NOT EXISTS idx_episode_media_season_source ON episode(media_id, season_number, source_id);`,
+  },
 ];
 
 /**
@@ -249,6 +254,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
     await this.runMigrations();
     await this.fixGenreData();
+    await this.syncHiddenByGenres();
     
     await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_episode_media_id ON episode(media_id);');
     await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source(episode_id);');
@@ -875,6 +881,29 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     return result?.count || 0;
   }
 
+  async syncHiddenByGenres(): Promise<number> {
+    const uncategorizedCondition =
+      "(genre IS NULL OR genre = '' OR genre = '[]' OR json_extract(genre, '$[0]') IS NULL OR json_extract(genre, '$[0]') = '')";
+    const whereClause =
+      `(hidden IS NULL OR hidden = 0) AND (` +
+      `EXISTS (SELECT 1 FROM hidden_genre hg WHERE hg.sub_type != ? AND media.genre LIKE '%' || hg.sub_type || '%')` +
+      ` OR (EXISTS (SELECT 1 FROM hidden_genre WHERE sub_type = ?) AND ${uncategorizedCondition})` +
+      `)`;
+    const params = [UNCATEGORIZED_GENRE, UNCATEGORIZED_GENRE];
+    const result = await this.db!.getFirstAsync<{ count: number }>(
+      `SELECT COUNT(*) as count FROM media WHERE ${whereClause}`,
+      params
+    );
+    const matched = result?.count || 0;
+    if (matched > 0) {
+      await this.db!.runAsync(
+        `UPDATE media SET hidden = 1 WHERE ${whereClause}`,
+        params
+      );
+    }
+    return matched;
+  }
+
   async getUncategorizedCount(type?: string, includeHidden?: boolean): Promise<number> {
     let whereClause = " WHERE (genre IS NULL OR genre = '' OR genre = '[]' OR json_extract(genre, '$[0]') IS NULL OR json_extract(genre, '$[0]') = '')";
     if (!includeHidden) {
@@ -1121,6 +1150,13 @@ export class ExpoSqliteProvider implements DatabaseProvider {
       [pageSize, offset]
     );
     return rows.map(rowToWatchHistory);
+  }
+
+  async getWatchHistoryCount(): Promise<number> {
+    const row = await this.db!.getFirstAsync<{ c: number }>(
+      'SELECT COUNT(DISTINCT media_id) AS c FROM watch_history'
+    );
+    return Number(row?.c ?? 0);
   }
 
   async getWatchHistoryByMediaId(mediaId: string): Promise<WatchHistory | null> {

@@ -10,10 +10,10 @@ const BG_IMAGE_SCALE_KEY = 'movie-app-bg-image-scale';
 const MAX_BUFFER_SIZE_KEY = 'movie-app-max-buffer-size';
 
 const DEFAULT_COLOR_MODE: ColorMode = 'system';
-const DEFAULT_CARD_OPACITY = 85;
+const DEFAULT_CARD_OPACITY = 40;
 const DEFAULT_BLUR = 50;
-const DEFAULT_BG_IMAGE_BLUR = 0;
-const DEFAULT_BG_IMAGE_SCALE = 10;
+const DEFAULT_BG_IMAGE_BLUR = 40;
+const DEFAULT_BG_IMAGE_SCALE = 2;
 const DEFAULT_MAX_BUFFER_SIZE = 120;
 
 function loadColorModeFromStorage(): ColorMode {

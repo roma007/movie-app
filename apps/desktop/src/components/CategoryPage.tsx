@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
-import { LayoutGrid, List, ChevronLeft, ChevronRight, Search, X, Columns3 } from 'lucide-react';
+import { LayoutGrid, List, ChevronLeft, ChevronRight, Search, X, Columns3, ArrowLeft } from 'lucide-react';
 
 const pageSize = 30;
 
@@ -327,6 +327,11 @@ export default function CategoryPage({ type }: CategoryPageProps) {
   return (
     <div className="p-6 space-y-5 max-w-7xl mx-auto">
       <div className="flex gap-2">
+        {isSearching && (
+          <Button variant="ghost" onClick={handleClearSearch} className="shrink-0">
+            <ArrowLeft className="size-4 mr-2" /> 返回
+          </Button>
+        )}
         <div className="relative flex-1">
           <Input
             placeholder="搜索电影、电视剧、综艺..."

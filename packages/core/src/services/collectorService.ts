@@ -5,7 +5,7 @@ import { SOURCE_ID_TO_NAME_MAP, PLAY_SOURCE_TYPE_MAP, isPlayableMediaUrl } from 
 import { isKnownDeadPosterUrl, isUsablePosterUrl } from '../utils/posterHost';
 import type { DatabaseProvider } from '../db/provider';
 import { UNCATEGORIZED_GENRE } from '../db/provider';
-import type { CMSMediaItem, Media, Episode, PlaySource, VideoSource, CollectTask, TaskStatus, TaskErrorType, CollectionLog, CollectPreviewItem } from '../types';
+import type { CMSMediaItem, Media, Episode, PlaySource, VideoSource, CollectTask, TaskStatus, TaskErrorType, CollectionLog, CollectPreviewItem, HiddenCollectItem, SavePreviewResult } from '../types';
 import { SystemConfigService } from './systemConfigService';
 import type { ShortDramaConfig } from './systemConfigService';
 import { VideoDurationService } from './videoDurationService';
@@ -769,24 +769,39 @@ export class CollectorService {
   async savePreviewItems(
     items: CollectPreviewItem[],
     overrides?: { ignoreBlacklist?: boolean; unlimitedYear?: boolean }
-  ): Promise<number> {
+  ): Promise<SavePreviewResult> {
     const configService = new SystemConfigService(this.db);
     const config = await configService.getCollectConfig();
     let saved = 0;
+    const hiddenItems: HiddenCollectItem[] = [];
 
     const effectiveMinYear = overrides?.unlimitedYear ? 0 : config.minYear;
     const effectiveBlacklist = overrides?.ignoreBlacklist ? [] : config.blacklistKeywords;
 
+    const hiddenGenres = await this.db.getHiddenGenres();
+
     for (const item of items) {
       try {
         const media = await this.processItem(item.rawItem, item.sourceId, item.sourceName, effectiveBlacklist, effectiveMinYear);
-        if (media) saved++;
+        if (media) {
+          saved++;
+          if (media.hidden) {
+            const matched = hiddenGenres.filter(hg => {
+              if (media.genres.length === 0) return hg === UNCATEGORIZED_GENRE;
+              const needle = hg.toLowerCase();
+              return media.genres.some(g => g.toLowerCase().includes(needle));
+            });
+            if (matched.length > 0) {
+              hiddenItems.push({ title: media.title, genres: matched });
+            }
+          }
+        }
       } catch (err) {
         console.error(`保存预览项失败: ${item.title}`, err);
       }
     }
 
-    return saved;
+    return { saved, hiddenItems };
   }
 
   async collectLatest(

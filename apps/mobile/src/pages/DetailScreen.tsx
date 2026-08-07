@@ -85,17 +85,17 @@ export default function DetailScreen({ route, navigation }: Props) {
     seasonRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
     seasonButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: radius.md },
     sourceEpisodeRow: { flexDirection: 'row', alignItems: 'stretch' },
-    sourceTabCol: { flexDirection: 'column', alignItems: 'flex-end', gap: 6, paddingLeft: 12, paddingVertical: 10 },
-    sourceTab: { borderTopLeftRadius: radius.md, borderBottomLeftRadius: radius.md, borderTopRightRadius: 0, borderBottomRightRadius: 0 },
+    sourceTabCol: { flexDirection: 'column', alignItems: 'flex-end', gap: 6, paddingLeft: 12 },
+    sourceTab: { flex: 1, justifyContent: 'center', borderTopLeftRadius: radius.md, borderBottomLeftRadius: radius.md, borderTopRightRadius: 0, borderBottomRightRadius: 0 },
     sourceTabActive: { backgroundColor: accentBg, paddingVertical: 10, paddingHorizontal: 12, width: 92 },
-    sourceTabInactive: { backgroundColor: dimBg, paddingVertical: 6, paddingHorizontal: 8, width: 84 },
+    sourceTabInactive: { backgroundColor: dimBg, paddingVertical: 6, paddingHorizontal: 8, width: 76 },
     sourceTabText: { fontSize: s(12), fontWeight: '500', textAlign: 'left' },
     episodePanel: { flex: 1, minWidth: 0, backgroundColor: accentBg, borderTopRightRadius: radius.md, borderBottomRightRadius: radius.md, padding: 12 },
     episodesPlaceholder: { paddingVertical: 30, alignItems: 'center' },
     episodesPlaceholderText: { color: colors.mutedForeground, fontSize: s(14) },
     episodesPlaceholderHint: { color: colors.disabledForeground, fontSize: s(12), marginTop: 4 },
     episodeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-    episodeButton: { width: '22%', paddingVertical: 10, paddingHorizontal: 6, borderRadius: radius.sm, alignItems: 'center' },
+    episodeButton: { paddingVertical: 10, paddingHorizontal: 6, borderRadius: radius.sm, alignItems: 'center' },
     episodeButtonIdle: { backgroundColor: dimBg },
     episodeButtonWatched: { opacity: 0.5 },
     episodeButtonText: { color: colors.textSecondary, fontSize: s(12), fontWeight: '500', textAlign: 'center' },
@@ -160,7 +160,7 @@ export default function DetailScreen({ route, navigation }: Props) {
     if (episodes.length === 0) return;
     const durationService = new VideoDurationService();
     const provider = getProvider();
-    const CONCURRENCY_LIMIT = 3;
+    const CONCURRENCY_LIMIT = 8;
 
     const fetchDuration = async (ep: Episode) => {
       try {
@@ -190,7 +190,7 @@ export default function DetailScreen({ route, navigation }: Props) {
   seriesMedia.forEach(m => {
     if (m.seriesSeason) seasonToMediaMap.set(m.seriesSeason, m.id);
   });
-  const seasonsFromSeries = seriesMedia.map(m => m.seriesSeason ?? 1).sort((a, b) => a - b);
+  const seasonsFromSeries = [...new Set(seriesMedia.map(m => m.seriesSeason ?? 1))].sort((a, b) => a - b);
   const displaySeasons = seasonsFromSeries.length > 0 ? seasonsFromSeries : seasons;
 
   const handleSeasonChange = (season: number) => {
@@ -228,6 +228,16 @@ export default function DetailScreen({ route, navigation }: Props) {
     );
   };
 
+  const goBackWithRefresh = () => {
+    const state = navigation.getState();
+    const prev = state?.routes?.[state.index - 1];
+    if (prev) {
+      navigation.popTo(prev.name, { ...prev.params, refresh: Date.now() });
+    } else {
+      navigation.goBack();
+    }
+  };
+
   const handleHide = async () => {
     if (selectedHideGenres.length === 0 || hiding) return;
     setHiding(true);
@@ -237,7 +247,7 @@ export default function DetailScreen({ route, navigation }: Props) {
       Alert.alert(
         '已隐藏',
         `已隐藏 ${result.hidden} 个「${selectedHideGenres.join('/')}」类视频`,
-        [{ text: '确定', onPress: () => navigation.goBack() }],
+        [{ text: '确定', onPress: goBackWithRefresh }],
       );
     } catch (err: any) {
       setHideModalVisible(false);
@@ -447,7 +457,7 @@ export default function DetailScreen({ route, navigation }: Props) {
                         style={[styles.episodeButton, styles.episodeButtonIdle]}
                         onPress={() => navigation.navigate('Play', { episodeId: ep.id, mediaId: id, sourceId: source.sourceId, title: currentMedia.title + ' · ' + title })}
                       >
-                        <Text numberOfLines={1} style={styles.episodeButtonText}>{title}</Text>
+                        <Text style={styles.episodeButtonText}>{title}</Text>
                       </TouchableOpacity>
                     );
                   });
@@ -467,10 +477,10 @@ export default function DetailScreen({ route, navigation }: Props) {
                       style={[styles.episodeButton, styles.episodeButtonIdle, isWatched && styles.episodeButtonWatched]}
                       onPress={() => navigation.navigate('Play', { episodeId: ep.id, mediaId: id, sourceId: selectedSourceId, title: currentMedia.title + (ep.title ? ` · ${ep.title}` : ` · 第${ep.episodeNumber}集`) })}
                     >
-                      <Text numberOfLines={1} style={styles.episodeButtonText}>
+                      <Text style={styles.episodeButtonText}>
                         {ep.title || `第${ep.episodeNumber}集`}
                       </Text>
-                      {duration !== null && (
+                      {typeof duration === 'number' && duration > 0 && (
                         <Text style={styles.episodeDuration}>
                           {Math.floor(duration / 60)}:{String(duration % 60).padStart(2, '0')}
                         </Text>

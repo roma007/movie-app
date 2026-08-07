@@ -184,24 +184,6 @@ export default function AppearanceSettingsScreen({ navigation }: Props) {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>背景</Text>
             <View style={styles.compactSliderLabelRow}>
-              <Text style={styles.compactSliderLabel}>磨砂强度</Text>
-              <Text style={styles.compactSliderValue}>{blurIntensity}</Text>
-            </View>
-            <View style={styles.compactSliderTrack}>
-              <Slider
-                minimumValue={0}
-                maximumValue={100}
-                step={5}
-                value={blurIntensity}
-                onValueChange={setBlurIntensity}
-                minimumTrackTintColor={colors.mutedForeground}
-                maximumTrackTintColor={colors.trackBg}
-                thumbTintColor={colors.text}
-              />
-            </View>
-            <View style={styles.compactDivider} />
-
-            <View style={styles.compactSliderLabelRow}>
               <Text style={styles.compactSliderLabel}>背景图模糊</Text>
               <Text style={styles.compactSliderValue}>{imageBlur}</Text>
             </View>
@@ -230,6 +212,24 @@ export default function AppearanceSettingsScreen({ navigation }: Props) {
                 step={1}
                 value={imageScale}
                 onValueChange={setImageScale}
+                minimumTrackTintColor={colors.mutedForeground}
+                maximumTrackTintColor={colors.trackBg}
+                thumbTintColor={colors.text}
+              />
+            </View>
+            <View style={styles.compactDivider} />
+
+            <View style={styles.compactSliderLabelRow}>
+              <Text style={styles.compactSliderLabel}>磨砂强度</Text>
+              <Text style={styles.compactSliderValue}>{blurIntensity}</Text>
+            </View>
+            <View style={styles.compactSliderTrack}>
+              <Slider
+                minimumValue={0}
+                maximumValue={100}
+                step={5}
+                value={blurIntensity}
+                onValueChange={setBlurIntensity}
                 minimumTrackTintColor={colors.mutedForeground}
                 maximumTrackTintColor={colors.trackBg}
                 thumbTintColor={colors.text}

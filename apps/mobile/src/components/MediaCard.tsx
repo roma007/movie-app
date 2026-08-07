@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, Text, TouchableOpacity, StyleSheet, View, Dimensions } from 'react-native';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
@@ -6,6 +6,7 @@ import { useScaledFontSize } from '../themes/useScaledFontSize';
 import { hexToRgba } from '../themes/colorUtils';
 import { radius } from '../themes/radiusTokens';
 import PosterImage from './PosterImage';
+import { X } from 'lucide-react-native';
 import type { Media } from '@movie-app/core';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -15,13 +16,41 @@ interface MediaCardProps {
   media: Media;
   onPress: () => void;
   compact?: boolean;
+  onLongPress?: () => void;
+  editing?: boolean;
+  onDelete?: () => void;
 }
 
-export default function MediaCard({ media, onPress, compact = false }: MediaCardProps) {
+export default function MediaCard({ media, onPress, compact = false, onLongPress, editing = false, onDelete }: MediaCardProps) {
   const colors = useThemeColors();
   const cardOpacity = useThemeStore((s) => s.cardOpacity);
   const s = useScaledFontSize();
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const shakeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!editing) {
+      shakeAnim.stopAnimation();
+      shakeAnim.setValue(0);
+      return;
+    }
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shakeAnim, { toValue: 1, duration: 60, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: -1, duration: 60, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: 0.6, duration: 60, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: -0.6, duration: 60, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: 0, duration: 60, useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [editing, shakeAnim]);
+
+  const shakeRotate = shakeAnim.interpolate({
+    inputRange: [-1, 1],
+    outputRange: ['-2deg', '2deg'],
+  });
 
   const onPressIn = () => {
     Animated.timing(scaleAnim, { toValue: 0.98, duration: 100, useNativeDriver: true }).start();
@@ -56,12 +85,14 @@ export default function MediaCard({ media, onPress, compact = false }: MediaCard
       fontSize: s(14),
       color: colors.text,
       marginTop: 6,
+      paddingHorizontal: 8,
       lineHeight: s(18),
     },
     year: {
       fontSize: s(12),
       color: colors.textSecondary,
       marginTop: 2,
+      paddingHorizontal: 8,
     },
     posterContainer: {
       width: CARD_WIDTH,
@@ -94,6 +125,7 @@ export default function MediaCard({ media, onPress, compact = false }: MediaCard
       fontSize: s(12),
       color: colors.textSecondary,
       marginTop: 2,
+      paddingHorizontal: 8,
     },
     compactCard: {
       width: 100,
@@ -115,19 +147,47 @@ export default function MediaCard({ media, onPress, compact = false }: MediaCard
       marginTop: 4,
       textAlign: 'center',
     },
+    compactPosterWrap: {
+      position: 'relative',
+    },
+    deleteBadge: {
+      position: 'absolute',
+      top: 5,
+      right: 5,
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      backgroundColor: colors.error,
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 10,
+    },
   }), [colors, cardOpacity, s]);
 
   if (compact) {
     return (
-      <TouchableOpacity style={styles.compactCard} onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut}>
-        <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-          {media.posterUrl ? (
-            <PosterImage uri={media.posterUrl} style={styles.compactPoster} placeholder={<Text style={styles.placeholderText}>{media.title[0]}</Text>} />
-          ) : (
-            <View style={[styles.compactPlaceholder, styles.compactPoster]}>
-              <Text style={styles.placeholderText}>{media.title[0]}</Text>
-            </View>
-          )}
+      <TouchableOpacity
+        style={styles.compactCard}
+        onPress={() => { if (!editing) onPress(); }}
+        onLongPress={onLongPress}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+      >
+        <Animated.View style={{ transform: [{ scale: scaleAnim }, { rotate: shakeRotate }] }}>
+          <View style={styles.compactPosterWrap}>
+            {media.posterUrl ? (
+              <PosterImage uri={media.posterUrl} style={styles.compactPoster} placeholder={<Text style={styles.placeholderText}>{media.title[0]}</Text>} />
+            ) : (
+              <View style={[styles.compactPlaceholder, styles.compactPoster]}>
+                <Text style={styles.placeholderText}>{media.title[0]}</Text>
+              </View>
+            )}
+            {editing && onDelete && (
+              <TouchableOpacity style={styles.deleteBadge} onPress={onDelete} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                <X size={12} color="#fff" />
+              </TouchableOpacity>
+            )}
+          </View>
           <Text style={styles.compactTitle} numberOfLines={1}>{media.title}</Text>
         </Animated.View>
       </TouchableOpacity>

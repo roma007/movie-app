@@ -182,6 +182,16 @@ export interface CollectPreviewItem {
   rawItem: CMSMediaItem;
 }
 
+export interface HiddenCollectItem {
+  title: string;
+  genres: string[];
+}
+
+export interface SavePreviewResult {
+  saved: number;
+  hiddenItems: HiddenCollectItem[];
+}
+
 export interface CollectionLog {
   id: string;
   timestamp: string;

@@ -245,6 +245,7 @@ export class TauriSqlProvider implements DatabaseProvider {
 
     await this.fixGenreData();
     await this.backfillHiddenGenres();
+    await this.syncHiddenByGenres();
   }
 
   /**
@@ -948,6 +949,29 @@ export class TauriSqlProvider implements DatabaseProvider {
     return rows[0]?.count || 0;
   }
 
+  async syncHiddenByGenres(): Promise<number> {
+    const uncategorizedCondition =
+      "(genre IS NULL OR genre = '' OR genre = '[]' OR json_extract(genre, '$[0]') IS NULL OR json_extract(genre, '$[0]') = '')";
+    const whereClause =
+      `(hidden IS NULL OR hidden = 0) AND (` +
+      `EXISTS (SELECT 1 FROM hidden_genre hg WHERE hg.sub_type != ? AND media.genre LIKE '%' || hg.sub_type || '%')` +
+      ` OR (EXISTS (SELECT 1 FROM hidden_genre WHERE sub_type = ?) AND ${uncategorizedCondition})` +
+      `)`;
+    const params = [UNCATEGORIZED_GENRE, UNCATEGORIZED_GENRE];
+    const rows = await this.db!.select<{ count: number }[]>(
+      `SELECT COUNT(*) as count FROM media WHERE ${whereClause}`,
+      params
+    );
+    const matched = rows[0]?.count || 0;
+    if (matched > 0) {
+      await this.db!.execute(
+        `UPDATE media SET hidden = 1 WHERE ${whereClause}`,
+        params
+      );
+    }
+    return matched;
+  }
+
   async getUncategorizedCount(type?: string, includeHidden?: boolean): Promise<number> {
     let whereClause = " WHERE (genre IS NULL OR genre = '' OR genre = '[]' OR json_extract(genre, '$[0]') IS NULL OR json_extract(genre, '$[0]') = '')";
     if (!includeHidden) {
@@ -1195,6 +1219,13 @@ export class TauriSqlProvider implements DatabaseProvider {
       [pageSize, offset]
     );
     return rows.map(rowToWatchHistory);
+  }
+
+  async getWatchHistoryCount(): Promise<number> {
+    const rows = await this.db!.select<any[]>(
+      'SELECT COUNT(DISTINCT media_id) AS c FROM watch_history'
+    );
+    return Number(rows[0]?.c ?? 0);
   }
 
   async getWatchHistoryByMediaId(mediaId: string): Promise<WatchHistory | null> {

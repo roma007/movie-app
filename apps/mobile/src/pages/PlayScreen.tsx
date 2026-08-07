@@ -98,16 +98,16 @@ export default function PlayScreen({ route, navigation }: Props) {
     row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.sm },
     sourceEpisodeRow: { flexDirection: 'row', alignItems: 'stretch' },
-    sourceTabCol: { flexDirection: 'column', alignItems: 'flex-end', gap: 6, paddingLeft: 12, paddingVertical: 10 },
-    sourceTab: { borderTopLeftRadius: radius.md, borderBottomLeftRadius: radius.md, borderTopRightRadius: 0, borderBottomRightRadius: 0 },
+    sourceTabCol: { flexDirection: 'column', alignItems: 'flex-end', gap: 6, paddingLeft: 12 },
+    sourceTab: { flex: 1, justifyContent: 'center', borderTopLeftRadius: radius.md, borderBottomLeftRadius: radius.md, borderTopRightRadius: 0, borderBottomRightRadius: 0 },
     sourceTabActive: { backgroundColor: accentBg, paddingVertical: 10, paddingHorizontal: 12, width: 92 },
-    sourceTabInactive: { backgroundColor: dimBg, paddingVertical: 6, paddingHorizontal: 8, width: 84 },
+    sourceTabInactive: { backgroundColor: dimBg, paddingVertical: 6, paddingHorizontal: 8, width: 76 },
     sourceTabText: { fontSize: sf(12), fontWeight: '500', textAlign: 'left' },
     episodePanel: { flex: 1, minWidth: 0, backgroundColor: accentBg, borderTopRightRadius: radius.md, borderBottomRightRadius: radius.md, padding: 12 },
     episodesPlaceholder: { paddingVertical: 30, alignItems: 'center' },
     episodesPlaceholderText: { color: colors.mutedForeground, fontSize: sf(14) },
     episodeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-    episodeBtn: { width: '30%', paddingVertical: 10, paddingHorizontal: 6, borderRadius: radius.sm, alignItems: 'center' },
+    episodeBtn: { paddingVertical: 10, paddingHorizontal: 6, borderRadius: radius.sm, alignItems: 'center' },
     episodeBtnIdle: { backgroundColor: dimBg },
     episodeBtnActive: { backgroundColor: accentBg },
     episodeBtnWatched: { opacity: 0.5 },
@@ -325,7 +325,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   seriesMedia.forEach(m => {
     if (m.seriesSeason) seasonToMediaMap.set(m.seriesSeason, m.id);
   });
-  const seasonsFromSeries = seriesMedia.map(m => m.seriesSeason ?? 1).sort((a, b) => a - b);
+  const seasonsFromSeries = [...new Set(seriesMedia.map(m => m.seriesSeason ?? 1))].sort((a, b) => a - b);
   const displaySeasons = seasonsFromSeries.length > 0 ? seasonsFromSeries : seasons;
 
   const handleSeasonChange = (season: number) => {
@@ -521,7 +521,7 @@ export default function PlayScreen({ route, navigation }: Props) {
                         style={[styles.episodeBtn, isActive ? styles.episodeBtnActive : styles.episodeBtnIdle, isWatched && styles.episodeBtnWatched]}
                         onPress={() => handleEpisodePress(ep)}
                       >
-                        <Text numberOfLines={1} style={[styles.episodeBtnText, isActive && styles.episodeBtnTextActive]}>
+                        <Text style={[styles.episodeBtnText, isActive && styles.episodeBtnTextActive]}>
                           {ep.title || `第${ep.episodeNumber}集`}
                         </Text>
                       </TouchableOpacity>

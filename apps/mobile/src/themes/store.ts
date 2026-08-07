@@ -11,9 +11,9 @@ const CARD_OPACITY_KEY = 'movie-app-card-opacity';
 const FONT_SIZE_KEY = 'movie-app-font-size-scale';
 const DEFAULT_COLOR_MODE: ColorMode = 'system';
 const DEFAULT_BLUR = 50;
-const DEFAULT_IMAGE_BLUR = 0;
-const DEFAULT_IMAGE_SCALE = 10;
-const DEFAULT_CARD_OPACITY = 85;
+const DEFAULT_IMAGE_BLUR = 40;
+const DEFAULT_IMAGE_SCALE = 1;
+const DEFAULT_CARD_OPACITY = 40;
 const DEFAULT_FONT_SIZE_SCALE = 1.0;
 
 async function loadColorModeFromStorage(): Promise<ColorMode> {

@@ -132,7 +132,7 @@ export default function DetailPage() {
   seriesMedia.forEach(m => {
     if (m.seriesSeason) seasonToMediaMap.set(m.seriesSeason, m.id);
   });
-  const seasonsFromSeries = seriesMedia.map(m => m.seriesSeason ?? 1).sort((a, b) => a - b);
+  const seasonsFromSeries = [...new Set(seriesMedia.map(m => m.seriesSeason ?? 1))].sort((a, b) => a - b);
   const displaySeasons = seasonsFromSeries.length > 0 ? seasonsFromSeries : seasons;
   const currentMediaSeason = currentMedia?.seriesSeason ?? 1;
 
@@ -375,16 +375,16 @@ export default function DetailPage() {
 
             <div className="flex">
               {episodeSources.length > 1 && (
-                <div className="shrink-0 flex flex-col items-end gap-1.5 pl-3 py-3">
+                <div className="shrink-0 flex flex-col items-end gap-1.5 pl-3">
                   {episodeSources.map((s: VideoSource) => (
                     <button
                       key={s.id}
                       type="button"
                       onClick={() => handleSourceChange(s.id)}
-                      className={`w-24 text-left truncate rounded-l-md rounded-r-none transition-all duration-150 ${
+                      className={`text-left truncate rounded-l-md rounded-r-none transition-all duration-150 flex-1 ${
                         selectedSourceId === s.id
-                          ? 'bg-[var(--color-card-accent-alpha)] text-[var(--color-button-primary-text)] py-2.5 px-3 shadow-none'
-                          : 'bg-[var(--color-card-dim-alpha)] text-[var(--color-button-secondary-text)] py-1.5 px-2 hover:text-text'
+                          ? 'w-24 bg-[var(--color-card-accent-alpha)] text-[var(--color-button-primary-text)] py-2.5 px-3 shadow-none'
+                          : 'w-20 bg-[var(--color-card-dim-alpha)] text-[var(--color-button-secondary-text)] py-1.5 px-2 hover:text-text'
                       }`}
                     >
                       {s.name}

@@ -15,24 +15,168 @@ import CategoryHeader from '../components/CategoryHeader';
 import BlurredBackground from '../components/BlurredBackground';
 import type { Media, Episode, UserUsageType, WatchHistory } from '@movie-app/core';
 import { radius } from '../themes/radiusTokens';
-import { Sparkles, Film, Tv, Clock, Heart, CheckSquare, Square } from 'lucide-react-native';
+import { Sparkles, Film, Tv, Clock, Heart, CheckSquare, Square, X } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+function TvPosterCard({ media, epLabel, progressPct, editing, onPress, onLongPress, onDelete }: {
+  media: Media;
+  epLabel: string | null;
+  progressPct: number;
+  editing: boolean;
+  onPress: () => void;
+  onLongPress: () => void;
+  onDelete: () => void;
+}) {
+  const colors = useThemeColors();
+  const cardOpacity = useThemeStore((s) => s.cardOpacity);
+  const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100);
+  const s = useScaledFontSize();
+  const shakeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!editing) {
+      shakeAnim.stopAnimation();
+      shakeAnim.setValue(0);
+      return;
+    }
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shakeAnim, { toValue: 1, duration: 60, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: -1, duration: 60, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: 0.6, duration: 60, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: -0.6, duration: 60, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: 0, duration: 60, useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [editing, shakeAnim]);
+
+  const shakeRotate = shakeAnim.interpolate({
+    inputRange: [-1, 1],
+    outputRange: ['-2deg', '2deg'],
+  });
+
+  const styles = useMemo(() => StyleSheet.create({
+    card: {
+      width: 100,
+      marginRight: 10,
+    },
+    posterWrap: {
+      position: 'relative',
+    },
+    poster: {
+      width: 100,
+      height: 150,
+      borderRadius: radius.md,
+      overflow: 'hidden',
+      backgroundColor: surfaceBg,
+    },
+    posterImg: {
+      width: '100%',
+      height: '100%',
+    },
+    posterPlaceholder: {
+      width: '100%',
+      height: '100%',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    info: {
+      paddingHorizontal: 6,
+      paddingTop: 6,
+    },
+    title: {
+      fontSize: s(12),
+      color: colors.text,
+    },
+    episode: {
+      fontSize: s(10),
+      color: colors.textSecondary,
+      marginTop: 2,
+    },
+    progressBar: {
+      height: 4,
+      backgroundColor: colors.trackBg,
+      borderRadius: radius.progress,
+      overflow: 'hidden',
+      marginTop: 4,
+    },
+    progressFill: {
+      height: '100%',
+      backgroundColor: colors.mutedForeground,
+      borderRadius: radius.progress,
+    },
+    deleteBadge: {
+      position: 'absolute',
+      top: 5,
+      right: 5,
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      backgroundColor: colors.error,
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 10,
+    },
+  }), [colors, surfaceBg, s]);
+
+  return (
+    <TouchableOpacity
+      style={styles.card}
+      onPress={() => { if (!editing) onPress(); }}
+      onLongPress={onLongPress}
+    >
+      <Animated.View style={{ transform: [{ rotate: shakeRotate }] }}>
+        <View style={styles.posterWrap}>
+          <View style={styles.poster}>
+            {media.posterUrl ? (
+              <PosterImage uri={media.posterUrl} style={styles.posterImg} placeholder={<Text style={{ fontSize: s(11), color: colors.mutedForeground }}>无封面</Text>} />
+            ) : (
+              <View style={styles.posterPlaceholder}>
+                <Text style={{ fontSize: s(11), color: colors.mutedForeground }}>无封面</Text>
+              </View>
+            )}
+          </View>
+          {editing && (
+            <TouchableOpacity style={styles.deleteBadge} onPress={onDelete} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+              <X size={12} color="#fff" />
+            </TouchableOpacity>
+          )}
+        </View>
+        <View style={styles.info}>
+          <Text style={styles.title} numberOfLines={1}>{media.title}</Text>
+          {epLabel && <Text style={styles.episode} numberOfLines={1}>{epLabel}</Text>}
+          <View style={styles.progressBar}>
+            <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
+          </View>
+        </View>
+      </Animated.View>
+    </TouchableOpacity>
+  );
+}
 
 export default function HomeScreen() {
   const navigation = useNavigation<any>();
   const provider = getProvider();
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const cardOpacity = useThemeStore((s) => s.cardOpacity);
   const cardBg = hexToRgba(colors.card, cardOpacity / 100);
   const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100);
   const s = useScaledFontSize();
   const {
-    favorites, watchHistory, loadFavorites, loadWatchHistory,
+    favorites, watchHistory, watchHistoryCount,
+    loadFavorites, loadWatchHistory,
+    removeHistoryItem,
     userUsageTypes, loadUserUsageTypes,
     collectLatest, isCollecting: storeLoading,
     searchKeywordPreview, previewResults, previewLoading,
     saveSelectedPreviewItems, clearPreviewResults,
     videoSources, loadVideoSources,
   } = useAppStore();
+
+  const [editMode, setEditMode] = useState(false);
 
   const [favMediaList, setFavMediaList] = useState<Media[]>([]);
   const [historyMediaList, setHistoryMediaList] = useState<Media[]>([]);
@@ -151,13 +295,22 @@ export default function HomeScreen() {
       Alert.alert('提示', '请至少选择一个视频');
       return;
     }
-    const count = await saveSelectedPreviewItems(items, { ignoreBlacklist: relaxBlacklist, unlimitedYear: relaxYear });
+    const result = await saveSelectedPreviewItems(items, { ignoreBlacklist: relaxBlacklist, unlimitedYear: relaxYear });
+    const count = result.saved;
     if (count > 0) {
       Alert.alert('采集完成', `成功采集 ${count} 部视频`);
       clearPreviewResults();
       setQuickKeyword('');
       setRelaxBlacklist(false);
       setRelaxYear(false);
+      if (result.hiddenItems.length > 0) {
+        const titles = result.hiddenItems.map((h) => h.title);
+        const titleText = titles.length > 8
+          ? `${titles.slice(0, 8).join('、')}等${titles.length}部`
+          : titles.join('、');
+        const genres = [...new Set(result.hiddenItems.flatMap((h) => h.genres))];
+        Alert.alert('部分视频已被隐藏', `「${titleText}」视频名被隐藏，恢复显示「${genres.join('、')}」类视频后就可以找到。`);
+      }
     } else {
       Alert.alert('采集失败', '请重试');
     }
@@ -333,28 +486,16 @@ export default function HomeScreen() {
               const ep = h.episodeId ? episodeMap[h.episodeId] : null;
               const epLabel = ep ? (ep.title || `第${ep.episodeNumber}集`) : null;
               return (
-                <TouchableOpacity
+                <TvPosterCard
                   key={h.id}
-                  style={styles.tvPosterCard}
+                  media={media}
+                  epLabel={epLabel}
+                  progressPct={progressPct}
+                  editing={editMode}
                   onPress={() => navigation.navigate('Detail', { id: media.id })}
-                >
-                  <View style={styles.tvPoster}>
-                    {media.posterUrl ? (
-                      <PosterImage uri={media.posterUrl} style={styles.tvPosterImg} placeholder={<Text style={{ fontSize: s(11), color: colors.mutedForeground }}>无封面</Text>} />
-                    ) : (
-                      <View style={styles.tvPosterPlaceholder}>
-                        <Text style={{ fontSize: s(11), color: colors.mutedForeground }}>无封面</Text>
-                      </View>
-                    )}
-                  </View>
-                  <View style={styles.tvPosterInfo}>
-                    <Text style={styles.tvPosterTitle} numberOfLines={1}>{media.title}</Text>
-                    {epLabel && <Text style={styles.tvPosterEpisode} numberOfLines={1}>{epLabel}</Text>}
-                    <View style={styles.progressBar}>
-                      <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
-                    </View>
-                  </View>
-                </TouchableOpacity>
+                  onLongPress={() => setEditMode(true)}
+                  onDelete={() => removeHistoryItem(media.id)}
+                />
               );
             })}
           </ScrollView>
@@ -368,7 +509,7 @@ export default function HomeScreen() {
       <View style={styles.cardHeader}>
         <View style={styles.titleRow}>
           <Clock size={18} color={colors.text} />
-          <Text style={styles.usageCardTitle}>观看历史 ({watchHistory.length})</Text>
+          <Text style={styles.usageCardTitle}>观看历史 ({watchHistoryCount})</Text>
         </View>
       </View>
       {watchHistory.length === 0 ? (
@@ -380,6 +521,9 @@ export default function HomeScreen() {
               key={m.id}
               media={m}
               compact
+              editing={editMode}
+              onLongPress={() => setEditMode(true)}
+              onDelete={() => removeHistoryItem(m.id)}
               onPress={() => navigation.navigate('Detail', { id: m.id })}
             />
           ))}
@@ -533,39 +677,21 @@ export default function HomeScreen() {
       fontSize: s(14),
       fontWeight: '600',
     },
-    tvPosterCard: {
-      width: 100,
-      marginRight: 10,
-    },
-    tvPoster: {
-      width: 100,
-      height: 150,
-      borderRadius: radius.md,
-      overflow: 'hidden',
-      backgroundColor: surfaceBg,
-    },
-    tvPosterImg: {
-      width: '100%',
-      height: '100%',
-    },
-    tvPosterPlaceholder: {
-      width: '100%',
-      height: '100%',
+    doneButton: {
+      position: 'absolute',
+      right: 15,
+      zIndex: 20,
+      paddingVertical: 6,
+      paddingHorizontal: 14,
+      borderRadius: radius.full,
+      backgroundColor: colors.buttonPrimaryBg,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    tvPosterInfo: {
-      paddingHorizontal: 6,
-      paddingTop: 6,
-    },
-    tvPosterTitle: {
-      fontSize: s(12),
-      color: colors.text,
-    },
-    tvPosterEpisode: {
-      fontSize: s(10),
-      color: colors.textSecondary,
-      marginTop: 2,
+    doneButtonText: {
+      fontSize: s(13),
+      fontWeight: '600',
+      color: colors.buttonPrimaryText,
     },
     progressBar: {
       height: 4,
@@ -611,6 +737,14 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <View style={styles.fixedHeader}>
         <CategoryHeader activeType="首页" tabsHiddenAnim={tabsHidden} />
+        {editMode && (
+          <TouchableOpacity
+            style={[styles.doneButton, { top: insets.top + 8 }]}
+            onPress={() => setEditMode(false)}
+          >
+            <Text style={styles.doneButtonText}>完成</Text>
+          </TouchableOpacity>
+        )}
       </View>
       <ScrollView
         contentContainerStyle={styles.scrollContent}

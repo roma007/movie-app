@@ -206,7 +206,7 @@ export default function SourceManagerPage() {
       const overrides: { ignoreBlacklist?: boolean; unlimitedYear?: boolean } = {};
       if (relaxBlacklist) overrides.ignoreBlacklist = true;
       if (relaxYear) overrides.unlimitedYear = true;
-      const count = await saveSelectedPreviewItems(selected, Object.keys(overrides).length > 0 ? overrides : undefined);
+      const count = (await saveSelectedPreviewItems(selected, Object.keys(overrides).length > 0 ? overrides : undefined)).saved;
       toast(`已保存 ${count} 条数据到本地`);
       setShowKeywordDialog(false);
       setKeywordInput('');

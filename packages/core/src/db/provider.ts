@@ -80,6 +80,8 @@ export interface DatabaseProvider {
   unhideMediaByGenres(genres: string[]): Promise<{ unhidden: number }>;
   getHiddenGenres(): Promise<string[]>;
   getHiddenMediaCount(): Promise<number>;
+  /** 对账：把已隐藏子类型重新套用到现有媒体（genre 变更后 hidden 可能过期），返回新增隐藏数。 */
+  syncHiddenByGenres(): Promise<number>;
   getUncategorizedCount(type?: string, includeHidden?: boolean): Promise<number>;
 
   // —— PlaySource DAO ——
@@ -120,6 +122,7 @@ export interface DatabaseProvider {
 
   // —— WatchHistory DAO ——
   getAllWatchHistory(page?: number, pageSize?: number): Promise<WatchHistory[]>;
+  getWatchHistoryCount(): Promise<number>;
   getWatchHistoryByMediaId(mediaId: string): Promise<WatchHistory | null>;
   getAllWatchHistoryByMediaId(mediaId: string): Promise<WatchHistory[]>;
   upsertWatchHistory(mediaId: string, episodeId: string | null, progress: number, duration: number): Promise<void>;

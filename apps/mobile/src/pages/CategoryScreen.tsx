@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Dimensions, Animated } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { getProvider } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useScaledFontSize } from '../themes/useScaledFontSize';
@@ -144,6 +144,15 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
   useDebounce(() => {
     loadList(1, true);
   }, 200, [selectedSubType, selectedYear, selectedArea, selectedEpisodeType, loadList]);
+
+  const route = useRoute<any>();
+  const refreshStamp = route.params?.refresh;
+  const loadListRef = useRef(loadList);
+  loadListRef.current = loadList;
+
+  useEffect(() => {
+    if (refreshStamp) loadListRef.current(1, true);
+  }, [refreshStamp]);
 
   const handleScroll = useCallback((event: any) => {
     const currentY = event.nativeEvent.contentOffset.y;

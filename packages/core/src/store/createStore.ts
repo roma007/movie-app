@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { DatabaseProvider } from '../db/provider';
-import type { Media, VideoSource, ImportSourceItem, ParsedImportSource, Favorite, WatchHistory, PaginatedMeta, CollectTask, CollectionLog, CollectPreviewItem, UserUsageType } from '../types';
+import type { Media, VideoSource, ImportSourceItem, ParsedImportSource, Favorite, WatchHistory, PaginatedMeta, CollectTask, CollectionLog, CollectPreviewItem, SavePreviewResult, UserUsageType } from '../types';
 import type { CollectConfig, ShortDramaConfig } from '../services/systemConfigService';
 
 const STORE_API_VERSION_KEY = '__MOVIE_APP_STORE_API_VERSION__';
@@ -45,6 +45,7 @@ export interface AppState {
   videoSources: VideoSource[];
   favorites: Favorite[];
   watchHistory: WatchHistory[];
+  watchHistoryCount: number;
   isLoading: boolean;
   isCollecting: boolean;
   error: string | null;
@@ -177,7 +178,7 @@ hasShortDrama: (type?: string) => Promise<boolean>;
   previewResults: CollectPreviewItem[];
   previewLoading: boolean;
   searchKeywordPreview: (keyword: string, overrides?: { ignoreBlacklist?: boolean; unlimitedYear?: boolean }) => Promise<void>;
-  saveSelectedPreviewItems: (items: CollectPreviewItem[], overrides?: { ignoreBlacklist?: boolean; unlimitedYear?: boolean }) => Promise<number>;
+  saveSelectedPreviewItems: (items: CollectPreviewItem[], overrides?: { ignoreBlacklist?: boolean; unlimitedYear?: boolean }) => Promise<SavePreviewResult>;
   clearPreviewResults: () => void;
 
   userUsageTypes: UserUsageType[];
@@ -215,6 +216,7 @@ export function createAppStore(db: DatabaseProvider) {
     videoSources: [],
     favorites: [],
     watchHistory: [],
+    watchHistoryCount: 0,
     isLoading: false,
     isCollecting: false,
     error: null,
@@ -467,7 +469,10 @@ export function createAppStore(db: DatabaseProvider) {
 
     loadWatchHistory: async (page: number = 1) => {
       try {
-        const history = await db.getAllWatchHistory(page);
+        const [history, count] = await Promise.all([
+          db.getAllWatchHistory(page),
+          db.getWatchHistoryCount(),
+        ]);
         const deduped = Object.values(
           history.reduce((acc, h) => {
             if (!acc[h.mediaId] || h.updatedAt > acc[h.mediaId].updatedAt) {
@@ -476,7 +481,7 @@ export function createAppStore(db: DatabaseProvider) {
             return acc;
           }, {} as Record<string, WatchHistory>)
         );
-        set({ watchHistory: deduped });
+        set({ watchHistory: deduped, watchHistoryCount: count });
       } catch (err: any) {
         set({ error: err.message });
       }
@@ -485,6 +490,7 @@ export function createAppStore(db: DatabaseProvider) {
     saveWatchProgress: async (mediaId: string, episodeId: string | null, progress: number, duration: number) => {
       try {
         await db.upsertWatchHistory(mediaId, episodeId, progress, duration);
+        const count = await db.getWatchHistoryCount();
         set((state) => {
           const now = new Date().toISOString();
           const id = `wh_${mediaId}_${episodeId || 'movie'}`;
@@ -498,7 +504,7 @@ export function createAppStore(db: DatabaseProvider) {
             newHistory = [updatedItem, ...state.watchHistory];
           }
           newHistory.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-          return { watchHistory: newHistory.slice(0, 20) };
+          return { watchHistory: newHistory.slice(0, 20), watchHistoryCount: count };
         });
       } catch (err) {
         console.error('保存观看进度失败:', err);
@@ -508,7 +514,7 @@ export function createAppStore(db: DatabaseProvider) {
     clearHistory: async () => {
       try {
         await db.clearWatchHistory();
-        set({ watchHistory: [] });
+        set({ watchHistory: [], watchHistoryCount: 0 });
       } catch (err: any) {
         set({ error: err.message });
       }
@@ -975,12 +981,12 @@ export function createAppStore(db: DatabaseProvider) {
 
     saveSelectedPreviewItems: async (items: CollectPreviewItem[], overrides?) => {
       try {
-        const count = await collectorService.savePreviewItems(items, overrides);
+        const result = await collectorService.savePreviewItems(items, overrides);
         await get().loadMediaList();
-        return count;
+        return result;
       } catch (err: any) {
         set({ error: err.message });
-        return 0;
+        return { saved: 0, hiddenItems: [] };
       }
     },
 

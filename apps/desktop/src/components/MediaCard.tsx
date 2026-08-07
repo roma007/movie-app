@@ -3,17 +3,20 @@ import type { Media } from '@movie-app/core';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PosterImage } from '@/components/PosterImage';
+import { X } from 'lucide-react';
 
 export function MediaCard({ 
   media, 
   navigateState,
   onBeforeNavigate,
   size = 'normal',
+  onDelete,
 }: { 
   media: Media; 
   navigateState?: { page?: number; type?: string; subType?: string; year?: number; area?: string; episodeType?: string };
   onBeforeNavigate?: () => void;
   size?: 'normal' | 'small';
+  onDelete?: (media: Media) => void;
 }) {
   const navigate = useNavigate();
   
@@ -26,12 +29,24 @@ export function MediaCard({
           navigate(`/media/${media.id}`, { state: navigateState });
         }}
       >
-        <div className="aspect-[2/3] bg-[var(--color-secondary-alpha)] overflow-hidden">
+        <div className="aspect-[2/3] bg-[var(--color-secondary-alpha)] overflow-hidden relative">
           <PosterImage
             src={media.posterUrl}
             alt={media.title}
             className="size-full object-cover group-hover:scale-105 transition-transform duration-300"
           />
+          {onDelete && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(media);
+              }}
+              className="absolute top-1 right-1 z-10 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-error hover:bg-error/90 text-white"
+              title="删除记录"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
         </div>
         <div className="px-1.5 py-1">
           <div className="text-xs truncate">{media.title}</div>

@@ -51,6 +51,7 @@ export default function PlayPage() {
   if (!urlSourceIdRef.current) {
     urlSourceIdRef.current = new URLSearchParams(location.search).get('sourceId');
   }
+  const urlSourceAppliedRef = useRef(false);
 
   const openingRef = useRef<string | null>(null);
   const prevMediaIdRef = useRef<string | null>(null);
@@ -67,9 +68,12 @@ export default function PlayPage() {
   useEffect(() => {
     if (!episodeId) return;
     if (activeSession) {
-      const urlSid = urlSourceIdRef.current;
-      if (urlSid && urlSid !== activeSession.selectedSourceId) {
-        switchCmsSource(urlSid);
+      if (!urlSourceAppliedRef.current) {
+        const urlSid = urlSourceIdRef.current;
+        if (urlSid && urlSid !== activeSession.selectedSourceId) {
+          switchCmsSource(urlSid);
+        }
+        urlSourceAppliedRef.current = true;
       }
       return;
     }
@@ -150,10 +154,6 @@ export default function PlayPage() {
     if (!episodesLoading) setEpisodeListSwitching(false);
   }, [episodesLoading]);
 
-  const availableCmsSources = useMemo(() => {
-    return episodeSources.map((s) => ({ id: s.id, name: s.name }));
-  }, [episodeSources]);
-
   const watchedEpisodes = useMemo(() => new Set(activeSession?.watchedEpisodes ?? []), [activeSession?.watchedEpisodes]);
 
   const seasonToMediaMap = useMemo(() => {
@@ -165,7 +165,7 @@ export default function PlayPage() {
   }, [seriesMedia]);
 
   const seasonsFromSeries = useMemo(
-    () => seriesMedia.map((m) => m.seriesSeason ?? 1).sort((a, b) => a - b),
+    () => [...new Set(seriesMedia.map((m) => m.seriesSeason ?? 1))].sort((a, b) => a - b),
     [seriesMedia],
   );
   const displaySeasons = seasonsFromSeries.length > 0 ? seasonsFromSeries : seasons;
@@ -312,19 +312,20 @@ export default function PlayPage() {
           {media?.type !== 'MOVIE' && (
             <div className="rounded-md overflow-hidden">
               <div className="flex">
-                {availableCmsSources.length > 1 && (
-                  <div className="shrink-0 flex flex-col items-end gap-1.5 pl-3 py-2">
-                    {availableCmsSources.map((cms) => (
+                {episodeSources.length > 1 && (
+                  <div className="shrink-0 flex flex-col items-end gap-1.5 pl-3">
+                    {episodeSources.map((cms: any) => (
                       <button
                         key={cms.id}
+                        type="button"
                         onClick={() => {
                           setEpisodeListSwitching(true);
                           switchCmsSource(cms.id);
                         }}
-                        className={`w-24 text-left truncate rounded-l-md rounded-r-none transition-all duration-150 ${
+                        className={`text-left truncate rounded-l-md rounded-r-none transition-all duration-150 flex-1 ${
                           selectedSourceId === cms.id
-                            ? 'bg-[var(--color-card-accent-alpha)] text-[var(--color-button-primary-text)] py-2.5 px-3 shadow-none'
-                            : 'bg-[var(--color-card-dim-alpha)] text-[var(--color-button-secondary-text)] py-1.5 px-2 hover:text-text'
+                            ? 'w-24 bg-[var(--color-card-accent-alpha)] text-[var(--color-button-primary-text)] py-2.5 px-3 shadow-none'
+                            : 'w-20 bg-[var(--color-card-dim-alpha)] text-[var(--color-button-secondary-text)] py-1.5 px-2 hover:text-text'
                         }`}
                       >
                         {cms.name}
