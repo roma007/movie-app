@@ -31,8 +31,6 @@ export default function VideoManagementPage() {
     getSubTypesByType,
     getReprobeMediaCount,
     loadReprobeMediaList,
-    batchReprobeMedia,
-    reprobeProgress,
     reprobeMediaCount,
     reprobeMediaList,
     hideMediaByGenres,
@@ -46,10 +44,16 @@ export default function VideoManagementPage() {
     getFullReprobeMediaCount,
     cancelReprobeTask,
     loadRunningReprobeTask,
+    startReprobePolling,
+    reprobePoll,
     shortDramaConfig,
     loadShortDramaConfig,
     updateShortDramaConfig,
     getDefaultShortDramaConfig,
+    videoManageDeleteType: deleteMediaType,
+    setVideoManageDeleteType,
+    videoManageHideType: hideMediaType,
+    setVideoManageHideType,
   } = useAppStore();
 
   const [stats, setStats] = useState<MediaStats | null>(null);
@@ -60,40 +64,14 @@ export default function VideoManagementPage() {
   const [deleteResult, setDeleteResult] = useState<{ deleted: number } | null>(null);
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [allGenres, setAllGenres] = useState<string[]>([]);
-  const [deleteMediaType, setDeleteMediaType] = useState<string>('');
-  const [hideMediaType, setHideMediaType] = useState<string>('');
   const [hideAllGenres, setHideAllGenres] = useState<string[]>([]);
   const [visibleGenres, setVisibleGenres] = useState<string[]>([]);
   const [hiddenGenres, setHiddenGenres] = useState<string[]>([]);
   const [togglingGenre, setTogglingGenre] = useState<string | null>(null);
-  const [reprobing, setReprobing] = useState(false);
-  const [fullReprobing, setFullReprobing] = useState(false);
-  const [fullReprobeResult, setFullReprobeResult] = useState<{
-    total: number;
-    longDrama: number;
-    shortDrama: number;
-    failed: number;
-    failedItems: { id: string; title: string }[];
-  } | null>(null);
   const [fullReprobeMediaCount, setFullReprobeMediaCount] = useState(0);
   const [localConfig, setLocalConfig] = useState<ShortDramaConfig | null>(null);
   const [patternInput, setPatternInput] = useState('');
   const [keywordInput, setKeywordInput] = useState('');
-  const [reprobeResult, setReprobeResult] = useState<{
-    total: number;
-    longDrama: number;
-    shortDrama: number;
-    failed: number;
-    failedItems: { id: string; title: string }[];
-  } | null>(null);
-  const [pollProgress, setPollProgress] = useState<{
-    total: number;
-    processed: number;
-    longDrama: number;
-    shortDrama: number;
-    failed: number;
-    currentMediaTitle: string;
-  } | null>(null);
 
   const MEDIA_TYPES = [
     { value: '', label: '全部' },
@@ -103,6 +81,28 @@ export default function VideoManagementPage() {
     { value: 'ANIME', label: '动漫' },
     { value: 'DOCUMENTARY', label: '纪录片' },
   ];
+
+  const fullReprobing = !!reprobePoll && reprobePoll.full && reprobePoll.status === 'running';
+  const reprobing = !!reprobePoll && !reprobePoll.full && reprobePoll.status === 'running';
+  const fullReprobeResult = reprobePoll?.full ? reprobePoll.result : null;
+  const reprobeResult = reprobePoll && !reprobePoll.full ? reprobePoll.result : null;
+
+  const prevPollStatusRef = useRef<string | null>(null);
+  useEffect(() => {
+    const status = reprobePoll?.status ?? null;
+    if (prevPollStatusRef.current === 'running' && status && status !== 'running') {
+      if (status === 'done') toast('探测任务已完成');
+      else if (status === 'failed') toast('探测任务失败', 'error');
+    }
+    prevPollStatusRef.current = status;
+  }, [reprobePoll?.status, toast]);
+
+  useEffect(() => {
+    if (runningReprobeTask) {
+      const full = (runningReprobeTask.sourceName || '').includes('全量');
+      startReprobePolling(runningReprobeTask.taskId, full);
+    }
+  }, [runningReprobeTask, startReprobePolling]);
 
   const loadStats = async () => {
     try {
@@ -141,12 +141,17 @@ export default function VideoManagementPage() {
   }, [shortDramaConfig]);
 
   const loadHideGenres = useCallback(async () => {
-    const [all, visible, hidden, uncatVisible] = await Promise.all([
+    const [all, visible, hiddenRaw, uncatVisible, uncatAll] = await Promise.all([
       getSubTypesByType(hideMediaType || undefined, true),
       getSubTypesByType(hideMediaType || undefined, false),
       getHiddenGenres(),
       getUncategorizedCount(hideMediaType || undefined, false),
+      getUncategorizedCount(hideMediaType || undefined, true),
     ]);
+    const hidden = hiddenRaw.filter(h => h !== UNCATEGORIZED_GENRE && all.includes(h));
+    if (hiddenRaw.includes(UNCATEGORIZED_GENRE) && uncatAll > 0) {
+      hidden.push(UNCATEGORIZED_GENRE);
+    }
     setHideAllGenres(all);
     setVisibleGenres([...new Set([...visible, ...(uncatVisible > 0 ? [UNCATEGORIZED_GENRE] : [])])]);
     setHiddenGenres(hidden);
@@ -312,79 +317,23 @@ export default function VideoManagementPage() {
   };
 
   const handleFullReprobe = async () => {
-    setFullReprobing(true);
-    setFullReprobeResult(null);
     try {
       const taskId = await startFullReprobeTask();
       toast(`全量探测任务已启动，任务ID: ${taskId}`);
-      pollFullReprobeTaskStatus(taskId);
     } catch (err: any) {
       console.error('启动全量探测任务失败:', err);
       toast(err.message || '启动全量探测任务失败', 'error');
-      setFullReprobing(false);
     }
   };
 
-  const pollFullReprobeTaskStatus = useCallback(async (taskId: string) => {
-    const checkStatus = async () => {
-      try {
-        const provider = getProvider();
-        const task = await provider.selectOne<{ status: string; probed_count: number; short_drama_count: number; long_drama_count: number }>(
-          "SELECT status, probed_count, short_drama_count, long_drama_count FROM collect_task WHERE task_id = ?",
-          [taskId]
-        );
-        if (!task) { setFullReprobing(false); return; }
-        if (task.status === 'RUNNING' || task.status === 'PENDING') {
-          setPollProgress({
-            total: fullReprobeMediaCount,
-            processed: task.probed_count || 0,
-            longDrama: task.long_drama_count || 0,
-            shortDrama: task.short_drama_count || 0,
-            failed: (task.probed_count || 0) - (task.short_drama_count || 0) - (task.long_drama_count || 0),
-            currentMediaTitle: '',
-          });
-          setTimeout(checkStatus, 2000);
-        } else {
-          setFullReprobing(false);
-          setPollProgress(null);
-          setFullReprobeResult({
-            total: fullReprobeMediaCount,
-            longDrama: task.long_drama_count || 0,
-            shortDrama: task.short_drama_count || 0,
-            failed: (task.probed_count || 0) - (task.short_drama_count || 0) - (task.long_drama_count || 0),
-            failedItems: [],
-          });
-          loadReprobeMediaList();
-          loadRunningReprobeTask();
-          loadStats();
-          getFullReprobeMediaCount().then(setFullReprobeMediaCount);
-          if (task.status === 'COMPLETED') {
-            toast('全量探测任务已完成');
-          } else {
-            toast('全量探测任务失败', 'error');
-          }
-        }
-      } catch (err) {
-        console.error('轮询全量探测任务状态失败:', err);
-        setFullReprobing(false);
-      }
-    };
-    checkStatus();
-  }, [fullReprobeMediaCount, loadReprobeMediaList, loadRunningReprobeTask, loadStats, getFullReprobeMediaCount, toast]);
-
   const handleBatchReprobe = async () => {
     if (reprobeMediaList.length === 0) return;
-    setReprobing(true);
-    setReprobeResult(null);
     try {
       const taskId = await startReprobeTask();
       toast(`探测任务已启动，任务ID: ${taskId}`);
-      // 轮询任务状态
-      pollTaskStatus(taskId);
     } catch (err: any) {
       console.error('启动探测任务失败:', err);
       toast(err.message || '启动探测任务失败', 'error');
-      setReprobing(false);
     }
   };
 
@@ -398,66 +347,10 @@ export default function VideoManagementPage() {
     });
     if (!ok) return;
     await cancelReprobeTask(runningReprobeTask.taskId);
-    setReprobing(false);
     toast('探测任务已取消');
     loadReprobeMediaList();
     loadStats();
   };
-
-  const pollTaskStatus = useCallback(async (taskId: string) => {
-    const checkStatus = async () => {
-      try {
-        const provider = getProvider();
-        const task = await provider.selectOne<{ status: string; probed_count: number; short_drama_count: number; long_drama_count: number }>(
-          "SELECT status, probed_count, short_drama_count, long_drama_count FROM collect_task WHERE task_id = ?",
-          [taskId]
-        );
-        
-        if (!task) {
-          setReprobing(false);
-          return;
-        }
-
-        if (task.status === 'RUNNING' || task.status === 'PENDING') {
-          // 更新进度
-          setPollProgress({
-            total: reprobeMediaList.length,
-            processed: task.probed_count || 0,
-            longDrama: task.long_drama_count || 0,
-            shortDrama: task.short_drama_count || 0,
-            failed: (task.probed_count || 0) - (task.short_drama_count || 0) - (task.long_drama_count || 0),
-            currentMediaTitle: '',
-          });
-          // 继续轮询
-          setTimeout(checkStatus, 2000);
-        } else {
-          // 任务完成
-          setReprobing(false);
-          setPollProgress(null);
-          setReprobeResult({
-            total: reprobeMediaList.length,
-            longDrama: task.long_drama_count || 0,
-            shortDrama: task.short_drama_count || 0,
-            failed: (task.probed_count || 0) - (task.short_drama_count || 0) - (task.long_drama_count || 0),
-            failedItems: [],
-          });
-          loadReprobeMediaList();
-          loadRunningReprobeTask();
-          loadStats();
-          if (task.status === 'COMPLETED') {
-            toast('探测任务已完成');
-          } else {
-            toast('探测任务失败', 'error');
-          }
-        }
-      } catch (err) {
-        console.error('轮询任务状态失败:', err);
-        setReprobing(false);
-      }
-    };
-    
-    checkStatus();
-  }, [reprobeMediaList.length, loadReprobeMediaList, loadRunningReprobeTask, loadStats, toast]);
 
   const getTypeIcon = (type: string) => {
     switch (type) {
@@ -545,7 +438,7 @@ export default function VideoManagementPage() {
             {MEDIA_TYPES.map(mt => (
               <button
                 key={mt.value}
-                onClick={() => setDeleteMediaType(mt.value)}
+                onClick={() => setVideoManageDeleteType(mt.value)}
                 className={`flex-1 rounded-t-md rounded-b-none transition-all duration-150 ${
                   deleteMediaType === mt.value
                     ? 'bg-[var(--color-card-accent-alpha)] text-[var(--color-button-primary-text)] py-2.5 shadow-none'
@@ -643,7 +536,7 @@ export default function VideoManagementPage() {
             {MEDIA_TYPES.map(mt => (
               <button
                 key={mt.value}
-                onClick={() => setHideMediaType(mt.value)}
+                onClick={() => setVideoManageHideType(mt.value)}
                 className={`flex-1 rounded-t-md rounded-b-none transition-all duration-150 ${
                   hideMediaType === mt.value
                     ? 'bg-[var(--color-card-accent-alpha)] text-[var(--color-button-primary-text)] py-2.5 shadow-none'
@@ -844,33 +737,33 @@ export default function VideoManagementPage() {
             </div>
           </div>
 
-          {fullReprobing && pollProgress && (
+          {fullReprobing && reprobePoll?.progress && (
             <div className="space-y-3 mb-4">
               <div className="flex items-center gap-2 text-sm">
                 <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                <span>正在全量探测：{pollProgress.currentMediaTitle || '准备中...'}</span>
+                <span>正在全量探测：{reprobePoll.progress.currentMediaTitle || '准备中...'}</span>
               </div>
               <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
                 <div
                   className="h-full bg-muted-foreground transition-all duration-300"
-                  style={{ width: `${pollProgress.total > 0 ? (pollProgress.processed / pollProgress.total) * 100 : 0}%` }}
+                  style={{ width: `${reprobePoll.progress.total > 0 ? (reprobePoll.progress.processed / reprobePoll.progress.total) * 100 : 0}%` }}
                 />
               </div>
               <div className="grid grid-cols-4 gap-4 text-center">
                 <div className="p-2 rounded bg-secondary">
-                  <div className="text-lg font-bold">{pollProgress.processed}</div>
+                  <div className="text-lg font-bold">{reprobePoll.progress.processed}</div>
                   <div className="text-xs text-muted-foreground">已处理</div>
                 </div>
                 <div className="p-2 rounded bg-secondary">
-                  <div className="text-lg font-bold text-success">{pollProgress.shortDrama}</div>
+                  <div className="text-lg font-bold text-success">{reprobePoll.progress.shortDrama}</div>
                   <div className="text-xs text-muted-foreground">短剧</div>
                 </div>
                 <div className="p-2 rounded bg-secondary">
-                  <div className="text-lg font-bold text-text-secondary">{pollProgress.longDrama}</div>
+                  <div className="text-lg font-bold text-text-secondary">{reprobePoll.progress.longDrama}</div>
                   <div className="text-xs text-muted-foreground">长剧</div>
                 </div>
                 <div className="p-2 rounded bg-secondary">
-                  <div className="text-lg font-bold text-destructive">{pollProgress.failed}</div>
+                  <div className="text-lg font-bold text-destructive">{reprobePoll.progress.failed}</div>
                   <div className="text-xs text-muted-foreground">失败</div>
                 </div>
               </div>
@@ -950,35 +843,35 @@ export default function VideoManagementPage() {
                 </Button>
               </div>
 
-              {reprobing && (pollProgress || reprobeProgress) && (
+              {reprobing && reprobePoll?.progress && (
                 <div className="space-y-3 mt-4">
                   <div className="flex items-center gap-2 text-sm">
                     <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                    <span>正在探测：{(pollProgress || reprobeProgress)?.currentMediaTitle || '准备中...'}</span>
+                    <span>正在探测：{reprobePoll.progress.currentMediaTitle || '准备中...'}</span>
                   </div>
-                  
+
                   <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
                     <div
                       className="h-full bg-muted-foreground transition-all duration-300"
-                      style={{ width: `${(pollProgress || reprobeProgress)!.total > 0 ? ((pollProgress || reprobeProgress)!.processed / (pollProgress || reprobeProgress)!.total) * 100 : 0}%` }}
+                      style={{ width: `${reprobePoll.progress.total > 0 ? (reprobePoll.progress.processed / reprobePoll.progress.total) * 100 : 0}%` }}
                     />
                   </div>
 
                   <div className="grid grid-cols-4 gap-4 text-center">
                     <div className="p-2 rounded bg-secondary">
-                      <div className="text-lg font-bold">{(pollProgress || reprobeProgress)!.processed}</div>
+                      <div className="text-lg font-bold">{reprobePoll.progress.processed}</div>
                       <div className="text-xs text-muted-foreground">已处理</div>
                     </div>
                     <div className="p-2 rounded bg-secondary">
-                      <div className="text-lg font-bold text-success">{(pollProgress || reprobeProgress)!.shortDrama}</div>
+                      <div className="text-lg font-bold text-success">{reprobePoll.progress.shortDrama}</div>
                       <div className="text-xs text-muted-foreground">短剧</div>
                     </div>
                     <div className="p-2 rounded bg-secondary">
-                      <div className="text-lg font-bold text-text-secondary">{(pollProgress || reprobeProgress)!.longDrama}</div>
+                      <div className="text-lg font-bold text-text-secondary">{reprobePoll.progress.longDrama}</div>
                       <div className="text-xs text-muted-foreground">长剧</div>
                     </div>
                     <div className="p-2 rounded bg-secondary">
-                      <div className="text-lg font-bold text-destructive">{(pollProgress || reprobeProgress)!.failed}</div>
+                      <div className="text-lg font-bold text-destructive">{reprobePoll.progress.failed}</div>
                       <div className="text-xs text-muted-foreground">失败</div>
                     </div>
                   </div>

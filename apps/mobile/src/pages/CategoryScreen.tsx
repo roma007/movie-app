@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Dimensions, Animated } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { getProvider } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useScaledFontSize } from '../themes/useScaledFontSize';
@@ -8,12 +8,10 @@ import MediaCard from '../components/MediaCard';
 import CategoryHeader from '../components/CategoryHeader';
 import FilterDropdown from '../components/FilterDropdown';
 import BlurredBackground from '../components/BlurredBackground';
+import { getFilterCache, setFilterCache, getShortDramaCache, setShortDramaCache } from '../categoryFilterCache';
 import type { Media, PaginatedMeta } from '@movie-app/core';
 
 const PAGE_SIZE = 20;
-
-const filterCache = new Map<string, { subTypes: string[]; years: number[]; areas: string[] }>();
-const shortDramaCache = new Map<string, boolean>();
 
 function useDebounce(fn: () => void, delay: number, deps: any[]) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -99,7 +97,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
   }, [type, selectedSubType, selectedYear, selectedArea, selectedEpisodeType, provider]);
 
   const loadFilterOptions = useCallback(async () => {
-    const cached = filterCache.get(type);
+    const cached = getFilterCache(type);
     if (cached) {
       setSubTypes(cached.subTypes);
       setYears(cached.years);
@@ -112,7 +110,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
         provider.getYearsByType(type),
         provider.getAreasByType(type),
       ]);
-      filterCache.set(type, { subTypes: subs, years: yrs, areas: areasList });
+      setFilterCache(type, { subTypes: subs, years: yrs, areas: areasList });
       setSubTypes(subs);
       setYears(yrs);
       setAreas(areasList);
@@ -125,15 +123,21 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
     loadFilterOptions();
   }, [loadFilterOptions]);
 
+  useFocusEffect(
+    useCallback(() => {
+      loadFilterOptions();
+    }, [loadFilterOptions])
+  );
+
   useEffect(() => {
     if (type === 'TV') {
-      const cached = shortDramaCache.get(type);
+      const cached = getShortDramaCache(type);
       if (cached !== undefined) {
         setShowShortDramaFilter(cached);
         return;
       }
       provider.hasShortDrama('TV').then((has) => {
-        shortDramaCache.set(type, has);
+        setShortDramaCache(type, has);
         setShowShortDramaFilter(has);
       }).catch(() => setShowShortDramaFilter(false));
     } else {

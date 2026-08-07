@@ -14,6 +14,7 @@ import {
   rowToFavorite,
   rowToWatchHistory,
   rowToCollectTask,
+  expandSubTypes,
 } from '@movie-app/core';
 import type { DatabaseProvider } from '@movie-app/core';
 import type {
@@ -432,8 +433,8 @@ export class TauriSqlProvider implements DatabaseProvider {
       queryParams.push(`%${params.genre}%`);
     }
     if (params.subType) {
-      whereClause += ' AND json_extract(genre, \'$[0]\') = ?';
-      queryParams.push(params.subType);
+      whereClause += ' AND genre LIKE ?';
+      queryParams.push(`%${params.subType}%`);
     }
     if (params.isShortDrama !== undefined) {
       whereClause += ' AND is_short_drama = ?';
@@ -625,7 +626,7 @@ export class TauriSqlProvider implements DatabaseProvider {
   }
 
   async getSubTypesByType(type?: string, includeHidden?: boolean): Promise<string[]> {
-    let whereClause = 'WHERE genre IS NOT NULL AND genre != \'[]\' AND json_extract(genre, \'$[0]\') IS NOT NULL AND json_extract(genre, \'$[0]\') != \'\'';
+    let whereClause = 'WHERE genre IS NOT NULL AND genre != \'[]\'';
     if (!includeHidden) {
       whereClause += ' AND (hidden IS NULL OR hidden = 0)';
     }
@@ -634,11 +635,11 @@ export class TauriSqlProvider implements DatabaseProvider {
       whereClause += ' AND type = ?';
       params.push(type);
     }
-    const rows = await this.db!.select<{ sub_type: string }[]>(
-      `SELECT DISTINCT json_extract(genre, '$[0]') as sub_type FROM media ${whereClause} ORDER BY sub_type`,
+    const rows = await this.db!.select<{ genre: string }[]>(
+      `SELECT DISTINCT genre FROM media ${whereClause}`,
       params
     );
-    return rows.map(row => row.sub_type);
+    return expandSubTypes(rows.map(row => row.genre));
   }
 
   async getYearsByType(type?: string): Promise<number[]> {

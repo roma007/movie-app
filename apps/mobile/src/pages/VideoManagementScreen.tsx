@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { ArrowLeft, X, Plus } from 'lucide-react-native';
-import { useAppStore, getProvider } from '../useAppStore';
+import { useAppStore } from '../useAppStore';
+import { clearCategoryFilterCache } from '../categoryFilterCache';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
 import { useScaledFontSize } from '../themes/useScaledFontSize';
@@ -95,9 +97,10 @@ export default function VideoManagementScreen({ navigation }: Props) {
     deleteAllMedia, deleteMediaWithoutPlaySource, deleteMediaByGenres,
     getSubTypesByType, getHiddenMediaCount, getHiddenGenres, getUncategorizedCount, hideMediaByGenres, unhideMediaByGenres,
     shortDramaConfig, loadShortDramaConfig, updateShortDramaConfig, getDefaultShortDramaConfig,
-    batchReprobeMedia, reprobeMediaCount, reprobeMediaList, loadReprobeMediaList,
+    reprobeMediaCount, reprobeMediaList, loadReprobeMediaList,
     getFullReprobeMediaCount, startReprobeTask, startFullReprobeTask, cancelReprobeTask,
-    loadRunningReprobeTask, runningReprobeTask, reprobeProgress,
+    loadRunningReprobeTask, runningReprobeTask, reprobePoll, startReprobePolling,
+    videoManageDeleteType: deleteMediaType, setVideoManageDeleteType, videoManageHideType: hideMediaType, setVideoManageHideType,
   } = useAppStore();
   const colors = useThemeColors();
   const cardOpacity = useThemeStore((s) => s.cardOpacity);
@@ -122,8 +125,6 @@ export default function VideoManagementScreen({ navigation }: Props) {
   const [deleteResult, setDeleteResult] = useState<{ deleted: number } | null>(null);
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [allGenres, setAllGenres] = useState<string[]>([]);
-  const [deleteMediaType, setDeleteMediaType] = useState('');
-  const [hideMediaType, setHideMediaType] = useState('');
   const [hideAllGenres, setHideAllGenres] = useState<string[]>([]);
   const [visibleGenres, setVisibleGenres] = useState<string[]>([]);
   const [hiddenGenres, setHiddenGenres] = useState<string[]>([]);
@@ -135,12 +136,6 @@ export default function VideoManagementScreen({ navigation }: Props) {
   const [activeLayer, setActiveLayer] = useState<number>(1);
 
   const [fullReprobeMediaCount, setFullReprobeMediaCount] = useState(0);
-  const [fullReprobing, setFullReprobing] = useState(false);
-  const [fullReprobeResult, setFullReprobeResult] = useState<{ total: number; shortDrama: number; longDrama: number; failed: number } | null>(null);
-
-  const [reprobing, setReprobing] = useState(false);
-  const [reprobeResult, setReprobeResult] = useState<{ total: number; shortDrama: number; longDrama: number; failed: number; failedItems: { id: string; title: string }[] } | null>(null);
-  const [pollProgress, setPollProgress] = useState<{ total: number; processed: number; longDrama: number; shortDrama: number; failed: number; currentMediaTitle: string } | null>(null);
 
   useEffect(() => {
     getHiddenMediaCount().then(setHiddenCount).catch(() => {});
@@ -157,12 +152,17 @@ export default function VideoManagementScreen({ navigation }: Props) {
   }, [deleteMediaType]);
 
   const loadHideGenres = useCallback(async () => {
-    const [all, visible, hidden, uncatVisible] = await Promise.all([
+    const [all, visible, hiddenRaw, uncatVisible, uncatAll] = await Promise.all([
       getSubTypesByType(hideMediaType || undefined, true),
       getSubTypesByType(hideMediaType || undefined, false),
       getHiddenGenres(),
       getUncategorizedCount(hideMediaType || undefined, false),
+      getUncategorizedCount(hideMediaType || undefined, true),
     ]);
+    const hidden = hiddenRaw.filter(h => h !== UNCATEGORIZED_GENRE && all.includes(h));
+    if (hiddenRaw.includes(UNCATEGORIZED_GENRE) && uncatAll > 0) {
+      hidden.push(UNCATEGORIZED_GENRE);
+    }
     setHideAllGenres(all);
     setVisibleGenres([...new Set([...visible, ...(uncatVisible > 0 ? [UNCATEGORIZED_GENRE] : [])])]);
     setHiddenGenres(hidden);
@@ -172,25 +172,41 @@ export default function VideoManagementScreen({ navigation }: Props) {
     loadHideGenres().catch(() => {});
   }, [loadHideGenres]);
 
+  useFocusEffect(
+    useCallback(() => {
+      loadHideGenres().catch(() => {});
+      getHiddenMediaCount().then(setHiddenCount).catch(() => {});
+    }, [loadHideGenres, getHiddenMediaCount])
+  );
+
   useEffect(() => {
     if (shortDramaConfig) {
       setLocalConfig({ ...shortDramaConfig });
     }
   }, [shortDramaConfig]);
 
+  const fullReprobing = !!reprobePoll && reprobePoll.full && reprobePoll.status === 'running';
+  const reprobing = !!reprobePoll && !reprobePoll.full && reprobePoll.status === 'running';
+  const fullReprobeResult = reprobePoll?.full ? reprobePoll.result : null;
+  const reprobeResult = reprobePoll && !reprobePoll.full ? reprobePoll.result : null;
+  const reprobeProgress = reprobePoll?.progress ?? null;
+
+  const prevPollStatusRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!fullReprobing || !runningReprobeTask) return;
-    const interval = setInterval(() => {
-      loadRunningReprobeTask();
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [fullReprobing, runningReprobeTask]);
+    const status = reprobePoll?.status ?? null;
+    if (prevPollStatusRef.current === 'running' && status && status !== 'running') {
+      if (status === 'done') Alert.alert('完成', '探测任务已完成');
+      else if (status === 'failed') Alert.alert('失败', '探测任务失败');
+    }
+    prevPollStatusRef.current = status;
+  }, [reprobePoll?.status]);
 
   useEffect(() => {
-    if (fullReprobing && !runningReprobeTask) {
-      setFullReprobing(false);
+    if (runningReprobeTask) {
+      const full = (runningReprobeTask.sourceName || '').includes('全量');
+      startReprobePolling(runningReprobeTask.taskId, full);
     }
-  }, [fullReprobing, runningReprobeTask]);
+  }, [runningReprobeTask, startReprobePolling]);
 
   const handleDeleteAll = () => {
     Alert.alert(
@@ -254,6 +270,7 @@ export default function VideoManagementScreen({ navigation }: Props) {
             const result = await deleteMediaByGenres(selectedGenres);
             setDeleteResult(result);
             setSelectedGenres([]);
+            clearCategoryFilterCache();
             getHiddenMediaCount().then(setHiddenCount).catch(() => {});
           } catch (err: any) {
             Alert.alert('错误', err.message);
@@ -277,6 +294,7 @@ export default function VideoManagementScreen({ navigation }: Props) {
       } else {
         await hideMediaByGenres([genre]);
       }
+      clearCategoryFilterCache();
       await reloadHideGenres();
       getHiddenMediaCount().then(setHiddenCount).catch(() => {});
     } catch (err: any) {
@@ -354,13 +372,10 @@ export default function VideoManagementScreen({ navigation }: Props) {
     Alert.alert('全量重新探测', '将清除所有电视剧的判断结果并重新探测。确定继续？', [
       { text: '取消', style: 'cancel' },
       { text: '确定', onPress: async () => {
-        setFullReprobing(true);
-        setFullReprobeResult(null);
         try {
           await startFullReprobeTask();
         } catch (err: any) {
           Alert.alert('错误', err.message);
-          setFullReprobing(false);
         }
       }},
     ]);
@@ -373,8 +388,6 @@ export default function VideoManagementScreen({ navigation }: Props) {
       { text: '是', style: 'destructive', onPress: async () => {
         try {
           await cancelReprobeTask(runningReprobeTask.taskId);
-          setReprobing(false);
-          setPollProgress(null);
           loadReprobeMediaList();
         } catch (err: any) {
           Alert.alert('错误', err.message);
@@ -388,71 +401,14 @@ export default function VideoManagementScreen({ navigation }: Props) {
     Alert.alert('批量重新探测', '将对未判断或兜底状态的电视剧重新探测。确定继续？', [
       { text: '取消', style: 'cancel' },
       { text: '确定', onPress: async () => {
-        setReprobing(true);
-        setReprobeResult(null);
-        setPollProgress(null);
         try {
-          const taskId = await startReprobeTask();
-          pollTaskStatus(taskId);
+          await startReprobeTask();
         } catch (err: any) {
           Alert.alert('错误', err.message);
-          setReprobing(false);
         }
       }},
     ]);
   }, [reprobeMediaList, startReprobeTask]);
-
-  const pollTaskStatus = useCallback(async (taskId: string) => {
-    const checkStatus = async () => {
-      try {
-        const provider = getProvider();
-        const task = await provider.selectOne<{ status: string; probed_count: number; short_drama_count: number; long_drama_count: number }>(
-          "SELECT status, probed_count, short_drama_count, long_drama_count FROM collect_task WHERE task_id = ?",
-          [taskId]
-        );
-
-        if (!task) {
-          setReprobing(false);
-          setPollProgress(null);
-          return;
-        }
-
-        if (task.status === 'RUNNING' || task.status === 'PENDING') {
-          setPollProgress({
-            total: reprobeMediaList.length,
-            processed: task.probed_count || 0,
-            longDrama: task.long_drama_count || 0,
-            shortDrama: task.short_drama_count || 0,
-            failed: (task.probed_count || 0) - (task.short_drama_count || 0) - (task.long_drama_count || 0),
-            currentMediaTitle: '',
-          });
-          setTimeout(checkStatus, 2000);
-        } else {
-          setReprobing(false);
-          setPollProgress(null);
-          setReprobeResult({
-            total: reprobeMediaList.length,
-            longDrama: task.long_drama_count || 0,
-            shortDrama: task.short_drama_count || 0,
-            failed: (task.probed_count || 0) - (task.short_drama_count || 0) - (task.long_drama_count || 0),
-            failedItems: [],
-          });
-          loadReprobeMediaList();
-          loadRunningReprobeTask();
-          if (task.status === 'COMPLETED') {
-            Alert.alert('完成', '探测任务已完成');
-          } else {
-            Alert.alert('失败', '探测任务失败');
-          }
-        }
-      } catch (err) {
-        console.error('轮询任务状态失败:', err);
-        setReprobing(false);
-      }
-    };
-
-    checkStatus();
-  }, [reprobeMediaList.length, loadReprobeMediaList, loadRunningReprobeTask]);
 
   const reprobeProgressPct = reprobeProgress && reprobeProgress.total > 0
     ? Math.round((reprobeProgress.processed / reprobeProgress.total) * 100)
@@ -713,27 +669,27 @@ export default function VideoManagementScreen({ navigation }: Props) {
                 </TouchableOpacity>
               </View>
 
-              {reprobing && pollProgress && (
+              {reprobing && reprobeProgress && (
                 <View style={styles.progressSection}>
                   <View style={styles.progressBar}>
-                    <View style={[styles.progressFill, { width: `${pollProgress.total > 0 ? (pollProgress.processed / pollProgress.total) * 100 : 0}%` }]} />
+                    <View style={[styles.progressFill, { width: `${reprobeProgress.total > 0 ? (reprobeProgress.processed / reprobeProgress.total) * 100 : 0}%` }]} />
                   </View>
-                  <Text style={styles.progressText}>{pollProgress.processed}/{pollProgress.total}</Text>
+                  <Text style={styles.progressText}>{reprobeProgress.processed}/{reprobeProgress.total}</Text>
                   <View style={styles.statsGrid}>
                     <View style={styles.statBox}>
-                      <Text style={[styles.statNumber, { color: colors.text }]}>{pollProgress.processed}</Text>
+                      <Text style={[styles.statNumber, { color: colors.text }]}>{reprobeProgress.processed}</Text>
                       <Text style={styles.statLabel}>已处理</Text>
                     </View>
                     <View style={styles.statBox}>
-                      <Text style={[styles.statNumber, { color: colors.success }]}>{pollProgress.shortDrama}</Text>
+                      <Text style={[styles.statNumber, { color: colors.success }]}>{reprobeProgress.shortDrama}</Text>
                       <Text style={styles.statLabel}>短剧</Text>
                     </View>
                     <View style={styles.statBox}>
-                      <Text style={[styles.statNumber, { color: colors.textSecondary }]}>{pollProgress.longDrama}</Text>
+                      <Text style={[styles.statNumber, { color: colors.textSecondary }]}>{reprobeProgress.longDrama}</Text>
                       <Text style={styles.statLabel}>长剧</Text>
                     </View>
                     <View style={styles.statBox}>
-                      <Text style={[styles.statNumber, { color: colors.error }]}>{pollProgress.failed}</Text>
+                      <Text style={[styles.statNumber, { color: colors.error }]}>{reprobeProgress.failed}</Text>
                       <Text style={styles.statLabel}>失败</Text>
                     </View>
                   </View>
@@ -784,7 +740,7 @@ export default function VideoManagementScreen({ navigation }: Props) {
                     key={mt.value}
                     style={[styles.segment, isActive && styles.segmentActive]}
                     activeOpacity={0.7}
-                    onPress={() => setDeleteMediaType(mt.value)}
+                    onPress={() => setVideoManageDeleteType(mt.value)}
                   >
                     <Text style={[styles.segmentText, isActive && styles.segmentTextActive]}>{mt.label}</Text>
                   </TouchableOpacity>
@@ -872,7 +828,7 @@ export default function VideoManagementScreen({ navigation }: Props) {
                     key={mt.value}
                     style={[styles.segment, isActive && styles.segmentActive]}
                     activeOpacity={0.7}
-                    onPress={() => setHideMediaType(mt.value)}
+                    onPress={() => setVideoManageHideType(mt.value)}
                   >
                     <Text style={[styles.segmentText, isActive && styles.segmentTextActive]}>{mt.label}</Text>
                   </TouchableOpacity>

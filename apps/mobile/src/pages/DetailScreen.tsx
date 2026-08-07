@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal } from 'react-native';
 import { useAppStore } from '../useAppStore';
 import { getProvider } from '../init';
+import { clearCategoryFilterCache } from '../categoryFilterCache';
 import { VideoDurationService, UNCATEGORIZED_GENRE } from '@movie-app/core';
 import { Heart, ArrowLeft, EyeOff } from 'lucide-react-native';
 import type { Episode, PlaySource, VideoSource } from '@movie-app/core';
@@ -243,6 +244,7 @@ export default function DetailScreen({ route, navigation }: Props) {
     setHiding(true);
     try {
       const result = await hideMediaByGenres(selectedHideGenres);
+      clearCategoryFilterCache();
       setHideModalVisible(false);
       Alert.alert(
         '已隐藏',

@@ -32,6 +32,27 @@ export function getStoreApiVersion(store: unknown): string | undefined {
   return (store as any)?.[STORE_API_STAMP_KEY];
 }
 
+export interface ReprobePollState {
+  taskId: string;
+  full: boolean;
+  status: 'running' | 'done' | 'failed' | 'cancelled';
+  progress: {
+    total: number;
+    processed: number;
+    longDrama: number;
+    shortDrama: number;
+    failed: number;
+    currentMediaTitle: string;
+  } | null;
+  result: {
+    total: number;
+    longDrama: number;
+    shortDrama: number;
+    failed: number;
+    failedItems: { id: string; title: string }[];
+  } | null;
+}
+
 export interface AppState {
   mediaList: Media[];
   mediaMeta: PaginatedMeta | null;
@@ -60,6 +81,7 @@ export interface AppState {
     failed: number;
     currentMediaTitle: string;
   } | null;
+  reprobePoll: ReprobePollState | null;
   reprobeMediaCount: number;
   reprobeMediaList: { id: string; title: string }[];
   runningReprobeTask: CollectTask | null;
@@ -74,6 +96,11 @@ export interface AppState {
   }> | null;
 
   collectTrigger: 'manual' | 'auto' | null;
+
+  videoManageDeleteType: string;
+  videoManageHideType: string;
+  setVideoManageDeleteType: (type: string) => void;
+  setVideoManageHideType: (type: string) => void;
 
   loadMediaList: (params?: any) => Promise<void>;
   getGenresByType: (type?: string) => Promise<string[]>;
@@ -157,6 +184,7 @@ hasShortDrama: (type?: string) => Promise<boolean>;
   startFullReprobeTask: () => Promise<string>;
   cancelReprobeTask: (taskId: string) => Promise<void>;
   loadRunningReprobeTask: () => Promise<void>;
+  startReprobePolling: (taskId: string, full: boolean) => Promise<void>;
 
   deleteAllMedia: () => Promise<void>;
   deletePlaySourcesBySourceId: (sourceId: string) => Promise<void>;
@@ -224,15 +252,21 @@ export function createAppStore(db: DatabaseProvider) {
     shortDramaConfig: null,
     collectTasks: [],
     reprobeProgress: null,
+    reprobePoll: null,
     reprobeMediaCount: 0,
     reprobeMediaList: [],
     runningReprobeTask: null,
     collectSourceProgress: null,
     collectTrigger: null,
+    videoManageDeleteType: '',
+    videoManageHideType: '',
     collectionLogs: [],
     previewResults: [],
     previewLoading: false,
     userUsageTypes: ['SEARCH_FIRST'],
+
+    setVideoManageDeleteType: (type) => set({ videoManageDeleteType: type }),
+    setVideoManageHideType: (type) => set({ videoManageHideType: type }),
 
     loadMediaList: async (params = {}) => {
       console.log(`[STORE] loadMediaList called with params:`, params);
@@ -889,8 +923,12 @@ export function createAppStore(db: DatabaseProvider) {
           errorType: 'CANCELLED',
           completedAt: new Date().toISOString(),
         });
-        // 清除运行中的任务
-        set({ runningReprobeTask: null });
+        // 清除运行中的任务，并立即结束进度轮询
+        const poll = get().reprobePoll;
+        set({
+          runningReprobeTask: null,
+          reprobePoll: poll ? { ...poll, status: 'cancelled', progress: null } : null,
+        });
       } catch (err: any) {
         console.error('[STORE] 取消探测任务失败:', err);
       }
@@ -903,6 +941,100 @@ export function createAppStore(db: DatabaseProvider) {
       } catch (err: any) {
         console.error('[STORE] 加载运行中的探测任务失败:', err);
       }
+    },
+
+    startReprobePolling: async (taskId: string, full: boolean) => {
+      // 同一任务已存在轮询时直接复用，避免重复轮询
+      const existing = get().reprobePoll;
+      if (existing?.taskId === taskId) return;
+
+      let total = 0;
+      try {
+        if (full) {
+          total = await get().getFullReprobeMediaCount();
+        } else {
+          await get().loadReprobeMediaList();
+          total = get().reprobeMediaList.length;
+        }
+      } catch (err: any) {
+        console.error('[STORE] 获取探测总数失败:', err);
+      }
+
+      set({
+        reprobePoll: {
+          taskId,
+          full,
+          status: 'running',
+          progress: { total, processed: 0, longDrama: 0, shortDrama: 0, failed: 0, currentMediaTitle: '' },
+          result: null,
+        },
+      });
+
+      const poll = async () => {
+        const pollState = get().reprobePoll;
+        if (!pollState || pollState.taskId !== taskId) return;
+        const baseTotal = pollState.progress?.total ?? 0;
+
+        try {
+          const task = await db.getRunningReprobeTask();
+          if (!task) {
+            // 任务已结束（完成/失败/取消），读取最终状态
+            const finished = await db.getCollectTaskById(taskId);
+            if (finished) {
+              const processed = finished.probedCount || 0;
+              const isCancelled = finished.errorType === 'CANCELLED';
+              const status = isCancelled
+                ? 'cancelled' as const
+                : finished.status === 'COMPLETED'
+                  ? 'done' as const
+                  : 'failed' as const;
+              set({
+                reprobePoll: {
+                  ...pollState,
+                  status,
+                  progress: null,
+                  result: isCancelled ? null : {
+                    total: baseTotal,
+                    longDrama: finished.longDramaCount || 0,
+                    shortDrama: finished.shortDramaCount || 0,
+                    failed: processed - (finished.shortDramaCount || 0) - (finished.longDramaCount || 0),
+                    failedItems: [],
+                  },
+                },
+              });
+            } else {
+              set({ reprobePoll: { ...pollState, status: 'cancelled', progress: null } });
+            }
+            get().loadReprobeMediaList();
+            get().loadRunningReprobeTask();
+            return;
+          }
+
+          if (task.status === 'PENDING' || task.status === 'RUNNING') {
+            const processed = task.probedCount || 0;
+            set({
+              reprobePoll: {
+                ...pollState,
+                status: 'running',
+                progress: {
+                  total: baseTotal,
+                  processed,
+                  longDrama: task.longDramaCount || 0,
+                  shortDrama: task.shortDramaCount || 0,
+                  failed: processed - (task.shortDramaCount || 0) - (task.longDramaCount || 0),
+                  currentMediaTitle: '',
+                },
+              },
+            });
+            setTimeout(poll, 2000);
+          }
+        } catch (err) {
+          console.error('[STORE] 轮询探测任务状态失败:', err);
+          set({ reprobePoll: { ...get().reprobePoll!, status: 'failed', progress: null } });
+        }
+      };
+
+      setTimeout(poll, 0);
     },
 
     deleteAllMedia: async () => {
