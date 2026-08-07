@@ -146,6 +146,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
   }, [type, provider]);
 
   useDebounce(() => {
+    flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
     loadList(1, true);
   }, 200, [selectedSubType, selectedYear, selectedArea, selectedEpisodeType, loadList]);
 

@@ -36,6 +36,8 @@ export function PlayerHost() {
   const setMiniSize = usePlayerStore((s) => s.setMiniSize);
   const setCollapsed = usePlayerStore((s) => s.setCollapsed);
   const initMiniPrefs = usePlayerStore((s) => s.initMiniPrefs);
+  const miniPlayerEnabled = usePlayerStore((s) => s.miniPlayerEnabled);
+  const loadMiniPlayerPref = usePlayerStore((s) => s.loadMiniPlayerPref);
   const closePlayback = usePlayerStore((s) => s.closePlayback);
   const handleSourceChange = usePlayerStore((s) => s.handleSourceChange);
   const handleTimeUpdate = usePlayerStore((s) => s.handleTimeUpdate);
@@ -54,10 +56,12 @@ export function PlayerHost() {
 
   const [overlayVisible, setOverlayVisible] = useState(false);
   const overlayDismissedRef = useRef(false);
+  const reachedOutroRef = useRef(false);
 
   useEffect(() => {
     setOverlayVisible(false);
     overlayDismissedRef.current = false;
+    reachedOutroRef.current = false;
   }, [session?.episodeId, session?.playSourceId]);
 
   const handleBossKey = useCallback(async () => {
@@ -110,6 +114,10 @@ export function PlayerHost() {
   }, [initMiniPrefs]);
 
   useEffect(() => {
+    void loadMiniPlayerPref();
+  }, [loadMiniPlayerPref]);
+
+  useEffect(() => {
     if (miniPos) {
       try {
         localStorage.setItem('movie_app_mini_pos', JSON.stringify(miniPos));
@@ -129,9 +137,17 @@ export function PlayerHost() {
     if (isPlayRoute && collapsed) setCollapsed(false);
   }, [isPlayRoute, collapsed, setCollapsed]);
 
+  useEffect(() => {
+    if (session && !isPlayRoute && (!miniPlayerEnabled || reachedOutroRef.current)) {
+      void closePlayback();
+    }
+  }, [session, isPlayRoute, miniPlayerEnabled, closePlayback]);
+
   if (!session) return null;
 
   const mode: 'full' | 'mini' = isPlayRoute ? 'full' : 'mini';
+
+  if (mode === 'mini' && (!miniPlayerEnabled || reachedOutroRef.current)) return null;
 
   const activeSources = session.sources;
   const showPlayer = activeSources.length > 0 || !session.loading;
@@ -296,11 +312,11 @@ export function PlayerHost() {
   const handlePlayerTimeUpdate = (currentTime: number, duration: number) => {
     handleTimeUpdate(currentTime, duration);
     const threshold = (session.outroThresholdMinutes ?? 10) * 60;
+    const reachedOutro = duration > threshold && currentTime > 0 && duration - currentTime <= threshold;
+    reachedOutroRef.current = reachedOutro;
     const canShow =
       !overlayDismissedRef.current &&
-      duration > threshold &&
-      currentTime > 0 &&
-      duration - currentTime <= threshold &&
+      reachedOutro &&
       session.showNextEpisodeOverlay !== false &&
       session.nextEpisode != null;
     setOverlayVisible(canShow);

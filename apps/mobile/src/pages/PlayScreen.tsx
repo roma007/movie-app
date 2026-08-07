@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { getProvider } from '../init';
 import { useAppStore } from '../useAppStore';
-import { ArrowLeft } from 'lucide-react-native';
+import { ArrowLeft, RotateCcw } from 'lucide-react-native';
 import { SystemConfigService } from '@movie-app/core';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
@@ -59,6 +59,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   const [bgImageUrl, setBgImageUrl] = useState<string | null>(null);
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [episodeListSwitching, setEpisodeListSwitching] = useState(false);
+  const [isLandscape, setIsLandscape] = useState(false);
 
   useEffect(() => {
     if (!media?.posterUrl) {
@@ -84,6 +85,18 @@ export default function PlayScreen({ route, navigation }: Props) {
     placeholder: { width: 40 },
     videoContainer: { width: '100%', aspectRatio: 16 / 9, backgroundColor: colors.playerBg },
     video: { width: '100%', height: '100%' },
+    rotateButton: {
+      position: 'absolute',
+      right: 48,
+      bottom: 10,
+      zIndex: 40,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
     loadingOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1 },
     loadingText: { color: colors.textSecondary, fontSize: sf(14), marginTop: 8 },
     errorOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 1, padding: 20 },
@@ -225,6 +238,7 @@ export default function PlayScreen({ route, navigation }: Props) {
     }
   };
 
+  const videoRef = useRef<VideoView>(null);
   const playerRef = useRef<any>(null);
   const player = useVideoPlayer(videoUrl as any, (p) => {
     p.loop = false;
@@ -277,6 +291,16 @@ export default function PlayScreen({ route, navigation }: Props) {
       setVideoUrl(playSources[0].url);
       setIsLoading(true);
       setError(null);
+    }
+  };
+
+  const handleRotate = () => {
+    if (isLandscape) {
+      setIsLandscape(false);
+      videoRef.current?.exitFullscreen();
+    } else {
+      setIsLandscape(true);
+      videoRef.current?.enterFullscreen();
     }
   };
 
@@ -367,11 +391,23 @@ export default function PlayScreen({ route, navigation }: Props) {
         )}
         {videoUrl && !error && (
           <VideoView
+            ref={videoRef}
             style={styles.video}
             player={player}
             contentFit="contain"
-            fullscreenOptions={{ enable: true }}
+            fullscreenOptions={{ enable: true, orientation: isLandscape ? 'landscape' : 'default' }}
+            onFullscreenEnter={() => setIsLandscape(true)}
+            onFullscreenExit={() => setIsLandscape(false)}
           />
+        )}
+        {videoUrl && !error && (
+          <TouchableOpacity
+            style={styles.rotateButton}
+            activeOpacity={0.7}
+            onPress={handleRotate}
+          >
+            <RotateCcw size={18} color="#fff" />
+          </TouchableOpacity>
         )}
         <NextEpisodeOverlay
           show={overlayVisible}

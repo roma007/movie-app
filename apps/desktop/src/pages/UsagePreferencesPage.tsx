@@ -3,9 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
-import { ArrowLeft, Clock, Home, Waypoints, Video } from 'lucide-react';
+import { ArrowLeft, Clock, Home, PictureInPicture2, Waypoints, Video } from 'lucide-react';
 import { useAppStore } from '../useAppStore';
 import { useThemeStore } from '../themes/store';
+import { usePlayerStore } from '../stores/playerStore';
 import { getProvider } from '../init';
 import { SystemConfigService } from '@movie-app/core';
 import type { UserUsageType } from '@movie-app/core';
@@ -30,6 +31,7 @@ export default function UsagePreferencesPage() {
   const [playbackEnabled, setPlaybackEnabled] = useState(true);
   const [playbackThreshold, setPlaybackThreshold] = useState(10);
   const [prefetchConcurrency, setPrefetchConcurrency] = useState(3);
+  const [miniPlayerEnabled, setMiniPlayerEnabled] = useState(true);
   const { userUsageTypes, loadUserUsageTypes, setUserUsageTypes } = useAppStore();
   const { maxBufferSize, setMaxBufferSize } = useThemeStore();
 
@@ -45,6 +47,7 @@ export default function UsagePreferencesPage() {
         setPlaybackEnabled(config.showNextEpisodeOverlay);
         setPlaybackThreshold(config.outroThresholdMinutes);
         setPrefetchConcurrency(config.prefetchConcurrency);
+        setMiniPlayerEnabled(config.miniPlayerEnabled);
       } catch {}
     })();
   }, []);
@@ -71,6 +74,16 @@ export default function UsagePreferencesPage() {
     try {
       const configService = new SystemConfigService(getProvider());
       await configService.setPlaybackConfig({ prefetchConcurrency: n });
+    } catch {}
+  };
+
+  const handleToggleMiniPlayer = async () => {
+    const next = !miniPlayerEnabled;
+    setMiniPlayerEnabled(next);
+    usePlayerStore.getState().setMiniPlayerEnabled(next);
+    try {
+      const configService = new SystemConfigService(getProvider());
+      await configService.setPlaybackConfig({ miniPlayerEnabled: next });
     } catch {}
   };
 
@@ -122,6 +135,21 @@ export default function UsagePreferencesPage() {
                 </button>
               );
             })}
+          </div>
+        </div>
+      </Card>
+
+      <Card className="p-5 mb-8">
+        <div className="flex items-center gap-6">
+          <div className="w-80 shrink-0">
+            <div className="flex items-center gap-3">
+              <PictureInPicture2 className="size-4 text-muted-foreground shrink-0" />
+              <span className="font-medium">弹窗播放</span>
+            </div>
+            <p className="text-sm text-muted-foreground mt-1">开启后，离开播放页时以小窗继续播放；关闭后，离开播放页将停止播放</p>
+          </div>
+          <div className="flex-1 min-w-0 flex items-center justify-end">
+            <Switch checked={miniPlayerEnabled} onCheckedChange={handleToggleMiniPlayer} />
           </div>
         </div>
       </Card>

@@ -297,11 +297,27 @@ export default function CategoryPage({ type }: CategoryPageProps) {
     }
   };
 
+  const applyFilterChange = (updateParams: (prev: URLSearchParams) => URLSearchParams) => {
+    setCurrentPage(1);
+    sessionStorage.removeItem(scrollKey);
+    const main = document.getElementById('main-content');
+    if (main) main.scrollTop = 0;
+    setSearchParams(updateParams);
+  };
+
   const clearFilters = () => {
     setActiveSubType(undefined);
     setActiveYear(undefined);
     setActiveArea(undefined);
     setActiveEpisodeType(undefined);
+    applyFilterChange((prev) => {
+      prev.delete('subType');
+      prev.delete('year');
+      prev.delete('area');
+      prev.delete('episodeType');
+      prev.delete('page');
+      return prev;
+    });
   };
 
   const totalPages = mediaMeta?.totalPages || 1;
@@ -397,7 +413,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                     <Button
                       variant={!activeSubType ? 'default' : 'outline'}
                       size="sm"
-                      onClick={() => setActiveSubType(undefined)}
+                      onClick={() => { setActiveSubType(undefined); applyFilterChange((prev) => { prev.delete('subType'); prev.delete('page'); return prev; }); }}
                       className="text-xs"
                     >
                       全部
@@ -407,7 +423,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                         key={g}
                         variant={activeSubType === g ? 'default' : 'outline'}
                         size="sm"
-                        onClick={() => setActiveSubType(g)}
+                        onClick={() => { setActiveSubType(g); applyFilterChange((prev) => { prev.set('subType', g); prev.delete('page'); return prev; }); }}
                         className="text-xs"
                       >
                         {g}
@@ -424,7 +440,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                     <Button
                       variant={!activeYear ? 'default' : 'outline'}
                       size="sm"
-                      onClick={() => setActiveYear(undefined)}
+                      onClick={() => { setActiveYear(undefined); applyFilterChange((prev) => { prev.delete('year'); prev.delete('page'); return prev; }); }}
                       className="text-xs"
                     >
                       全部
@@ -434,7 +450,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                         key={y}
                         variant={activeYear === y ? 'default' : 'outline'}
                         size="sm"
-                        onClick={() => setActiveYear(y)}
+                        onClick={() => { setActiveYear(y); applyFilterChange((prev) => { prev.set('year', String(y)); prev.delete('page'); return prev; }); }}
                         className="text-xs"
                       >
                         {y}
@@ -451,7 +467,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                     <Button
                       variant={!activeArea ? 'default' : 'outline'}
                       size="sm"
-                      onClick={() => setActiveArea(undefined)}
+                      onClick={() => { setActiveArea(undefined); applyFilterChange((prev) => { prev.delete('area'); prev.delete('page'); return prev; }); }}
                       className="text-xs"
                     >
                       全部
@@ -461,7 +477,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                         key={a}
                         variant={activeArea === a ? 'default' : 'outline'}
                         size="sm"
-                        onClick={() => setActiveArea(a)}
+                        onClick={() => { setActiveArea(a); applyFilterChange((prev) => { prev.set('area', a); prev.delete('page'); return prev; }); }}
                         className="text-xs"
                       >
                         {a}
@@ -480,7 +496,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                       size="sm"
                       onClick={() => {
                         setActiveEpisodeType(undefined);
-                        setSearchParams(prev => { prev.delete('episodeType'); return prev; });
+                        applyFilterChange(prev => { prev.delete('episodeType'); prev.delete('page'); return prev; });
                       }}
                       className="text-xs"
                     >
@@ -491,7 +507,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                       size="sm"
                       onClick={() => {
                         setActiveEpisodeType('short');
-                        setSearchParams(prev => { prev.set('episodeType', 'short'); return prev; });
+                        applyFilterChange(prev => { prev.set('episodeType', 'short'); prev.delete('page'); return prev; });
                       }}
                       className="text-xs"
                     >
@@ -502,7 +518,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                       size="sm"
                       onClick={() => {
                         setActiveEpisodeType('long');
-                        setSearchParams(prev => { prev.set('episodeType', 'long'); return prev; });
+                        applyFilterChange(prev => { prev.set('episodeType', 'long'); prev.delete('page'); return prev; });
                       }}
                       className="text-xs"
                     >

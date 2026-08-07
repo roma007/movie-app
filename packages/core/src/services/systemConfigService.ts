@@ -28,6 +28,7 @@ export interface PlaybackConfig {
   outroThresholdMinutes: number;
   showNextEpisodeOverlay: boolean;
   prefetchConcurrency: number;
+  miniPlayerEnabled: boolean;
 }
 
 export interface ShortDramaConfig {
@@ -246,6 +247,7 @@ export class SystemConfigService {
       outroThresholdMinutes: await this.getNumber('playback.outroThresholdMinutes', 10),
       showNextEpisodeOverlay: await this.getJSON<boolean>('playback.showNextEpisodeOverlay', true),
       prefetchConcurrency: await this.getNumber('playback.prefetchConcurrency', 3),
+      miniPlayerEnabled: await this.getJSON<boolean>('playback.miniPlayerEnabled', true),
     };
   }
 
@@ -258,6 +260,9 @@ export class SystemConfigService {
     }
     if (config.prefetchConcurrency !== undefined) {
       await this.setNumber('playback.prefetchConcurrency', config.prefetchConcurrency);
+    }
+    if (config.miniPlayerEnabled !== undefined) {
+      await this.setJSON('playback.miniPlayerEnabled', config.miniPlayerEnabled);
     }
   }
 

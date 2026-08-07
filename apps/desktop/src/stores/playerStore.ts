@@ -48,6 +48,9 @@ interface PlayerState {
   setMiniSize: (size: { width: number; height?: number }) => void;
   setCollapsed: (collapsed: boolean) => void;
   initMiniPrefs: () => void;
+  miniPlayerEnabled: boolean;
+  setMiniPlayerEnabled: (enabled: boolean) => void;
+  loadMiniPlayerPref: () => Promise<void>;
 }
 
 const MINI_POS_KEY = 'movie_app_mini_pos';
@@ -114,6 +117,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     miniSize: { width: 400, height: Math.round((400 * 9) / 16) + MINI_HEADER_H },
     collapsed: false,
     miniPrefsInitialized: false,
+    miniPlayerEnabled: true,
     volume: volumePrefs.volume,
     muted: volumePrefs.muted,
 
@@ -139,9 +143,21 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     });
   },
 
-  setMiniPos: (pos) => set({ miniPos: pos }),
-  setMiniSize: (size) => set({ miniSize: clampMiniSize(size) }),
-  setCollapsed: (collapsed) => set({ collapsed }),
+    setMiniPos: (pos) => set({ miniPos: pos }),
+    setMiniSize: (size) => set({ miniSize: clampMiniSize(size) }),
+    setCollapsed: (collapsed) => set({ collapsed }),
+
+    setMiniPlayerEnabled: (enabled) => set({ miniPlayerEnabled: enabled }),
+
+    loadMiniPlayerPref: async () => {
+      try {
+        const configService = new SystemConfigService(getProvider());
+        const cfg = await configService.getPlaybackConfig();
+        set({ miniPlayerEnabled: cfg.miniPlayerEnabled });
+      } catch (err) {
+        console.error('[playerStore] 读取小窗播放偏好失败:', err);
+      }
+    },
 
   setSlotRect: (rect) => {
     const cur = get().slotRect;
