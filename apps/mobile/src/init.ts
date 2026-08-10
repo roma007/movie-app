@@ -37,14 +37,6 @@ export async function initApp(): Promise<void> {
     await provider.init();
     s.provider = provider;
     try {
-      const removed = await provider.deleteNonMediaPlaySources();
-      if (removed > 0) {
-        console.log(`[INIT] 清理了 ${removed} 条非媒体播放地址`);
-      }
-    } catch (err) {
-      console.error('[INIT] 清理非媒体播放地址失败:', err);
-    }
-    try {
       const updated = await backfillSeriesGroup(provider);
       if (updated > 0) console.log(`[INIT] 回填了 ${updated} 个 media 的系列字段`);
     } catch (err) {

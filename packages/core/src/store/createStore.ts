@@ -205,8 +205,8 @@ hasShortDrama: (type?: string) => Promise<boolean>;
 
   previewResults: CollectPreviewItem[];
   previewLoading: boolean;
-  searchKeywordPreview: (keyword: string, overrides?: { ignoreBlacklist?: boolean; unlimitedYear?: boolean }) => Promise<void>;
-  saveSelectedPreviewItems: (items: CollectPreviewItem[], overrides?: { ignoreBlacklist?: boolean; unlimitedYear?: boolean }) => Promise<SavePreviewResult>;
+  searchKeywordPreview: (keyword: string, overrides?: { unlimitedYear?: boolean }) => Promise<void>;
+  saveSelectedPreviewItems: (items: CollectPreviewItem[], overrides?: { unlimitedYear?: boolean }) => Promise<SavePreviewResult>;
   clearPreviewResults: () => void;
 
   userUsageTypes: UserUsageType[];

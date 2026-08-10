@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { ArrowLeft, X, Plus } from 'lucide-react-native';
@@ -92,6 +92,73 @@ function TagEditor({ items, onRemove, onAdd, inputValue, onChangeInput, placehol
   );
 }
 
+interface GenreChipProps {
+  genre: string;
+  selected: boolean;
+  tone: 'destructive' | 'warning' | 'warning-solid';
+  onToggle: (genre: string) => void;
+}
+
+const GenreChip = memo(function GenreChip({ genre, selected, tone, onToggle }: GenreChipProps) {
+  const colors = useThemeColors();
+  if (tone === 'destructive') {
+    return (
+      <Button
+        variant={selected ? 'destructive' : 'secondary'}
+        size="sm"
+        onPress={() => onToggle(genre)}
+      >
+        {genre}
+      </Button>
+    );
+  }
+  if (tone === 'warning-solid') {
+    return (
+      <Button
+        variant="secondary"
+        size="sm"
+        active={selected}
+        style={{ backgroundColor: hexToRgba(colors.warning, selected ? 0.35 : 0.1) }}
+        textStyle={{ color: colors.warning }}
+        onPress={() => onToggle(genre)}
+      >
+        {genre}
+      </Button>
+    );
+  }
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      active={selected}
+      style={selected ? { backgroundColor: hexToRgba(colors.warning, 0.2) } : undefined}
+      textStyle={selected ? { color: colors.warning } : undefined}
+      onPress={() => onToggle(genre)}
+    >
+      {genre}
+    </Button>
+  );
+});
+
+interface QuickActionsProps {
+  onAll: () => void;
+  onInvert: () => void;
+  onClear: () => void;
+}
+
+function QuickActions({ onAll, onInvert, onClear }: QuickActionsProps) {
+  const colors = useThemeColors();
+  const s = useScaledFontSize();
+  const actionText = { fontSize: s(12), color: colors.mutedForeground, textDecorationLine: 'underline' as const };
+  return (
+    <View style={{ flexDirection: 'row', gap: 14, alignItems: 'center' }}>
+      <TouchableOpacity onPress={onAll}><Text style={actionText}>全选</Text></TouchableOpacity>
+      <TouchableOpacity onPress={onInvert}><Text style={actionText}>反选</Text></TouchableOpacity>
+      <TouchableOpacity onPress={onClear}><Text style={actionText}>清空</Text></TouchableOpacity>
+    </View>
+  );
+}
+
 export default function VideoManagementScreen({ navigation }: Props) {
   const {
     deleteAllMedia, deleteMediaWithoutPlaySource, deleteMediaByGenres,
@@ -128,7 +195,15 @@ export default function VideoManagementScreen({ navigation }: Props) {
   const [hideAllGenres, setHideAllGenres] = useState<string[]>([]);
   const [visibleGenres, setVisibleGenres] = useState<string[]>([]);
   const [hiddenGenres, setHiddenGenres] = useState<string[]>([]);
-  const [togglingGenre, setTogglingGenre] = useState<string | null>(null);
+  const [selectedVisibleGenres, setSelectedVisibleGenres] = useState<string[]>([]);
+  const [selectedHiddenGenres, setSelectedHiddenGenres] = useState<string[]>([]);
+  const [hidingGenres, setHidingGenres] = useState(false);
+  const [unhidingGenres, setUnhidingGenres] = useState(false);
+
+  const CHIP_LIMIT = 200;
+  const [showAllDelete, setShowAllDelete] = useState(false);
+  const [showAllVisible, setShowAllVisible] = useState(false);
+  const [showAllHidden, setShowAllHidden] = useState(false);
 
   const [localConfig, setLocalConfig] = useState<ShortDramaConfig | null>(null);
   const [patternInput, setPatternInput] = useState('');
@@ -174,6 +249,8 @@ export default function VideoManagementScreen({ navigation }: Props) {
 
   useFocusEffect(
     useCallback(() => {
+      setSelectedVisibleGenres([]);
+      setSelectedHiddenGenres([]);
       loadHideGenres().catch(() => {});
       getHiddenMediaCount().then(setHiddenCount).catch(() => {});
     }, [loadHideGenres, getHiddenMediaCount])
@@ -250,11 +327,11 @@ export default function VideoManagementScreen({ navigation }: Props) {
     );
   };
 
-  const toggleGenre = (genre: string) => {
+  const toggleGenre = useCallback((genre: string) => {
     setSelectedGenres(prev =>
       prev.includes(genre) ? prev.filter(g => g !== genre) : [...prev, genre]
     );
-  };
+  }, []);
 
   const handleDeleteByGenre = () => {
     if (selectedGenres.length === 0) return;
@@ -286,21 +363,47 @@ export default function VideoManagementScreen({ navigation }: Props) {
     await loadHideGenres();
   };
 
-  const handleToggleHideGenre = async (genre: string, isCurrentlyHidden: boolean) => {
-    setTogglingGenre(genre);
+  const toggleVisibleGenre = useCallback((genre: string) => {
+    setSelectedVisibleGenres(prev =>
+      prev.includes(genre) ? prev.filter(g => g !== genre) : [...prev, genre]
+    );
+  }, []);
+
+  const toggleHiddenGenre = useCallback((genre: string) => {
+    setSelectedHiddenGenres(prev =>
+      prev.includes(genre) ? prev.filter(g => g !== genre) : [...prev, genre]
+    );
+  }, []);
+
+  const handleHideSelected = async () => {
+    if (selectedVisibleGenres.length === 0) return;
+    setHidingGenres(true);
     try {
-      if (isCurrentlyHidden) {
-        await unhideMediaByGenres([genre]);
-      } else {
-        await hideMediaByGenres([genre]);
-      }
+      await hideMediaByGenres(selectedVisibleGenres);
+      setSelectedVisibleGenres([]);
       clearCategoryFilterCache();
       await reloadHideGenres();
       getHiddenMediaCount().then(setHiddenCount).catch(() => {});
     } catch (err: any) {
       Alert.alert('错误', err.message);
     } finally {
-      setTogglingGenre(null);
+      setHidingGenres(false);
+    }
+  };
+
+  const handleUnhideSelected = async () => {
+    if (selectedHiddenGenres.length === 0) return;
+    setUnhidingGenres(true);
+    try {
+      await unhideMediaByGenres(selectedHiddenGenres);
+      setSelectedHiddenGenres([]);
+      clearCategoryFilterCache();
+      await reloadHideGenres();
+      getHiddenMediaCount().then(setHiddenCount).catch(() => {});
+    } catch (err: any) {
+      Alert.alert('错误', err.message);
+    } finally {
+      setUnhidingGenres(false);
     }
   };
 
@@ -587,7 +690,6 @@ export default function VideoManagementScreen({ navigation }: Props) {
 
           {fullReprobing && reprobeProgress && (
             <View style={styles.progressSection}>
-              <Text style={styles.progressText}>正在探测：{reprobeProgress.currentMediaTitle || '准备中...'}</Text>
               <View style={styles.progressBar}>
                 <View style={[styles.progressFill, { width: `${reprobeProgressPct}%` }]} />
               </View>
@@ -642,7 +744,7 @@ export default function VideoManagementScreen({ navigation }: Props) {
             disabled={fullReprobing || fullReprobeMediaCount === 0 || !!runningReprobeTask}
             onPress={handleFullReprobe}
           >
-            {fullReprobing ? '启动中...' : `开始全量重新探测 (${fullReprobeMediaCount})`}
+            {`开始全量重新探测 (${fullReprobeMediaCount})`}
           </Button>
         </View>
 
@@ -723,7 +825,7 @@ export default function VideoManagementScreen({ navigation }: Props) {
             disabled={reprobing || reprobeMediaList.length === 0 || !!runningReprobeTask}
             onPress={handleBatchReprobe}
           >
-            {reprobing ? '启动中...' : `开始批量重新探测 (${reprobeMediaList.length})`}
+            {`开始批量重新探测 (${reprobeMediaList.length})`}
           </Button>
         </View>
 
@@ -752,18 +854,36 @@ export default function VideoManagementScreen({ navigation }: Props) {
               {allGenres.length === 0 ? (
                 <Text style={styles.configDesc}>暂无子类型数据</Text>
               ) : (
-                <View style={styles.chipRow}>
-                  {allGenres.map(genre => (
-                    <Button
-                      key={genre}
-                      variant={selectedGenres.includes(genre) ? 'destructive' : 'secondary'}
-                      size="sm"
-                      onPress={() => toggleGenre(genre)}
-                    >
-                      {genre}
-                    </Button>
-                  ))}
-                </View>
+                <>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={styles.sectionLabel}>可选子类型 ({allGenres.length})</Text>
+                    <QuickActions
+                      onAll={() => setSelectedGenres([...allGenres])}
+                      onInvert={() => setSelectedGenres(prev => allGenres.filter(g => !prev.includes(g)))}
+                      onClear={() => setSelectedGenres([])}
+                    />
+                  </View>
+                  <View style={styles.chipRow}>
+                    {(showAllDelete ? allGenres : allGenres.slice(0, CHIP_LIMIT)).map(genre => (
+                      <GenreChip
+                        key={genre}
+                        genre={genre}
+                        selected={selectedGenres.includes(genre)}
+                        tone="destructive"
+                        onToggle={toggleGenre}
+                      />
+                    ))}
+                    {allGenres.length > CHIP_LIMIT && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onPress={() => setShowAllDelete(v => !v)}
+                      >
+                        {showAllDelete ? '收起' : `显示全部 (${allGenres.length})`}
+                      </Button>
+                    )}
+                  </View>
+                </>
               )}
             </View>
           </View>
@@ -817,7 +937,7 @@ export default function VideoManagementScreen({ navigation }: Props) {
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>按子类型隐藏视频</Text>
-          <Text style={styles.cardDesc}>点击子类型立即切换隐藏状态，无需确认。隐藏后视频将从各列表移除。</Text>
+          <Text style={styles.cardDesc}>先选择子类型，再点击下方按钮一次性批量隐藏或恢复，避免逐个等待。</Text>
 
           <View style={styles.tabWrap}>
             <View style={styles.segmentRow}>
@@ -828,7 +948,11 @@ export default function VideoManagementScreen({ navigation }: Props) {
                     key={mt.value}
                     style={[styles.segment, isActive && styles.segmentActive]}
                     activeOpacity={0.7}
-                    onPress={() => setVideoManageHideType(mt.value)}
+                    onPress={() => {
+                      setSelectedVisibleGenres([]);
+                      setSelectedHiddenGenres([]);
+                      setVideoManageHideType(mt.value);
+                    }}
                   >
                     <Text style={[styles.segmentText, isActive && styles.segmentTextActive]}>{mt.label}</Text>
                   </TouchableOpacity>
@@ -841,51 +965,98 @@ export default function VideoManagementScreen({ navigation }: Props) {
                 <Text style={styles.infoText}>当前已隐藏：<Text style={styles.infoBold}>{hiddenCount} 部视频</Text></Text>
               </View>
 
-              <Text style={styles.sectionLabel}>未隐藏 ({visibleGenres.length})</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={styles.sectionLabel}>未隐藏 ({visibleGenres.length})</Text>
+                <QuickActions
+                  onAll={() => setSelectedVisibleGenres([...visibleGenres])}
+                  onInvert={() => setSelectedVisibleGenres(prev => visibleGenres.filter(g => !prev.includes(g)))}
+                  onClear={() => setSelectedVisibleGenres([])}
+                />
+              </View>
               {visibleGenres.length === 0 ? (
                 <Text style={styles.configDesc}>暂无未隐藏的子类型</Text>
               ) : (
                 <View style={styles.chipRow}>
-                  {visibleGenres.map(genre => (
-                    <Button
+                  {(showAllVisible ? visibleGenres : visibleGenres.slice(0, CHIP_LIMIT)).map(genre => (
+                    <GenreChip
                       key={genre}
-                      variant="secondary"
-                      size="sm"
-                      disabled={togglingGenre === genre}
-                      onPress={() => handleToggleHideGenre(genre, false)}
-                    >
-                      {togglingGenre === genre ? '...' : genre}
-                    </Button>
+                      genre={genre}
+                      selected={selectedVisibleGenres.includes(genre)}
+                      tone="warning"
+                      onToggle={toggleVisibleGenre}
+                    />
                   ))}
+                  {visibleGenres.length > CHIP_LIMIT && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onPress={() => setShowAllVisible(v => !v)}
+                    >
+                      {showAllVisible ? '收起' : `显示全部 (${visibleGenres.length})`}
+                    </Button>
+                  )}
                 </View>
               )}
+
+              <Button
+                variant="secondary"
+                size="md"
+                fullWidth
+                loading={hidingGenres}
+                disabled={hidingGenres || selectedVisibleGenres.length === 0}
+                onPress={handleHideSelected}
+              >
+                {hidingGenres ? '隐藏中...' : `隐藏所选子类型 (${selectedVisibleGenres.length})`}
+              </Button>
             </View>
           </View>
 
           <View style={styles.hiddenBox}>
-            <Text style={[styles.sectionLabel, { color: colors.warning }]}>
-              已隐藏子类 ({hiddenGenres.length})
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={[styles.sectionLabel, { color: colors.warning }]}>
+                已隐藏子类 ({hiddenGenres.length})
+              </Text>
+              <QuickActions
+                onAll={() => setSelectedHiddenGenres([...hiddenGenres])}
+                onInvert={() => setSelectedHiddenGenres(prev => hiddenGenres.filter(g => !prev.includes(g)))}
+                onClear={() => setSelectedHiddenGenres([])}
+              />
+            </View>
             {hiddenGenres.length === 0 ? (
               <Text style={styles.configDesc}>暂无已隐藏的子类型</Text>
             ) : (
               <View style={styles.chipRow}>
-                {hiddenGenres.map(genre => (
-                  <Button
+                {(showAllHidden ? hiddenGenres : hiddenGenres.slice(0, CHIP_LIMIT)).map(genre => (
+                  <GenreChip
                     key={genre}
-                    variant="secondary"
-                    size="sm"
-                    active
-                    style={{ backgroundColor: hexToRgba(colors.warning, 0.1) }}
-                    textStyle={{ color: colors.warning }}
-                    disabled={togglingGenre === genre}
-                    onPress={() => handleToggleHideGenre(genre, true)}
-                  >
-                    {togglingGenre === genre ? '...' : genre}
-                  </Button>
+                    genre={genre}
+                    selected={selectedHiddenGenres.includes(genre)}
+                    tone="warning-solid"
+                    onToggle={toggleHiddenGenre}
+                  />
                 ))}
+                {hiddenGenres.length > CHIP_LIMIT && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onPress={() => setShowAllHidden(v => !v)}
+                  >
+                    {showAllHidden ? '收起' : `显示全部 (${hiddenGenres.length})`}
+                  </Button>
+                )}
               </View>
             )}
+
+            <Button
+              variant="secondary"
+              size="md"
+              fullWidth
+              loading={unhidingGenres}
+              disabled={unhidingGenres || selectedHiddenGenres.length === 0}
+              onPress={handleUnhideSelected}
+            >
+              {unhidingGenres ? '恢复中...' : `取消隐藏所选子类型 (${selectedHiddenGenres.length})`}
+            </Button>
           </View>
         </View>
 

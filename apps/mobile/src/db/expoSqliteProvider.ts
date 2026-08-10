@@ -190,6 +190,21 @@ const MIGRATIONS: Migration[] = [
     description: 'add_episode_media_season_source_index',
     sql: `CREATE INDEX IF NOT EXISTS idx_episode_media_season_source ON episode(media_id, season_number, source_id);`,
   },
+  {
+    version: 22,
+    description: 'guard_media_au_trigger_to_skip_non_fts_updates',
+    sql: `DROP TRIGGER IF EXISTS media_au;
+          CREATE TRIGGER media_au AFTER UPDATE ON media WHEN
+            old.title IS NOT new.title OR old.alias IS NOT new.alias OR
+            old.original_title IS NOT new.original_title OR
+            old.director IS NOT new.director OR old.cast IS NOT new.cast
+          BEGIN
+            INSERT INTO media_fts(media_fts, rowid, title, alias, original_title, director, cast)
+            VALUES ('delete', old.rowid, old.title, old.alias, old.original_title, old.director, old.cast);
+            INSERT INTO media_fts(rowid, title, alias, original_title, director, cast)
+            VALUES (new.rowid, new.title, new.alias, new.original_title, new.director, new.cast);
+          END;`,
+  },
 ];
 
 /**

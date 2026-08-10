@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert, TouchableOpacity, Switch } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Alert, Switch } from 'react-native';
 import { useAppStore } from '../useAppStore';
-import { ArrowLeft, Save, RotateCcw, X } from 'lucide-react-native';
+import { ArrowLeft, Save, RotateCcw } from 'lucide-react-native';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
 import { useScaledFontSize } from '../themes/useScaledFontSize';
@@ -14,13 +14,6 @@ import { Input } from '../components/ui/Input';
 interface Props {
   navigation: any;
 }
-
-const DEFAULT_BLACKLIST = [
-  '足球', '篮球', '排球', '网球', '羽毛球', '乒乓球', '橄榄球', '棒球',
-  '高尔夫', '斯诺克', '台球', '体育', '运动', '赛事', '比赛', '决赛',
-  '半决赛', '预告片', '预告', '先行预告', '前瞻', '幕后花絮', '花絮',
-  '特辑', '纪录片预告', '预告版', '预告篇',
-];
 
 export default function CollectConfigScreen({ navigation }: Props) {
   const { collectConfig, loadCollectConfig, updateCollectConfig } = useAppStore();
@@ -43,8 +36,6 @@ export default function CollectConfigScreen({ navigation }: Props) {
     autoOnStartup: false,
   });
   const [autoLastRunAt, setAutoLastRunAt] = useState<string | null>(null);
-  const [blacklist, setBlacklist] = useState<string[]>([]);
-  const [keywordInput, setKeywordInput] = useState('');
   const savedConfigRef = useRef('');
 
   useEffect(() => {
@@ -61,7 +52,6 @@ export default function CollectConfigScreen({ navigation }: Props) {
         incrementalMaxPages: collectConfig.incrementalMaxPages,
         maxIncrementalHours: collectConfig.maxIncrementalHours,
         concurrency: collectConfig.concurrency,
-        blacklistKeywords: collectConfig.blacklistKeywords,
         autoEnabled: collectConfig.autoEnabled,
         autoIntervalHours: collectConfig.autoIntervalHours,
         autoOnStartup: collectConfig.autoOnStartup,
@@ -79,7 +69,6 @@ export default function CollectConfigScreen({ navigation }: Props) {
         autoOnStartup: collectConfig.autoOnStartup,
       });
       setAutoLastRunAt(collectConfig.autoLastRunAt);
-      setBlacklist([...collectConfig.blacklistKeywords]);
     }
   }, [collectConfig]);
 
@@ -93,32 +82,16 @@ export default function CollectConfigScreen({ navigation }: Props) {
       incrementalMaxPages: parseInt(localConfig.incrementalMaxPages) || 100,
       maxIncrementalHours: parseInt(localConfig.maxIncrementalHours) || 720,
       concurrency: parseInt(localConfig.concurrency) || 1,
-      blacklistKeywords: blacklist,
       autoEnabled: localConfig.autoEnabled,
       autoIntervalHours: parseInt(localConfig.autoIntervalHours) || 24,
       autoOnStartup: localConfig.autoOnStartup,
     });
     return current !== savedConfigRef.current;
-  }, [localConfig, blacklist, collectConfig]);
-
-  const addKeyword = () => {
-    const kw = keywordInput.trim();
-    if (!kw || blacklist.includes(kw)) {
-      setKeywordInput('');
-      return;
-    }
-    setBlacklist([...blacklist, kw]);
-    setKeywordInput('');
-  };
-
-  const removeKeyword = (keyword: string) => {
-    setBlacklist(blacklist.filter(k => k !== keyword));
-  };
+  }, [localConfig, collectConfig]);
 
   const handleSave = async () => {
     await updateCollectConfig({
       minYear: parseInt(localConfig.minYear) || 2025,
-      blacklistKeywords: blacklist,
       retryTimes: Math.min(10, Math.max(0, parseInt(localConfig.retryTimes) || 3)),
       pageSize: Math.min(100, Math.max(5, parseInt(localConfig.pageSize) || 20)),
       maxPages: Math.max(1, parseInt(localConfig.maxPages) || 10),
@@ -138,7 +111,6 @@ export default function CollectConfigScreen({ navigation }: Props) {
       incrementalMaxPages: parseInt(localConfig.incrementalMaxPages) || 100,
       maxIncrementalHours: parseInt(localConfig.maxIncrementalHours) || 720,
       concurrency: parseInt(localConfig.concurrency) || 1,
-      blacklistKeywords: blacklist,
       autoEnabled: localConfig.autoEnabled,
       autoIntervalHours: Math.min(8760, Math.max(1, parseInt(localConfig.autoIntervalHours) || 24)),
       autoOnStartup: localConfig.autoOnStartup,
@@ -160,7 +132,6 @@ export default function CollectConfigScreen({ navigation }: Props) {
       autoIntervalHours: '24',
       autoOnStartup: false,
     });
-    setBlacklist([...DEFAULT_BLACKLIST]);
   };
 
   useEffect(() => {
@@ -182,7 +153,6 @@ export default function CollectConfigScreen({ navigation }: Props) {
             onPress: async () => {
               await updateCollectConfig({
                 minYear: parseInt(localConfig.minYear) || 2025,
-                blacklistKeywords: blacklist,
                 retryTimes: Math.min(10, Math.max(0, parseInt(localConfig.retryTimes) || 3)),
                 pageSize: Math.min(100, Math.max(5, parseInt(localConfig.pageSize) || 20)),
                 maxPages: Math.max(1, parseInt(localConfig.maxPages) || 10),
@@ -200,7 +170,7 @@ export default function CollectConfigScreen({ navigation }: Props) {
       );
     });
     return () => unsubscribe();
-  }, [hasChanges, navigation, localConfig, blacklist, updateCollectConfig]);
+  }, [hasChanges, navigation, localConfig, updateCollectConfig]);
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1 },
@@ -237,20 +207,6 @@ export default function CollectConfigScreen({ navigation }: Props) {
     },
     fieldColRight: { flex: 1, paddingLeft: 10 },
     fieldLabel: { fontSize: s(13), color: colors.mutedForeground, marginBottom: 6 },
-    keywordRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 15, marginBottom: 10 },
-    keywordInput: { flex: 1 },
-    tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 15, paddingBottom: 15 },
-    tag: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: surfaceBg,
-      borderRadius: radius.sm,
-      paddingHorizontal: 10,
-      paddingVertical: 5,
-      gap: 4,
-    },
-    tagText: { fontSize: s(12), color: colors.text },
-    tagRemove: { padding: 2 },
     switchRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -424,37 +380,6 @@ export default function CollectConfigScreen({ navigation }: Props) {
             <Text style={styles.lastRunText}>
               上次自动采集：{autoLastRunAt ? new Date(autoLastRunAt).toLocaleString() : '从未执行'}
             </Text>
-          </View>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>黑名单关键词</Text>
-          <View style={styles.keywordRow}>
-            <Input
-              size="sm"
-              style={styles.keywordInput}
-              value={keywordInput}
-              onChangeText={setKeywordInput}
-              onSubmitEditing={addKeyword}
-              placeholder="输入关键词后回车"
-              returnKeyType="done"
-            />
-            <Button variant="secondary" size="sm" onPress={addKeyword}>
-              添加
-            </Button>
-          </View>
-          <View style={styles.tagRow}>
-            {blacklist.map((kw) => (
-              <TouchableOpacity
-                key={kw}
-                style={styles.tag}
-                onPress={() => removeKeyword(kw)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.tagText}>{kw}</Text>
-                <X size={12} color={colors.mutedForeground} style={styles.tagRemove} />
-              </TouchableOpacity>
-            ))}
           </View>
         </View>
       </View>

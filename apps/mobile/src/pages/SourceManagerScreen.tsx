@@ -173,7 +173,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
   const [selectedPreviewIds, setSelectedPreviewIds] = useState<Set<string>>(new Set());
   const [hasSearched, setHasSearched] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [relaxBlacklist, setRelaxBlacklist] = useState(false);
   const [relaxYear, setRelaxYear] = useState(false);
 
   const [aiModalVisible, setAiModalVisible] = useState(false);
@@ -338,7 +337,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
     setSelectedPreviewIds(new Set());
     try {
       await searchKeywordPreview(keywordInput.trim(), {
-        ignoreBlacklist: relaxBlacklist,
         unlimitedYear: relaxYear,
       });
     } catch (err) {
@@ -375,7 +373,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
     setIsSaving(true);
     try {
       const count = (await saveSelectedPreviewItems(selectedItems, {
-        ignoreBlacklist: relaxBlacklist,
         unlimitedYear: relaxYear,
       })).saved;
       showToast(`已保存 ${count} 条视频`, 'success');
@@ -740,15 +737,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
             </View>
 
             <View style={styles.optionRow}>
-              <View style={styles.switchRow}>
-                <Switch
-                  value={relaxBlacklist}
-                  onValueChange={setRelaxBlacklist}
-                  trackColor={{ false: colors.swiftTrack, true: colors.swiftActiveTrack }}
-                  thumbColor={relaxBlacklist ? colors.swiftThumb : colors.disabledForeground}
-                />
-                <Text style={styles.switchLabel}>忽略黑名单</Text>
-              </View>
               <View style={styles.switchRow}>
                 <Switch
                   value={relaxYear}

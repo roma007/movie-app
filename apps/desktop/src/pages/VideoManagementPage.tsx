@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Trash2, Radar, Loader2, CheckCircle2, AlertCircle, Film, Tv, Video, Disc, FileText, Database, EyeOff, X, RotateCcw, Plus, BarChart3, SlidersHorizontal, RefreshCw, Unlink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,193 @@ import { useBackgroundStore } from '../themes/backgroundStore';
 interface MediaStats {
   total: number;
   byType: { type: string; count: number }[];
+}
+
+interface GenreChipProps {
+  genre: string;
+  selected: boolean;
+  tone?: 'destructive' | 'warning' | 'warning-solid';
+  icon?: 'eye-off' | 'x';
+  onToggle: (genre: string) => void;
+}
+
+const GenreChip = memo(function GenreChip({ genre, selected, tone = 'warning', icon, onToggle }: GenreChipProps) {
+  const base = 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs transition-colors';
+  const style =
+    tone === 'destructive'
+      ? selected
+        ? 'bg-destructive/15 text-destructive'
+        : 'bg-secondary text-secondary-foreground hover:bg-destructive/10'
+      : tone === 'warning-solid'
+        ? selected
+          ? 'bg-warning/30 text-warning'
+          : 'bg-warning/10 text-warning hover:bg-warning/20'
+        : selected
+          ? 'bg-warning/15 text-warning'
+          : 'bg-secondary text-secondary-foreground hover:bg-warning/10';
+  return (
+    <button data-genre={genre} onClick={() => onToggle(genre)} className={`${base} ${style}`}>
+      {icon === 'eye-off' && <EyeOff className="size-3" />}
+      {icon === 'x' && <X className="size-3 text-destructive" />}
+      {genre}
+    </button>
+  );
+});
+
+interface ChipSelectFieldProps {
+  genres: string[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  onToggleGenre: (genre: string) => void;
+  tone?: GenreChipProps['tone'];
+  icon?: GenreChipProps['icon'];
+  limit?: number;
+  scrollClassName?: string;
+}
+
+const LIVE_DRAG_LIMIT = 500;
+const MIN_DRAG_SIZE = 3;
+
+function ChipSelectField({ genres, selected, onChange, onToggleGenre, tone = 'warning', icon, limit = 200, scrollClassName }: ChipSelectFieldProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [showAll, setShowAll] = useState(false);
+  const [drag, setDrag] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const dragRef = useRef<{ startX: number; startY: number; curX: number; curY: number } | null>(null);
+  const rectsRef = useRef<{ genre: string; rect: DOMRect }[]>([]);
+  const rafRef = useRef(0);
+
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const genresRef = useRef(genres);
+  genresRef.current = genres;
+
+  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+
+  const getDragRect = () => {
+    const d = dragRef.current;
+    if (!d) return null;
+    const x = Math.min(d.startX, d.curX);
+    const y = Math.min(d.startY, d.curY);
+    return { x, y, w: Math.abs(d.curX - d.startX), h: Math.abs(d.curY - d.startY) };
+  };
+
+  const computeHit = (box: { x: number; y: number; w: number; h: number }) => {
+    const hit = new Set<string>();
+    for (const { genre, rect } of rectsRef.current) {
+      if (rect.left < box.x + box.w && rect.right > box.x && rect.top < box.y + box.h && rect.bottom > box.y) {
+        hit.add(genre);
+      }
+    }
+    return hit;
+  };
+
+  const applyLiveDrag = (addMode: boolean) => {
+    if (genresRef.current.length > LIVE_DRAG_LIMIT) return;
+    const box = getDragRect();
+    if (!box || box.w < MIN_DRAG_SIZE || box.h < MIN_DRAG_SIZE) return;
+    const hit = computeHit(box);
+    if (hit.size === 0) return;
+    const current = selectedRef.current;
+    const next = addMode ? [...new Set([...current, ...hit])] : [...hit];
+    if (next.length !== current.length || next.some((g, i) => g !== current[i])) {
+      onChangeRef.current(next);
+    }
+  };
+
+  const finishDrag = (addMode: boolean) => {
+    const box = getDragRect();
+    if (box && box.w >= MIN_DRAG_SIZE && box.h >= MIN_DRAG_SIZE) {
+      const hit = computeHit(box);
+      if (hit.size > 0) {
+        const current = selectedRef.current;
+        onChangeRef.current(addMode ? [...new Set([...current, ...hit])] : [...hit]);
+      }
+    }
+    dragRef.current = null;
+    setDrag(null);
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('[data-genre]') || target.closest('button')) return;
+    e.preventDefault();
+    const el = containerRef.current;
+    if (!el) return;
+    rectsRef.current = Array.from(el.querySelectorAll<HTMLElement>('[data-genre]')).map(btn => ({
+      genre: btn.dataset.genre || '',
+      rect: btn.getBoundingClientRect(),
+    }));
+    dragRef.current = { startX: e.clientX, startY: e.clientY, curX: e.clientX, curY: e.clientY };
+    setDrag({ x: 0, y: 0, w: 0, h: 0 });
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      dragRef.current.curX = ev.clientX;
+      dragRef.current.curY = ev.clientY;
+      if (rafRef.current) return;
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = 0;
+        const d = dragRef.current;
+        const el = containerRef.current;
+        if (!d || !el) return;
+        const crect = el.getBoundingClientRect();
+        setDrag({
+          x: Math.min(d.startX, d.curX) - crect.left,
+          y: Math.min(d.startY, d.curY) - crect.top,
+          w: Math.abs(d.curX - d.startX),
+          h: Math.abs(d.curY - d.startY),
+        });
+        applyLiveDrag(ev.ctrlKey || ev.metaKey);
+      });
+    };
+    const onUp = (ev: MouseEvent) => {
+      if (dragRef.current) {
+        dragRef.current.curX = ev.clientX;
+        dragRef.current.curY = ev.clientY;
+      }
+      finishDrag(ev.ctrlKey || ev.metaKey);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  const displayed = showAll ? genres : genres.slice(0, limit);
+
+  return (
+    <div ref={containerRef} onMouseDown={handleMouseDown} className={`relative select-none ${scrollClassName || ''}`}>
+      <div className="flex flex-wrap gap-2">
+        {displayed.map(genre => (
+          <GenreChip
+            key={genre}
+            genre={genre}
+            selected={selected.includes(genre)}
+            tone={tone}
+            icon={icon}
+            onToggle={onToggleGenre}
+          />
+        ))}
+      </div>
+      {genres.length > limit && (
+        <button
+          onClick={() => setShowAll(v => !v)}
+          className="text-xs text-muted-foreground hover:text-text underline mt-1"
+        >
+          {showAll ? '收起' : `显示全部 (${genres.length})`}
+        </button>
+      )}
+      {drag && (
+        <div
+          className="pointer-events-none absolute z-10 border-2 border-primary bg-primary-light"
+          style={{ left: drag.x, top: drag.y, width: drag.w, height: drag.h }}
+        />
+      )}
+    </div>
+  );
 }
 
 export default function VideoManagementPage() {
@@ -67,11 +254,16 @@ export default function VideoManagementPage() {
   const [hideAllGenres, setHideAllGenres] = useState<string[]>([]);
   const [visibleGenres, setVisibleGenres] = useState<string[]>([]);
   const [hiddenGenres, setHiddenGenres] = useState<string[]>([]);
-  const [togglingGenre, setTogglingGenre] = useState<string | null>(null);
+  const [selectedVisibleGenres, setSelectedVisibleGenres] = useState<string[]>([]);
+  const [selectedHiddenGenres, setSelectedHiddenGenres] = useState<string[]>([]);
+  const [hidingGenres, setHidingGenres] = useState(false);
+  const [unhidingGenres, setUnhidingGenres] = useState(false);
   const [fullReprobeMediaCount, setFullReprobeMediaCount] = useState(0);
   const [localConfig, setLocalConfig] = useState<ShortDramaConfig | null>(null);
   const [patternInput, setPatternInput] = useState('');
   const [keywordInput, setKeywordInput] = useState('');
+
+  const [showAllReprobe, setShowAllReprobe] = useState(false);
 
   const MEDIA_TYPES = [
     { value: '', label: '全部' },
@@ -201,11 +393,11 @@ export default function VideoManagementPage() {
     }
   };
 
-  const toggleGenre = (genre: string) => {
+  const toggleGenre = useCallback((genre: string) => {
     setSelectedGenres(prev =>
       prev.includes(genre) ? prev.filter(g => g !== genre) : [...prev, genre]
     );
-  };
+  }, []);
 
   const handleDeleteByGenre = async () => {
     if (selectedGenres.length === 0) return;
@@ -227,20 +419,45 @@ export default function VideoManagementPage() {
     await loadHideGenres();
   };
 
-  const handleToggleHideGenre = async (genre: string, isCurrentlyHidden: boolean) => {
-    setTogglingGenre(genre);
+  const toggleVisibleGenre = useCallback((genre: string) => {
+    setSelectedVisibleGenres(prev =>
+      prev.includes(genre) ? prev.filter(g => g !== genre) : [...prev, genre]
+    );
+  }, []);
+
+  const toggleHiddenGenre = useCallback((genre: string) => {
+    setSelectedHiddenGenres(prev =>
+      prev.includes(genre) ? prev.filter(g => g !== genre) : [...prev, genre]
+    );
+  }, []);
+
+  const handleHideSelected = async () => {
+    if (selectedVisibleGenres.length === 0) return;
+    setHidingGenres(true);
     try {
-      if (isCurrentlyHidden) {
-        await unhideMediaByGenres([genre]);
-      } else {
-        await hideMediaByGenres([genre]);
-      }
+      await hideMediaByGenres(selectedVisibleGenres);
+      setSelectedVisibleGenres([]);
       await reloadHideGenres();
       loadStats();
     } catch (err) {
-      console.error('切换隐藏状态失败:', err);
+      console.error('批量隐藏失败:', err);
     } finally {
-      setTogglingGenre(null);
+      setHidingGenres(false);
+    }
+  };
+
+  const handleUnhideSelected = async () => {
+    if (selectedHiddenGenres.length === 0) return;
+    setUnhidingGenres(true);
+    try {
+      await unhideMediaByGenres(selectedHiddenGenres);
+      setSelectedHiddenGenres([]);
+      await reloadHideGenres();
+      loadStats();
+    } catch (err) {
+      console.error('批量取消隐藏失败:', err);
+    } finally {
+      setUnhidingGenres(false);
     }
   };
 
@@ -451,24 +668,28 @@ export default function VideoManagementPage() {
           </div>
 
           <div className="rounded-t-none rounded-b-md bg-[var(--color-card-accent-alpha)] p-4">
-            <div className="flex flex-wrap gap-2 max-h-60 overflow-y-auto">
-              {allGenres.length === 0 && (
-                <span className="text-xs text-muted-foreground">暂无子类型数据</span>
-              )}
-              {allGenres.map(genre => (
-                <button
-                  key={genre}
-                  onClick={() => toggleGenre(genre)}
-                  className={`px-2.5 py-1 rounded-full text-xs transition-colors ${
-                    selectedGenres.includes(genre)
-                      ? 'bg-destructive/15 text-destructive'
-                      : 'bg-secondary text-secondary-foreground hover:bg-destructive/10'
-                  }`}
-                >
-                  {genre}
-                </button>
-              ))}
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-medium text-muted-foreground">
+                可选子类型 ({allGenres.length})
+              </span>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setSelectedGenres([...allGenres])} className="text-xs text-muted-foreground hover:text-text underline">全选</button>
+                <button onClick={() => setSelectedGenres(prev => allGenres.filter(g => !prev.includes(g)))} className="text-xs text-muted-foreground hover:text-text underline">反选</button>
+                <button onClick={() => setSelectedGenres([])} className="text-xs text-muted-foreground hover:text-text underline">清空</button>
+              </div>
             </div>
+            {allGenres.length === 0 ? (
+              <span className="text-xs text-muted-foreground">暂无子类型数据</span>
+            ) : (
+              <ChipSelectField
+                genres={allGenres}
+                selected={selectedGenres}
+                onChange={setSelectedGenres}
+                onToggleGenre={toggleGenre}
+                tone="destructive"
+                scrollClassName="max-h-60 overflow-y-auto"
+              />
+            )}
           </div>
 
           <div className="mt-4 p-4 rounded-lg bg-destructive/5">
@@ -480,14 +701,14 @@ export default function VideoManagementPage() {
             ) : (
               <div className="flex flex-wrap gap-2">
                 {selectedGenres.map(genre => (
-                  <button
+                  <GenreChip
                     key={genre}
-                    onClick={() => toggleGenre(genre)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs transition-colors bg-destructive/15 text-destructive hover:bg-destructive/25"
-                  >
-                    {genre}
-                    <X className="size-3 text-destructive" />
-                  </button>
+                    genre={genre}
+                    selected
+                    tone="destructive"
+                    icon="x"
+                    onToggle={toggleGenre}
+                  />
                 ))}
               </div>
             )}
@@ -529,14 +750,18 @@ export default function VideoManagementPage() {
             <h2 className="text-lg font-semibold text-amber-600">按子类型隐藏视频</h2>
           </div>
           <p className="text-sm text-muted-foreground mb-4">
-            点击子类型立即切换隐藏状态，无需确认。未隐藏列表点击可隐藏，已隐藏列表点击可取消隐藏。
+            先选择子类型，再点击下方按钮一次性批量隐藏或恢复。
           </p>
 
           <div className="w-full flex items-end gap-1.5">
             {MEDIA_TYPES.map(mt => (
               <button
                 key={mt.value}
-                onClick={() => setVideoManageHideType(mt.value)}
+                onClick={() => {
+                  setSelectedVisibleGenres([]);
+                  setSelectedHiddenGenres([]);
+                  setVideoManageHideType(mt.value);
+                }}
                 className={`flex-1 rounded-t-md rounded-b-none transition-all duration-150 ${
                   hideMediaType === mt.value
                     ? 'bg-[var(--color-card-accent-alpha)] text-[var(--color-button-primary-text)] py-2.5 shadow-none'
@@ -549,46 +774,73 @@ export default function VideoManagementPage() {
           </div>
 
           <div className="rounded-t-none rounded-b-md bg-[var(--color-card-accent-alpha)] p-4">
-            <div className="text-xs font-medium text-muted-foreground mb-2">
-              未隐藏 ({visibleGenres.length})
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {visibleGenres.length === 0 && (
-                <span className="text-xs text-muted-foreground">暂无未隐藏的子类型</span>
-              )}
-                {visibleGenres.map(genre => (
-                  <button
-                    key={genre}
-                    onClick={() => handleToggleHideGenre(genre, false)}
-                    disabled={togglingGenre === genre}
-                    className="px-2.5 py-1 rounded-full text-xs transition-colors bg-secondary text-secondary-foreground hover:border-warning hover:bg-warning/10 disabled:opacity-50"
-                  >
-                    {togglingGenre === genre ? '...' : genre}
-                  </button>
-                ))}
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-medium text-muted-foreground">
+                未隐藏 ({visibleGenres.length})
+              </span>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setSelectedVisibleGenres([...visibleGenres])} className="text-xs text-muted-foreground hover:text-text underline">全选</button>
+                <button onClick={() => setSelectedVisibleGenres(prev => visibleGenres.filter(g => !prev.includes(g)))} className="text-xs text-muted-foreground hover:text-text underline">反选</button>
+                <button onClick={() => setSelectedVisibleGenres([])} className="text-xs text-muted-foreground hover:text-text underline">清空</button>
               </div>
             </div>
+            {visibleGenres.length === 0 ? (
+              <span className="text-xs text-muted-foreground">暂无未隐藏的子类型</span>
+            ) : (
+              <ChipSelectField
+                genres={visibleGenres}
+                selected={selectedVisibleGenres}
+                onChange={setSelectedVisibleGenres}
+                onToggleGenre={toggleVisibleGenre}
+                tone="warning"
+              />
+            )}
+            <Button
+              onClick={handleHideSelected}
+              disabled={hidingGenres || selectedVisibleGenres.length === 0}
+              variant="outline"
+              className="w-full mt-3"
+            >
+              {hidingGenres ? (
+                <Loader2 className="size-4 mr-2 animate-spin" />
+              ) : (
+                <EyeOff className="size-4 mr-2" />
+              )}
+              {hidingGenres ? '隐藏中...' : `隐藏所选子类型 (${selectedVisibleGenres.length})`}
+            </Button>
+          </div>
 
           <div className="mt-4 p-4 rounded-lg bg-warning/5">
-            <div className="text-xs font-medium text-warning mb-2">
-              已隐藏子类 ({hiddenGenres.length})
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-medium text-warning">
+                已隐藏子类 ({hiddenGenres.length})
+              </span>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setSelectedHiddenGenres([...hiddenGenres])} className="text-xs text-muted-foreground hover:text-text underline">全选</button>
+                <button onClick={() => setSelectedHiddenGenres(prev => hiddenGenres.filter(g => !prev.includes(g)))} className="text-xs text-muted-foreground hover:text-text underline">反选</button>
+                <button onClick={() => setSelectedHiddenGenres([])} className="text-xs text-muted-foreground hover:text-text underline">清空</button>
+              </div>
             </div>
             {hiddenGenres.length === 0 ? (
               <span className="text-xs text-muted-foreground">暂无已隐藏的子类型</span>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                {hiddenGenres.map(genre => (
-                  <button
-                    key={genre}
-                    onClick={() => handleToggleHideGenre(genre, true)}
-                    disabled={togglingGenre === genre}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs transition-colors bg-warning/10 text-warning hover:bg-warning/20 disabled:opacity-50"
-                  >
-                    {togglingGenre === genre ? '...' : <><EyeOff className="size-3" />{genre}</>}
-                  </button>
-                ))}
-              </div>
+              <ChipSelectField
+                genres={hiddenGenres}
+                selected={selectedHiddenGenres}
+                onChange={setSelectedHiddenGenres}
+                onToggleGenre={toggleHiddenGenre}
+                tone="warning-solid"
+                icon="eye-off"
+              />
             )}
+            <Button
+              onClick={handleUnhideSelected}
+              disabled={unhidingGenres || selectedHiddenGenres.length === 0}
+              variant="outline"
+              className="w-full mt-3"
+            >
+              {unhidingGenres ? '恢复中...' : `取消隐藏所选子类型 (${selectedHiddenGenres.length})`}
+            </Button>
           </div>
         </Card>
 
@@ -739,10 +991,6 @@ export default function VideoManagementPage() {
 
           {fullReprobing && reprobePoll?.progress && (
             <div className="space-y-3 mb-4">
-              <div className="flex items-center gap-2 text-sm">
-                <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                <span>正在全量探测：{reprobePoll.progress.currentMediaTitle || '准备中...'}</span>
-              </div>
               <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
                 <div
                   className="h-full bg-muted-foreground transition-all duration-300"
@@ -803,7 +1051,7 @@ export default function VideoManagementPage() {
             className="w-full"
           >
             <Radar className={`size-4 mr-2 ${fullReprobing ? 'animate-spin' : ''}`} />
-            {fullReprobing ? '启动中...' : `开始全量重新探测 (${fullReprobeMediaCount})`}
+            {`开始全量重新探测 (${fullReprobeMediaCount})`}
           </Button>
         </Card>
 
@@ -845,11 +1093,6 @@ export default function VideoManagementPage() {
 
               {reprobing && reprobePoll?.progress && (
                 <div className="space-y-3 mt-4">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                    <span>正在探测：{reprobePoll.progress.currentMediaTitle || '准备中...'}</span>
-                  </div>
-
                   <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
                     <div
                       className="h-full bg-muted-foreground transition-all duration-300"
@@ -886,7 +1129,7 @@ export default function VideoManagementPage() {
                 待探测清单（点击可查看详情）
               </div>
               <div className="max-h-60 overflow-y-auto">
-                {reprobeMediaList.map((item) => (
+                {(showAllReprobe ? reprobeMediaList : reprobeMediaList.slice(0, 100)).map((item) => (
                   <button
                     key={item.id}
                     onClick={() => navigate(`/media/${item.id}`)}
@@ -896,6 +1139,14 @@ export default function VideoManagementPage() {
                     <span className="truncate">{item.title}</span>
                   </button>
                 ))}
+                {reprobeMediaList.length > 100 && (
+                  <button
+                    onClick={() => setShowAllReprobe(v => !v)}
+                    className="w-full px-3 py-2 text-left text-xs text-muted-foreground hover:text-text underline"
+                  >
+                    {showAllReprobe ? '收起' : `显示全部 (${reprobeMediaList.length})`}
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -955,7 +1206,7 @@ export default function VideoManagementPage() {
             className="w-full"
           >
             <Radar className={`size-4 mr-2 ${reprobing ? 'animate-spin' : ''}`} />
-            {reprobing ? '启动中...' : `开始批量重新探测 (${reprobeMediaList.length})`}
+            {`开始批量重新探测 (${reprobeMediaList.length})`}
           </Button>
         </Card>
 

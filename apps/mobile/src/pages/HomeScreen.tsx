@@ -187,7 +187,6 @@ export default function HomeScreen() {
   const [latestMedia, setLatestMedia] = useState<Media[]>([]);
   const [quickKeyword, setQuickKeyword] = useState('');
   const [selectedPreviewIds, setSelectedPreviewIds] = useState<Set<string>>(new Set([]));
-  const [relaxBlacklist, setRelaxBlacklist] = useState(false);
   const [relaxYear, setRelaxYear] = useState(false);
 
   const [sourcesChecked, setSourcesChecked] = useState(false);
@@ -286,8 +285,8 @@ export default function HomeScreen() {
     const kw = quickKeyword.trim();
     if (!kw) return;
     setSelectedPreviewIds(new Set([]));
-    await searchKeywordPreview(kw, { ignoreBlacklist: relaxBlacklist, unlimitedYear: relaxYear });
-  }, [quickKeyword, searchKeywordPreview, relaxBlacklist, relaxYear]);
+    await searchKeywordPreview(kw, { unlimitedYear: relaxYear });
+  }, [quickKeyword, searchKeywordPreview, relaxYear]);
 
   const handleQuickCollect = useCallback(async () => {
     const items = previewResults.filter((p) => selectedPreviewIds.size === 0 || selectedPreviewIds.has(p.previewId));
@@ -295,13 +294,12 @@ export default function HomeScreen() {
       Alert.alert('提示', '请至少选择一个视频');
       return;
     }
-    const result = await saveSelectedPreviewItems(items, { ignoreBlacklist: relaxBlacklist, unlimitedYear: relaxYear });
+    const result = await saveSelectedPreviewItems(items, { unlimitedYear: relaxYear });
     const count = result.saved;
     if (count > 0) {
       Alert.alert('采集完成', `成功采集 ${count} 部视频`);
       clearPreviewResults();
       setQuickKeyword('');
-      setRelaxBlacklist(false);
       setRelaxYear(false);
       if (result.hiddenItems.length > 0) {
         const titles = result.hiddenItems.map((h) => h.title);
@@ -314,7 +312,7 @@ export default function HomeScreen() {
     } else {
       Alert.alert('采集失败', '请重试');
     }
-  }, [previewResults, selectedPreviewIds, saveSelectedPreviewItems, clearPreviewResults, relaxBlacklist, relaxYear]);
+  }, [previewResults, selectedPreviewIds, saveSelectedPreviewItems, clearPreviewResults, relaxYear]);
 
   const handleMobileCollectLatest = useCallback(async () => {
     await collectLatest();
@@ -360,15 +358,6 @@ export default function HomeScreen() {
         </View>
       )}
       <View style={styles.optionRow}>
-        <View style={styles.switchRow}>
-          <Switch
-            value={relaxBlacklist}
-            onValueChange={setRelaxBlacklist}
-            trackColor={{ false: colors.swiftTrack, true: colors.swiftActiveTrack }}
-            thumbColor={colors.swiftThumb}
-          />
-          <Text style={styles.switchLabel}>忽略黑名单</Text>
-        </View>
         <View style={styles.switchRow}>
           <Switch
             value={relaxYear}

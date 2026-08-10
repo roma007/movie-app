@@ -152,7 +152,13 @@ export const SCHEMA_SQL = `
     VALUES ('delete', old.rowid, old.title, old.alias, old.original_title, old.director, old.cast);
   END;
 
-  CREATE TRIGGER IF NOT EXISTS media_au AFTER UPDATE ON media BEGIN
+  -- 仅当 FTS 索引列（title/alias/original_title/director/cast）真正变化时才同步全文索引，
+  -- 避免 hidden 等非索引列更新（如按子类型隐藏）触发全表 FTS 重建导致卡顿。
+  CREATE TRIGGER IF NOT EXISTS media_au AFTER UPDATE ON media WHEN
+    old.title IS NOT new.title OR old.alias IS NOT new.alias OR
+    old.original_title IS NOT new.original_title OR
+    old.director IS NOT new.director OR old.cast IS NOT new.cast
+  BEGIN
     INSERT INTO media_fts(media_fts, rowid, title, alias, original_title, director, cast)
     VALUES ('delete', old.rowid, old.title, old.alias, old.original_title, old.director, old.cast);
     INSERT INTO media_fts(rowid, title, alias, original_title, director, cast)

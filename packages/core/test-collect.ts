@@ -1,15 +1,9 @@
 import axios from 'axios';
 import { CMSAdapter } from './src/services/cmsAdapter';
 import { DataNormalizer } from './src/utils/normalizer';
-import { mapType, isBlacklisted, refineTypeByEpisodes, isVersionTitle } from './src/utils/typeMapper';
+import { mapType, refineTypeByEpisodes, isVersionTitle } from './src/utils/typeMapper';
 
 const MIN_YEAR = 2025;
-const BLACKLIST_KEYWORDS = [
-  '足球', '篮球', '排球', '网球', '羽毛球', '乒乓球', '橄榄球', '棒球',
-  '高尔夫', '斯诺克', '台球', '体育', '运动', '赛事', '比赛', '决赛',
-  '半决赛', '预告片', '预告', '先行预告', '前瞻', '幕后花絮', '花絮',
-  '特辑', '纪录片预告', '预告版', '预告篇',
-];
 
 async function testCollection() {
   console.log('=== 开始测试采集流程 ===\n');
@@ -62,24 +56,14 @@ async function testCollection() {
         continue;
       }
       
-      console.log('\n6. 测试黑名单过滤...');
+      console.log('\n6. 测试类型映射...');
       const typeName = item.vod_type || '';
       const remarks = item.vod_remarks || '';
       const rawGenres = typeName.split(/[,，/]/).filter(Boolean);
-      const allGenreTexts = [...rawGenres, remarks, title];
-      const isBlack = isBlacklisted(BLACKLIST_KEYWORDS.length > 0 ? BLACKLIST_KEYWORDS : undefined, ...allGenreTexts);
-      console.log(`   是否被黑名单过滤: ${isBlack}`);
-      
-      if (isBlack) {
-        console.log('   ❌ 被黑名单过滤');
-        continue;
-      }
-      
-      console.log('\n7. 测试类型映射...');
       let mediaType = mapType(typeName, remarks, item.vod_play_from || '', rawGenres);
       console.log(`   映射类型: ${mediaType}`);
       
-      console.log('\n8. 测试指纹生成...');
+      console.log('\n7. 测试指纹生成...');
       const fingerprint = await normalizer.generateFingerprint(title, year, mediaType);
       console.log(`   指纹: ${fingerprint}`);
       

@@ -220,6 +220,21 @@ export class TauriSqlProvider implements DatabaseProvider {
     // 始终重建 FTS5：确保虚拟表和辅助表状态一致，不受历史损坏影响
     await this.rebuildFts5();
 
+    // 升级 media_au 触发器为 WHEN 守卫版：仅 FTS 索引列变化时同步全文索引，
+    // 避免 hidden 等非索引列更新（如按子类型隐藏）触发全表 FTS 重建导致卡顿。
+    // rebuildFts5 在 FTS 正常时提前返回且 CREATE IF NOT EXISTS 不覆盖旧定义，需在此显式重建。
+    await this.db!.execute('DROP TRIGGER IF EXISTS media_au');
+    await this.db!.execute(`CREATE TRIGGER IF NOT EXISTS media_au AFTER UPDATE ON media WHEN
+      old.title IS NOT new.title OR old.alias IS NOT new.alias OR
+      old.original_title IS NOT new.original_title OR
+      old.director IS NOT new.director OR old.cast IS NOT new.cast
+    BEGIN
+      INSERT INTO media_fts(media_fts, rowid, title, alias, original_title, director, cast)
+      VALUES ('delete', old.rowid, old.title, old.alias, old.original_title, old.director, old.cast);
+      INSERT INTO media_fts(rowid, title, alias, original_title, director, cast)
+      VALUES (new.rowid, new.title, new.alias, new.original_title, new.director, new.cast);
+    END;`);
+
     // 补齐 collect_task 表（schema.ts 中未包含，桌面端专用）
     await this.db!.execute(`CREATE TABLE IF NOT EXISTS collect_task (
       id TEXT PRIMARY KEY,
@@ -366,7 +381,11 @@ export class TauriSqlProvider implements DatabaseProvider {
       INSERT INTO media_fts(media_fts, rowid, title, alias, original_title, director, cast)
       VALUES ('delete', old.rowid, old.title, old.alias, old.original_title, old.director, old.cast);
     END;`);
-    await this.db!.execute(`CREATE TRIGGER IF NOT EXISTS media_au AFTER UPDATE ON media BEGIN
+    await this.db!.execute(`CREATE TRIGGER IF NOT EXISTS media_au AFTER UPDATE ON media WHEN
+      old.title IS NOT new.title OR old.alias IS NOT new.alias OR
+      old.original_title IS NOT new.original_title OR
+      old.director IS NOT new.director OR old.cast IS NOT new.cast
+    BEGIN
       INSERT INTO media_fts(media_fts, rowid, title, alias, original_title, director, cast)
       VALUES ('delete', old.rowid, old.title, old.alias, old.original_title, old.director, old.cast);
       INSERT INTO media_fts(rowid, title, alias, original_title, director, cast)
@@ -820,33 +839,19 @@ export class TauriSqlProvider implements DatabaseProvider {
     for (let i = 0; i < mediaWithoutPlaySource.length; i += batchSize) {
       const batch = mediaWithoutPlaySource.slice(i, i + batchSize);
       const ids = batch.map(m => m.id);
-      
-      await this.db!.execute('BEGIN');
-      try {
-        await this.db!.execute(
-          `DELETE FROM media WHERE id IN (${ids.map(() => '?').join(',')})`,
-          ids
-        );
-        await this.db!.execute('COMMIT');
-        console.log(`[deleteMediaWithoutPlaySource] deleted batch ${Math.floor(i / batchSize) + 1}`);
-      } catch (error) {
-        await this.db!.execute('ROLLBACK');
-        console.error('[deleteMediaWithoutPlaySource] batch delete error:', error);
-        throw error;
-      }
+
+      // 注意：桌面端经 tauri-plugin-sql 连接池执行 SQL，池内多连接不保证 BEGIN/COMMIT 落在同一连接，
+      // 故不能使用跨 execute 的事务；单条 DELETE 由 SQLite 原子执行即可。
+      await this.db!.execute(
+        `DELETE FROM media WHERE id IN (${ids.map(() => '?').join(',')})`,
+        ids
+      );
+      console.log(`[deleteMediaWithoutPlaySource] deleted batch ${Math.floor(i / batchSize) + 1}`);
     }
 
-    await this.db!.execute('BEGIN');
-    try {
-      await this.db!.execute('DELETE FROM favorite WHERE NOT EXISTS (SELECT 1 FROM media WHERE media.id = favorite.media_id)');
-      await this.db!.execute('DELETE FROM watch_history WHERE NOT EXISTS (SELECT 1 FROM media WHERE media.id = watch_history.media_id)');
-      await this.db!.execute('COMMIT');
-      console.log('[deleteMediaWithoutPlaySource] cleaned up favorites and watch_history');
-    } catch (error) {
-      await this.db!.execute('ROLLBACK');
-      console.error('[deleteMediaWithoutPlaySource] cleanup error:', error);
-      throw error;
-    }
+    await this.db!.execute('DELETE FROM favorite WHERE NOT EXISTS (SELECT 1 FROM media WHERE media.id = favorite.media_id)');
+    await this.db!.execute('DELETE FROM watch_history WHERE NOT EXISTS (SELECT 1 FROM media WHERE media.id = watch_history.media_id)');
+    console.log('[deleteMediaWithoutPlaySource] cleaned up favorites and watch_history');
 
     const afterRows = await this.db!.select<{ count: number }[]>('SELECT COUNT(*) as count FROM media');
     const afterCount = afterRows[0]?.count || 0;
@@ -891,6 +896,8 @@ export class TauriSqlProvider implements DatabaseProvider {
     if (genres.some(isUncategorized)) {
       conditions.push("(genre IS NULL OR genre = '' OR genre = '[]' OR json_extract(genre, '$[0]') IS NULL OR json_extract(genre, '$[0]') = '')");
     }
+    // 注意：桌面端经 tauri-plugin-sql 连接池执行 SQL，池内多连接不保证 BEGIN/COMMIT 落在同一连接，
+    // 故不能使用跨 execute 的事务，各语句由 SQLite 自动提交。
     await this.db!.execute(
       `UPDATE media SET hidden = 1 WHERE ${conditions.join(' OR ')}`,
       params

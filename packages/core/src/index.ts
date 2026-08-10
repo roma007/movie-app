@@ -7,7 +7,6 @@ export { NOISE_SUBTYPES, isNoiseSubtype, expandSubTypes } from './utils/genreSub
 export { DEAD_IMAGE_HOSTS, extractImageHost, isKnownDeadPosterUrl, isUsablePosterUrl } from './utils/posterHost';
 export {
   isAiDrama,
-  isBlacklisted,
   mapType,
   needsSeason,
   needsShortDramaCheck,

@@ -50,7 +50,6 @@ export default function HomePage() {
 
   const [quickKeyword, setQuickKeyword] = useState('');
   const [selectedPreviewIds, setSelectedPreviewIds] = useState<Set<string>>(new Set());
-  const [relaxBlacklist, setRelaxBlacklist] = useState(false);
   const [relaxYear, setRelaxYear] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [hasQuickSearched, setHasQuickSearched] = useState(false);
@@ -184,11 +183,10 @@ export default function HomePage() {
   };
 
   const getOverrides = useCallback(() => {
-    const overrides: { ignoreBlacklist?: boolean; unlimitedYear?: boolean } = {};
-    if (relaxBlacklist) overrides.ignoreBlacklist = true;
+    const overrides: { unlimitedYear?: boolean } = {};
     if (relaxYear) overrides.unlimitedYear = true;
     return Object.keys(overrides).length > 0 ? overrides : undefined;
-  }, [relaxBlacklist, relaxYear]);
+  }, [relaxYear]);
 
   const handleQuickPreview = useCallback(async () => {
     const kw = quickKeyword.trim();
@@ -215,7 +213,6 @@ export default function HomePage() {
       setQuickCollectCount(count);
       clearPreviewResults();
       setQuickKeyword('');
-      setRelaxBlacklist(false);
       setRelaxYear(false);
       if (result.hiddenItems.length > 0) {
         setHiddenCollect(result.hiddenItems);
@@ -265,10 +262,6 @@ export default function HomePage() {
           onKeyDown={(e) => e.key === 'Enter' && handleQuickPreview()}
           className="flex-1"
         />
-        <label className="flex items-center gap-1.5 text-xs whitespace-nowrap cursor-pointer select-none">
-          <Switch checked={relaxBlacklist} onCheckedChange={setRelaxBlacklist} />
-          忽略黑名单
-        </label>
         <label className="flex items-center gap-1.5 text-xs whitespace-nowrap cursor-pointer select-none">
           <Switch checked={relaxYear} onCheckedChange={setRelaxYear} />
           不限年份

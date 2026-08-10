@@ -32,12 +32,6 @@ export function isAiDrama(...texts: string[]): boolean {
   return AI_DRAMA_KEYWORDS.some(kw => allText.includes(kw));
 }
 
-export function isBlacklisted(blacklistKeywords: string[] | undefined, ...texts: string[]): boolean {
-  if (!blacklistKeywords || blacklistKeywords.length === 0) return false;
-  const allText = texts.join(' ');
-  return blacklistKeywords.some(kw => allText.includes(kw));
-}
-
 const VERSION_QUALITY_KEYWORDS = [
   'HD', 'TC', 'BD', '4K', '2K', '1080p', '720p', '2160p',
   '蓝光', '高清', '标清', '超清', 'SD',

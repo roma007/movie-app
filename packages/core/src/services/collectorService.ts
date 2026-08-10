@@ -1,6 +1,6 @@
 import { CMSAdapter } from './cmsAdapter';
 import { normalizer, DEFAULT_MIN_YEAR } from '../utils/normalizer';
-import { mapType, isBlacklisted, refineTypeByEpisodes, isVersionTitle, needsShortDramaCheck } from '../utils/typeMapper';
+import { mapType, refineTypeByEpisodes, isVersionTitle, needsShortDramaCheck } from '../utils/typeMapper';
 import { SOURCE_ID_TO_NAME_MAP, PLAY_SOURCE_TYPE_MAP, isPlayableMediaUrl } from '../utils/constants';
 import { isKnownDeadPosterUrl, isUsablePosterUrl } from '../utils/posterHost';
 import type { DatabaseProvider } from '../db/provider';
@@ -137,7 +137,6 @@ export class CollectorService {
     item: CMSMediaItem,
     sourceId: string,
     _sourceName?: string,
-    blacklistKeywords: string[] = [],
     minYear: number = DEFAULT_MIN_YEAR
   ): Promise<Media | null> {
     let mediaWritten = false;
@@ -167,11 +166,6 @@ export class CollectorService {
       const vodClassGenres = vodClass.split(/[,，]/).filter(Boolean);
       const vodTagGenres = vodTag.split(/[,，]/).filter(Boolean);
       const rawGenres = [...new Set([...typeNameGenres, ...vodClassGenres, ...vodTagGenres])];
-      const allGenreTexts = [...rawGenres, remarks, title];
-      const isBlack = isBlacklisted(blacklistKeywords.length > 0 ? blacklistKeywords : undefined, ...allGenreTexts);
-      if (isBlack) {
-        return null;
-      }
 
       let mediaType = mapType(typeName, remarks, vodPlayFrom, rawGenres);
 
@@ -460,7 +454,7 @@ export class CollectorService {
     const config = await configService.getCollectConfig();
 
     console.log(`[Collector] collectFromSource: sourceId=${sourceId}, baseUrl=${baseUrl}, rateLimit=${rateLimit}, page=${page}, pageSize=${pageSize}`);
-    console.log(`[Collector] config: minYear=${config.minYear}, blacklistKeywords=${config.blacklistKeywords.length}, concurrency=${config.concurrency}`);
+    console.log(`[Collector] config: minYear=${config.minYear}, concurrency=${config.concurrency}`);
 
     const adapter = new CMSAdapter(baseUrl, rateLimit);
     console.log(`[Collector] CMSAdapter created, calling getList...`);
@@ -533,7 +527,7 @@ export class CollectorService {
           );
           console.log(`[Collector] Seq(${sourceId}) processItem called with listItem=${listItem.vod_name}, fingerprint=${fingerprint}`);
 
-          const media = await this.processItem(item, sourceId, '', config.blacklistKeywords, config.minYear);
+          const media = await this.processItem(item, sourceId, '', config.minYear);
           if (media) {
             console.log(`[Collector] Media created: ${media.title} (${media.year})`);
             results.push(media);
@@ -565,7 +559,7 @@ export class CollectorService {
     adapter: CMSAdapter,
     items: any[],
     sourceId: string,
-    config: { blacklistKeywords: string[]; minYear: number; concurrency: number },
+    config: { minYear: number; concurrency: number },
     results: Media[],
     signal?: AbortSignal
   ): Promise<number> {
@@ -600,7 +594,7 @@ export class CollectorService {
             normalizer.extractSeasonNumber(item.vod_name) || 1
           );
           console.log(`[Collector] Worker(${sourceId}) processItem called with listItem=${listItem.vod_name}, fingerprint=${fingerprint}`);
-          const media = await this.processItem(item, sourceId, '', config.blacklistKeywords, config.minYear);
+          const media = await this.processItem(item, sourceId, '', config.minYear);
           console.log(`[Collector] Worker processItem returned: ${media ? media.title : 'null'}`);
 
           if (media) {
@@ -669,7 +663,7 @@ export class CollectorService {
               continue;
             }
             const item = detailResponse.list[0];
-            const media = await this.processItem(item, source.id, source.name, config.blacklistKeywords, config.minYear);
+            const media = await this.processItem(item, source.id, source.name, config.minYear);
             if (media) {
               results.push(media);
             }
@@ -689,7 +683,7 @@ export class CollectorService {
 
   async searchKeywordPreview(
     keyword: string,
-    overrides?: { ignoreBlacklist?: boolean; unlimitedYear?: boolean },
+    overrides?: { unlimitedYear?: boolean },
     onBatch?: (batch: CollectPreviewItem[], sourceIndex: number, totalSources: number) => void
   ): Promise<CollectPreviewItem[]> {
     const sources = await this.db.getEnabledVideoSources();
@@ -728,10 +722,6 @@ export class CollectorService {
             const remarks = item.vod_remarks || '';
             const vodClass = item.vod_class || '';
             const rawGenres = [...new Set([...typeName.split(/[,，]/).filter(Boolean), ...vodClass.split(/[,，]/).filter(Boolean)])];
-            if (!overrides?.ignoreBlacklist) {
-              const allGenreTexts = [...rawGenres, remarks, title];
-              if (isBlacklisted(config.blacklistKeywords.length > 0 ? config.blacklistKeywords : undefined, ...allGenreTexts)) continue;
-            }
 
             const mediaType = mapType(typeName, remarks, item.vod_play_from || '', rawGenres);
             const seasonNumber = normalizer.extractSeasonNumber(title) || 1;
@@ -768,7 +758,7 @@ export class CollectorService {
 
   async savePreviewItems(
     items: CollectPreviewItem[],
-    overrides?: { ignoreBlacklist?: boolean; unlimitedYear?: boolean }
+    overrides?: { unlimitedYear?: boolean }
   ): Promise<SavePreviewResult> {
     const configService = new SystemConfigService(this.db);
     const config = await configService.getCollectConfig();
@@ -776,13 +766,12 @@ export class CollectorService {
     const hiddenItems: HiddenCollectItem[] = [];
 
     const effectiveMinYear = overrides?.unlimitedYear ? 0 : config.minYear;
-    const effectiveBlacklist = overrides?.ignoreBlacklist ? [] : config.blacklistKeywords;
 
     const hiddenGenres = await this.db.getHiddenGenres();
 
     for (const item of items) {
       try {
-        const media = await this.processItem(item.rawItem, item.sourceId, item.sourceName, effectiveBlacklist, effectiveMinYear);
+        const media = await this.processItem(item.rawItem, item.sourceId, item.sourceName, effectiveMinYear);
         if (media) {
           saved++;
           if (media.hidden) {

@@ -83,7 +83,6 @@ export default function SourceManagerPage() {
   const [selectedPreviewIds, setSelectedPreviewIds] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
-  const [relaxBlacklist, setRelaxBlacklist] = useState(false);
   const [relaxYear, setRelaxYear] = useState(false);
 
   const [showAiImportDialog, setShowAiImportDialog] = useState(false);
@@ -175,8 +174,7 @@ export default function SourceManagerPage() {
     if (!kw) return;
     setHasSearched(true);
     setSelectedPreviewIds(new Set());
-    const overrides: { ignoreBlacklist?: boolean; unlimitedYear?: boolean } = {};
-    if (relaxBlacklist) overrides.ignoreBlacklist = true;
+    const overrides: { unlimitedYear?: boolean } = {};
     if (relaxYear) overrides.unlimitedYear = true;
     await searchKeywordPreview(kw, Object.keys(overrides).length > 0 ? overrides : undefined);
   };
@@ -203,8 +201,7 @@ export default function SourceManagerPage() {
     if (selected.length === 0) return;
     setIsSaving(true);
     try {
-      const overrides: { ignoreBlacklist?: boolean; unlimitedYear?: boolean } = {};
-      if (relaxBlacklist) overrides.ignoreBlacklist = true;
+      const overrides: { unlimitedYear?: boolean } = {};
       if (relaxYear) overrides.unlimitedYear = true;
       const count = (await saveSelectedPreviewItems(selected, Object.keys(overrides).length > 0 ? overrides : undefined)).saved;
       toast(`已保存 ${count} 条数据到本地`);
@@ -224,7 +221,6 @@ export default function SourceManagerPage() {
     setKeywordInput('');
     setSelectedPreviewIds(new Set());
     setHasSearched(false);
-    setRelaxBlacklist(false);
     setRelaxYear(false);
     clearPreviewResults();
   };
@@ -888,15 +884,11 @@ export default function SourceManagerPage() {
             )}
           </div>
 
-          {hasSearched && (!previewLoading || relaxBlacklist || relaxYear) && (
+          {hasSearched && (!previewLoading || relaxYear) && (
             <>
               <div className="flex items-center justify-between px-6 py-2.5">
                 <span className="text-base font-bold">放宽搜索条件</span>
                 <div className="flex items-center gap-5">
-                  <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                    <Switch checked={relaxBlacklist} onCheckedChange={setRelaxBlacklist} />
-                    忽略黑名单
-                  </label>
                   <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
                     <Switch checked={relaxYear} onCheckedChange={setRelaxYear} />
                     不限年份

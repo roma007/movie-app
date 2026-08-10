@@ -26,7 +26,7 @@
 | 8 | 色彩控制面板 ColorControls | 亮度/对比度/饱和度/色调实时调节 | 无 |
 | 9 | AnnouncementDialog 通知弹窗 | 首次打开重要信息通知 | 无 |
 | 10 | 分类页搜索 | 分类页顶部搜索框 | 无 |
-| 11 | 搜索采集黑名单/年份选项 | 首页搜索采集的高级控制开关 | 无 |
+| 11 | 搜索采集年份选项 | 首页搜索采集的高级控制开关 | 无 |
 | 12 | DiagnosticLogViewer 诊断日志 | 内嵌式日志查看器 | 无 |
 | 13 | 播放页面包屑导航 | "类型 > 标题 > 集数"导航链 | 仅显示标题 |
 
@@ -359,7 +359,7 @@ disabled:cursor-not-allowed disabled:opacity-50
 | 7 | 色彩控制面板 | 新建 `mobile/src/components/ColorControls.tsx` + PlayScreen |
 | 8 | 通知弹窗 | 新建 `mobile/src/components/AnnouncementDialog.tsx` |
 | 9 | 分类页搜索 | `mobile/src/pages/CategoryScreen.tsx` |
-| 10 | 搜索采集黑名单/年份选项 | `mobile/src/pages/HomeScreen.tsx` |
+| 10 | 搜索采集年份选项 | `mobile/src/pages/HomeScreen.tsx` |
 | 11 | 诊断日志查看器 | 新建 `mobile/src/components/DiagnosticLogViewer.tsx` |
 | 12 | 播放页面包屑导航 | `mobile/src/pages/PlayScreen.tsx` |
 
