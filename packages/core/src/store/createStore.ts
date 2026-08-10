@@ -154,6 +154,7 @@ export interface AppState {
   checkVideoSource: (id: string) => Promise<{ healthy: boolean; responseTime: number }>;
   collectSourceLatest: (sourceCode: string) => Promise<{ success: boolean; taskId: string; collected: number; error?: string }>;
   collectSourceAll: (sourceCode: string) => Promise<{ success: boolean; taskId: string; collected: number; pages: number; error?: string }>;
+  resumeCollectTask: (taskId: string) => Promise<{ success: boolean; taskId: string; collected: number; pages: number; error?: string }>;
 
   startAutoCollect: () => Promise<void>;
   stopAutoCollect: () => void;
@@ -758,6 +759,21 @@ export function createAppStore(db: DatabaseProvider) {
         }
         
         return { success: false, taskId: '', collected: 0, pages: 0, error: detailedError };
+      }
+    },
+
+    resumeCollectTask: async (taskId: string) => {
+      try {
+        const result = await collectorService.resumeCollectTask(taskId);
+        await get().loadMediaList();
+        await get().loadVideoSources();
+        await get().loadCollectTasks();
+        return { success: true, taskId: result.taskId, collected: result.collected, pages: result.pages };
+      } catch (err: any) {
+        const errorMsg = err.message || String(err);
+        console.error(`[Store] resumeCollectTask 失败:`, errorMsg);
+        set({ error: errorMsg });
+        return { success: false, taskId: '', collected: 0, pages: 0, error: errorMsg };
       }
     },
 

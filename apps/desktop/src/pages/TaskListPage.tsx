@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../useAppStore';
 import { useConfirm } from '@/components/ConfirmProvider';
+import { useToast } from '@/components/Layout';
 import { useBackgroundStore } from '../themes/backgroundStore';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -14,6 +15,7 @@ import {
   Play,
   Trash2,
   RefreshCw,
+  RotateCcw,
 } from 'lucide-react';
 import type { CollectTask } from '@movie-app/core';
 
@@ -91,14 +93,25 @@ export default function TaskListPage() {
   const navigate = useNavigate();
   const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
   useEffect(() => { clearBgImage(); }, [clearBgImage]);
-  const { collectTasks, loadCollectTasks, deleteCollectTask, deleteOldTasks } = useAppStore();
+  const { collectTasks, loadCollectTasks, deleteCollectTask, deleteOldTasks, resumeCollectTask } = useAppStore();
   const confirm = useConfirm();
+  const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [resumingId, setResumingId] = useState<string | null>(null);
 
   useEffect(() => {
     loadCollectTasks();
   }, [loadCollectTasks]);
+
+  useEffect(() => {
+    const hasActive = collectTasks.some((t) => t.status === 'RUNNING' || t.status === 'PENDING');
+    if (!hasActive) return;
+    const id = setInterval(() => {
+      loadCollectTasks();
+    }, 2000);
+    return () => clearInterval(id);
+  }, [collectTasks, loadCollectTasks]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -123,13 +136,26 @@ export default function TaskListPage() {
     setDeletingId(null);
   };
 
+  const handleResume = async (task: CollectTask) => {
+    setResumingId(task.taskId);
+    try {
+      const result = await resumeCollectTask(task.taskId);
+      if (result.success) {
+        toast(`已从第 ${task.currentPage || 0} 页附近继续采集任务`);
+      } else {
+        toast(`续采失败: ${result.error || '未知错误'}`, 'error');
+      }
+    } catch (err: any) {
+      toast(`续采失败: ${err.message || '未知错误'}`, 'error');
+    } finally {
+      setResumingId(null);
+      await loadCollectTasks();
+    }
+  };
+
   const handleClearOld = async () => {
     await deleteOldTasks(7);
   };
-
-  const runningCount = collectTasks.filter(t => t.status === 'RUNNING').length;
-  const completedCount = collectTasks.filter(t => t.status === 'COMPLETED').length;
-  const failedCount = collectTasks.filter(t => t.status === 'FAILED').length;
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -153,42 +179,6 @@ export default function TaskListPage() {
             </Button>
           </div>
         </div>
-      </div>
-
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-full bg-muted-foreground/10">
-              <Loader2 className="size-4 text-muted-foreground" />
-            </div>
-            <div>
-              <div className="text-sm text-muted-foreground">运行中</div>
-              <div className="text-xl font-bold">{runningCount}</div>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-full bg-success/10">
-              <CheckCircle2 className="size-4 text-success" />
-            </div>
-            <div>
-              <div className="text-sm text-muted-foreground">已完成</div>
-              <div className="text-xl font-bold">{completedCount}</div>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-full bg-error/10">
-              <XCircle className="size-4 text-error" />
-            </div>
-            <div>
-              <div className="text-sm text-muted-foreground">失败</div>
-              <div className="text-xl font-bold">{failedCount}</div>
-            </div>
-          </div>
-        </Card>
       </div>
 
       <Card>
@@ -275,15 +265,28 @@ export default function TaskListPage() {
                         {formatTimeAgo(task.createdAt)}
                       </td>
                       <td className="p-3">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-error"
-                          onClick={() => handleDelete(task)}
-                          disabled={deletingId === task.taskId}
-                        >
-                          {deletingId === task.taskId ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          {task.status === 'FAILED' && (task.type === 'INCREMENTAL' || task.type === 'FULL') && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2"
+                              onClick={() => handleResume(task)}
+                              disabled={resumingId === task.taskId}
+                            >
+                              {resumingId === task.taskId ? <Loader2 className="size-3 animate-spin" /> : <RotateCcw className="size-3" />} 继续
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-error"
+                            onClick={() => handleDelete(task)}
+                            disabled={deletingId === task.taskId || resumingId === task.taskId}
+                          >
+                            {deletingId === task.taskId ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   );

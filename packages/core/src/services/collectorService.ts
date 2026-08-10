@@ -1053,7 +1053,7 @@ export class CollectorService {
     }
   }
 
-  async collectSourceLatest(sourceCode: string, startPage: number = 1): Promise<{ taskId: string; collected: number }> {
+  async collectSourceLatest(sourceCode: string, startPage: number = 1, resumeTaskId?: string): Promise<{ taskId: string; collected: number }> {
     const source = await this.db.getVideoSourceByCode(sourceCode);
     if (!source || !source.isEnabled) return { taskId: '', collected: 0 };
 
@@ -1062,28 +1062,39 @@ export class CollectorService {
       throw new Error('该视频源已有增量采集任务正在运行，请等待完成后再启动');
     }
 
-    const taskId = `${sourceCode}-INCREMENTAL-${Date.now()}`;
-    const now = new Date().toISOString();
     const config = await (new SystemConfigService(this.db)).getCollectConfig();
+    const now = new Date().toISOString();
 
-    const task: CollectTask = {
-      id: generateId(),
-      taskId,
-      sourceCode: source.code,
-      sourceName: source.name,
-      type: 'INCREMENTAL',
-      status: 'PENDING',
-      currentPage: startPage - 1,
-      totalPages: config.incrementalMaxPages,
-      collectedCount: 0,
-      failedCount: 0,
-      createdAt: now,
-    };
+    let taskId = `${sourceCode}-INCREMENTAL-${Date.now()}`;
+    let initialCollected = 0;
+    let initialFailed = 0;
 
-    await this.db.createCollectTask(task);
+    if (resumeTaskId) {
+      const existing = await this.db.getCollectTaskById(resumeTaskId);
+      if (!existing) throw new Error('任务不存在，可能已被删除');
+      if (existing.type !== 'INCREMENTAL') throw new Error('任务类型不匹配，无法续采');
+      taskId = existing.taskId;
+      initialCollected = existing.collectedCount || 0;
+      initialFailed = existing.failedCount || 0;
+    } else {
+      const task: CollectTask = {
+        id: generateId(),
+        taskId,
+        sourceCode: source.code,
+        sourceName: source.name,
+        type: 'INCREMENTAL',
+        status: 'PENDING',
+        currentPage: startPage - 1,
+        totalPages: config.incrementalMaxPages,
+        collectedCount: 0,
+        failedCount: 0,
+        createdAt: now,
+      };
+      await this.db.createCollectTask(task);
+    }
 
-    let collected = 0;
-    let failed = 0;
+    let collected = initialCollected;
+    let failed = initialFailed;
     let page = startPage;
     let cancelled = false;
     let lastErrorMsg: string | null = null;
@@ -1105,9 +1116,14 @@ export class CollectorService {
     }
 
     try {
-      await this.db.updateCollectTask(taskId, { status: 'RUNNING' as TaskStatus, startedAt: now, currentPage: startPage });
+      await this.db.updateCollectTask(taskId, {
+        status: 'RUNNING' as TaskStatus,
+        startedAt: now,
+        currentPage: startPage,
+        ...(resumeTaskId ? { errorMessage: null, errorType: null, completedAt: null, lastErrorPage: null } : {}),
+      });
       await this.assertSourceReachable(source);
-      this.emitLog('info', `开始增量采集 [${source.name}]`, sourceCode, source.name, taskId);
+      this.emitLog('info', resumeTaskId ? `开始续采 [${source.name}]: 从第${startPage}页继续` : `开始增量采集 [${source.name}]`, sourceCode, source.name, taskId);
 
       const maxPages = hours ? Number.MAX_SAFE_INTEGER : config.incrementalMaxPages;
 
@@ -1223,7 +1239,7 @@ export class CollectorService {
     }
   }
 
-  async collectSourceAll(sourceCode: string, startPage: number = 1): Promise<{ taskId: string; collected: number; pages: number }> {
+  async collectSourceAll(sourceCode: string, startPage: number = 1, resumeTaskId?: string): Promise<{ taskId: string; collected: number; pages: number }> {
     const source = await this.db.getVideoSourceByCode(sourceCode);
     if (!source || !source.isEnabled) return { taskId: '', collected: 0, pages: 0 };
 
@@ -1232,29 +1248,39 @@ export class CollectorService {
       throw new Error('该视频源已有全量采集任务正在运行，请等待完成后再启动');
     }
 
-    const taskId = `${sourceCode}-FULL-${Date.now()}`;
-    const now = new Date().toISOString();
     const config = await (new SystemConfigService(this.db)).getCollectConfig();
-    const startedAtMs = Date.now();
+    const now = new Date().toISOString();
 
-    const task: CollectTask = {
-      id: generateId(),
-      taskId,
-      sourceCode: source.code,
-      sourceName: source.name,
-      type: 'FULL',
-      status: 'PENDING',
-      currentPage: startPage - 1,
-      totalPages: config.maxPages,
-      collectedCount: 0,
-      failedCount: 0,
-      createdAt: now,
-    };
+    let taskId = `${sourceCode}-FULL-${Date.now()}`;
+    let initialCollected = 0;
+    let initialFailed = 0;
 
-    await this.db.createCollectTask(task);
+    if (resumeTaskId) {
+      const existing = await this.db.getCollectTaskById(resumeTaskId);
+      if (!existing) throw new Error('任务不存在，可能已被删除');
+      if (existing.type !== 'FULL') throw new Error('任务类型不匹配，无法续采');
+      taskId = existing.taskId;
+      initialCollected = existing.collectedCount || 0;
+      initialFailed = existing.failedCount || 0;
+    } else {
+      const task: CollectTask = {
+        id: generateId(),
+        taskId,
+        sourceCode: source.code,
+        sourceName: source.name,
+        type: 'FULL',
+        status: 'PENDING',
+        currentPage: startPage - 1,
+        totalPages: config.maxPages,
+        collectedCount: 0,
+        failedCount: 0,
+        createdAt: now,
+      };
+      await this.db.createCollectTask(task);
+    }
 
-    let collected = 0;
-    let failed = 0;
+    let collected = initialCollected;
+    let failed = initialFailed;
     let pages = 0;
     let page = startPage;
     let cancelled = false;
@@ -1265,9 +1291,13 @@ export class CollectorService {
     this.activeAbortControllers.set(taskId, controller);
 
     try {
-      await this.db.updateCollectTask(taskId, { status: 'RUNNING' as TaskStatus, startedAt: now });
+      await this.db.updateCollectTask(taskId, {
+        status: 'RUNNING' as TaskStatus,
+        startedAt: now,
+        ...(resumeTaskId ? { errorMessage: null, errorType: null, completedAt: null, lastErrorPage: null, currentPage: startPage } : {}),
+      });
       await this.assertSourceReachable(source);
-      this.emitLog('info', `开始全量采集 [${source.name}]，最多${config.maxPages}页`, sourceCode, source.name, taskId);
+      this.emitLog('info', resumeTaskId ? `开始续采 [${source.name}]: 从第${startPage}页继续全量采集` : `开始全量采集 [${source.name}]，最多${config.maxPages}页`, sourceCode, source.name, taskId);
 
       while (page <= config.maxPages) {
         const iterationStart = Date.now();
@@ -1377,6 +1407,32 @@ export class CollectorService {
       this.emitLog('error', `全量采集失败 [${source.name}]: ${finalErrMsg}`, sourceCode, source.name, taskId, JSON.stringify({ errorType: errType, page, url: source.baseUrl }));
       throw err;
     }
+  }
+
+  /**
+   * 断点续采：从失败/中断任务的断点页继续采集（复用原任务行，计数累加）。
+   * 仅在任务列表页手动触发。
+   */
+  async resumeCollectTask(taskId: string): Promise<{ taskId: string; collected: number; pages: number }> {
+    const task = await this.db.getCollectTaskById(taskId);
+    if (!task) throw new Error('任务不存在，可能已被删除');
+    if (task.status === 'RUNNING' || task.status === 'PENDING') throw new Error('该任务正在运行，无需续采');
+    if (task.type !== 'INCREMENTAL' && task.type !== 'FULL') throw new Error('该类型任务不支持续采');
+
+    const source = await this.db.getVideoSourceByCode(task.sourceCode);
+    if (!source || !source.isEnabled) throw new Error(`视频源「${task.sourceName || task.sourceCode}」不可用，无法续采`);
+
+    const startPage = task.lastErrorPage && task.lastErrorPage > 0
+      ? task.lastErrorPage
+      : (task.currentPage && task.currentPage > 0 ? task.currentPage + 1 : 1);
+
+    if (task.type === 'INCREMENTAL') {
+      const result = await this.collectSourceLatest(task.sourceCode, startPage, taskId);
+      return { taskId, collected: Math.max(0, result.collected - (task.collectedCount || 0)), pages: 0 };
+    }
+
+    const result = await this.collectSourceAll(task.sourceCode, startPage, taskId);
+    return { taskId, collected: Math.max(0, result.collected - (task.collectedCount || 0)), pages: result.pages };
   }
 
   /**

@@ -1,5 +1,6 @@
-import { useEffect, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { useEffect, useState, useMemo, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { ArrowLeft, RefreshCw, Trash2 } from 'lucide-react-native';
 import { useAppStore } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
@@ -26,13 +27,14 @@ function getTypeLabel(type: string): string {
 }
 
 export default function TaskListScreen({ navigation }: Props) {
-  const { collectTasks, loadCollectTasks, deleteCollectTask, deleteOldTasks } = useAppStore();
+  const { collectTasks, loadCollectTasks, deleteCollectTask, deleteOldTasks, resumeCollectTask } = useAppStore();
   const colors = useThemeColors();
   const cardOpacity = useThemeStore((s) => s.cardOpacity);
   const cardBg = hexToRgba(colors.card, cardOpacity / 100);
   const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100);
   const s = useScaledFontSize();
   const [isLoading, setIsLoading] = useState(true);
+  const [resumingId, setResumingId] = useState<string | null>(null);
 
   function getStatusStyle(status: string) {
     switch (status) {
@@ -65,9 +67,22 @@ export default function TaskListScreen({ navigation }: Props) {
     loadCollectTasks().finally(() => setIsLoading(false));
   }, []);
 
-  const runningCount = collectTasks.filter(t => t.status === 'RUNNING' || t.status === 'PENDING').length;
-  const completedCount = collectTasks.filter(t => t.status === 'COMPLETED').length;
-  const failedCount = collectTasks.filter(t => t.status === 'FAILED').length;
+  useFocusEffect(
+    useCallback(() => {
+      loadCollectTasks().catch(() => {});
+    }, [loadCollectTasks])
+  );
+
+  const isFocused = useIsFocused();
+  useEffect(() => {
+    if (!isFocused) return;
+    const hasActive = collectTasks.some((t) => t.status === 'RUNNING' || t.status === 'PENDING');
+    if (!hasActive) return;
+    const id = setInterval(() => {
+      loadCollectTasks();
+    }, 2000);
+    return () => clearInterval(id);
+  }, [isFocused, collectTasks, loadCollectTasks]);
 
   const handleDelete = (task: CollectTask) => {
     if (task.status === 'RUNNING' || task.status === 'PENDING') {
@@ -77,6 +92,21 @@ export default function TaskListScreen({ navigation }: Props) {
       ]);
     } else {
       deleteCollectTask(task.taskId);
+    }
+  };
+
+  const handleResume = async (task: CollectTask) => {
+    setResumingId(task.taskId);
+    try {
+      const result = await resumeCollectTask(task.taskId);
+      if (!result.success) {
+        Alert.alert('续采失败', result.error || '未知错误');
+      }
+    } catch (err: any) {
+      Alert.alert('续采失败', err.message || '未知错误');
+    } finally {
+      setResumingId(null);
+      await loadCollectTasks().catch(() => {});
     }
   };
 
@@ -96,10 +126,6 @@ export default function TaskListScreen({ navigation }: Props) {
     headerRow: { flexDirection: 'row', alignItems: 'center' },
     title: { flex: 1, fontSize: s(18), fontWeight: 'bold', color: colors.text, textAlign: 'center' },
     headerActions: { flexDirection: 'row', gap: 8 },
-    statsRow: { flexDirection: 'row', paddingHorizontal: 15, gap: 10, marginBottom: 10, marginTop: 15 },
-    statCard: { flex: 1, backgroundColor: cardBg, borderRadius: radius.md, padding: 14 },
-    statNumber: { fontSize: s(24), fontWeight: 'bold' },
-    statLabel: { fontSize: s(12), color: colors.mutedForeground, marginTop: 4 },
     empty: { color: colors.mutedForeground, textAlign: 'center', marginTop: 60, fontSize: s(16) },
     taskList: { paddingHorizontal: 15, gap: 10, paddingBottom: 30 },
     taskCard: { backgroundColor: cardBg, borderRadius: radius.lg, padding: 15 },
@@ -138,21 +164,6 @@ export default function TaskListScreen({ navigation }: Props) {
         </View>
       </View>
 
-      <View style={styles.statsRow}>
-        <View style={styles.statCard}>
-          <Text style={[styles.statNumber, { color: colors.text }]}>{runningCount}</Text>
-          <Text style={styles.statLabel}>运行中</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={[styles.statNumber, { color: colors.success }]}>{completedCount}</Text>
-          <Text style={styles.statLabel}>已完成</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={[styles.statNumber, { color: colors.error }]}>{failedCount}</Text>
-          <Text style={styles.statLabel}>失败</Text>
-        </View>
-      </View>
-
       {isLoading ? (
         <ActivityIndicator size="large" color={colors.mutedForeground} style={{ marginTop: 40 }} />
       ) : collectTasks.length === 0 ? (
@@ -188,15 +199,28 @@ export default function TaskListScreen({ navigation }: Props) {
                       <Text style={[styles.taskStat, { color: colors.textSecondary }]}>长剧: {task.longDramaCount || 0}</Text>
                     </>
                   ) : null}
-                  <View style={styles.taskRight}>
-                    <View style={[styles.statusBadge, { borderColor: statusStyle.color }]}>
-                      {task.status === 'RUNNING' && <ActivityIndicator size={10} color={statusStyle.color} style={{ marginRight: 4 }} />}
-                      <Text style={[styles.statusText, { color: statusStyle.color }]}>{statusStyle.label}</Text>
+                    <View style={styles.taskRight}>
+                      <View style={[styles.statusBadge, { borderColor: statusStyle.color }]}>
+                        {task.status === 'RUNNING' && <ActivityIndicator size={10} color={statusStyle.color} style={{ marginRight: 4 }} />}
+                        <Text style={[styles.statusText, { color: statusStyle.color }]}>{statusStyle.label}</Text>
+                      </View>
+                      {task.status === 'FAILED' && (task.type === 'INCREMENTAL' || task.type === 'FULL') && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onPress={() => handleResume(task)}
+                          disabled={resumingId === task.taskId}
+                        >
+                          {resumingId === task.taskId ? (
+                            <ActivityIndicator size={12} color={colors.text} style={{ marginRight: 4 }} />
+                          ) : null}
+                          {resumingId === task.taskId ? '续采中...' : '继续'}
+                        </Button>
+                      )}
+                      <Button variant="secondary" size="sm" onPress={() => handleDelete(task)} disabled={resumingId === task.taskId}>
+                        删除
+                      </Button>
                     </View>
-                    <Button variant="secondary" size="sm" onPress={() => handleDelete(task)}>
-                      删除
-                    </Button>
-                  </View>
                 </View>
               </View>
             );
