@@ -106,12 +106,20 @@ export default function TaskListPage() {
 
   useEffect(() => {
     const hasActive = collectTasks.some((t) => t.status === 'RUNNING' || t.status === 'PENDING');
-    if (!hasActive) return;
+    if (!hasActive && !resumingId) return;
     const id = setInterval(() => {
       loadCollectTasks();
     }, 2000);
     return () => clearInterval(id);
-  }, [collectTasks, loadCollectTasks]);
+  }, [collectTasks, resumingId, loadCollectTasks]);
+
+  useEffect(() => {
+    if (!resumingId) return;
+    const task = collectTasks.find((t) => t.taskId === resumingId);
+    if (task && task.status !== 'FAILED') {
+      setResumingId(null);
+    }
+  }, [collectTasks, resumingId]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -136,21 +144,20 @@ export default function TaskListPage() {
     setDeletingId(null);
   };
 
-  const handleResume = async (task: CollectTask) => {
+  const handleResume = (task: CollectTask) => {
     setResumingId(task.taskId);
-    try {
-      const result = await resumeCollectTask(task.taskId);
-      if (result.success) {
-        toast(`已从第 ${task.currentPage || 0} 页附近继续采集任务`);
-      } else {
-        toast(`续采失败: ${result.error || '未知错误'}`, 'error');
-      }
-    } catch (err: any) {
-      toast(`续采失败: ${err.message || '未知错误'}`, 'error');
-    } finally {
-      setResumingId(null);
-      await loadCollectTasks();
-    }
+    resumeCollectTask(task.taskId)
+      .then((result) => {
+        if (!result.success) {
+          toast(`续采失败: ${result.error || '未知错误'}`, 'error');
+        }
+        setResumingId((cur) => (cur === task.taskId ? null : cur));
+      })
+      .catch((err: any) => {
+        toast(`续采失败: ${err.message || '未知错误'}`, 'error');
+        setResumingId((cur) => (cur === task.taskId ? null : cur));
+      });
+    loadCollectTasks();
   };
 
   const handleClearOld = async () => {

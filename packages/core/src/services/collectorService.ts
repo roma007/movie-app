@@ -1451,8 +1451,8 @@ export class CollectorService {
     episodeDuration: number | null
   ): Promise<void> {
     await this.db.execute(
-      `UPDATE media SET is_short_drama = ?, duration_check_status = ?, episode_duration = ?, updated_at = ? WHERE id = ?`,
-      [isShortDrama ? 1 : 0, status, episodeDuration, new Date().toISOString(), mediaId]
+      `UPDATE media SET is_short_drama = ?, duration_check_status = ?, episode_duration = ? WHERE id = ?`,
+      [isShortDrama ? 1 : 0, status, episodeDuration, mediaId]
     );
   }
 
@@ -1773,14 +1773,12 @@ export class CollectorService {
     failed: number;
     failedItems: { id: string; title: string }[];
   }> {
-    const now = new Date().toISOString();
     // 重置所有电视剧的判断结果
     // episode_duration 已有值且 > 0 的保留，否则重置为 NULL
     await this.db.execute(
       `UPDATE media SET is_short_drama = 0, duration_check_status = NULL,
-       episode_duration = CASE WHEN episode_duration IS NOT NULL AND episode_duration > 0 THEN episode_duration ELSE NULL END,
-       updated_at = ? WHERE type = 'TV'`,
-      [now]
+       episode_duration = CASE WHEN episode_duration IS NOT NULL AND episode_duration > 0 THEN episode_duration ELSE NULL END
+       WHERE type = 'TV'`
     );
     console.log(`[全量重新探测] 已重置所有电视剧的判断结果`);
 

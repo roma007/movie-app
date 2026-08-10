@@ -173,7 +173,7 @@ export default function HomeScreen() {
     collectLatest, isCollecting: storeLoading,
     searchKeywordPreview, previewResults, previewLoading,
     saveSelectedPreviewItems, clearPreviewResults,
-    videoSources, loadVideoSources,
+    videoSources, loadVideoSources, unhideMediaByGenres,
   } = useAppStore();
 
   const [editMode, setEditMode] = useState(false);
@@ -307,7 +307,28 @@ export default function HomeScreen() {
           ? `${titles.slice(0, 8).join('、')}等${titles.length}部`
           : titles.join('、');
         const genres = [...new Set(result.hiddenItems.flatMap((h) => h.genres))];
-        Alert.alert('部分视频已被隐藏', `「${titleText}」视频名被隐藏，恢复显示「${genres.join('、')}」类视频后就可以找到。`);
+        Alert.alert(
+          '部分视频已被隐藏',
+          `「${titleText}」视频名被隐藏，恢复显示「${genres.join('、')}」类视频后就可以找到。是否取消隐藏这些子类型？`,
+          [
+            { text: '取消', style: 'cancel' },
+            {
+              text: '取消隐藏',
+              onPress: () => {
+                unhideMediaByGenres(genres)
+                  .then((res) => {
+                    if (res.unhidden > 0) {
+                      Alert.alert('已恢复', `已取消隐藏「${genres.join('、')}」，恢复显示 ${res.unhidden} 部视频`);
+                    }
+                  })
+                  .catch((err) => {
+                    console.error('[HOME] 取消隐藏子类型失败:', err);
+                    Alert.alert('操作失败', '取消隐藏失败，请重试');
+                  });
+              },
+            },
+          ]
+        );
       }
     } else {
       Alert.alert('采集失败', '请重试');

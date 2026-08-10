@@ -31,7 +31,7 @@ export default function HomePage() {
     userUsageTypes, loadUserUsageTypes,
     collectLatest, searchKeywordPreview, previewResults, previewLoading,
     saveSelectedPreviewItems, clearPreviewResults, isCollecting, collectSourceProgress,
-    videoSources,
+    videoSources, unhideMediaByGenres,
   } = useAppStore();
   const openAiImport = useImportDialogStore((s) => s.openAiImport);
   const navigate = useNavigate();
@@ -578,6 +578,24 @@ export default function HomePage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={async () => {
+                const genres = hiddenCollect ? [...new Set(hiddenCollect.flatMap((h) => h.genres))] : [];
+                setHiddenCollect(null);
+                if (genres.length === 0) return;
+                try {
+                  const res = await unhideMediaByGenres(genres);
+                  toast(`已取消隐藏「${genres.join('、')}」，恢复显示 ${res.unhidden} 部视频`);
+                } catch (err: any) {
+                  toast('取消隐藏失败', 'error');
+                  console.error('[HOME] 取消隐藏子类型失败:', err);
+                }
+              }}
+            >
+              取消隐藏
+            </Button>
             <DialogClose asChild>
               <Button variant="outline" size="sm" onClick={() => setHiddenCollect(null)}>知道了</Button>
             </DialogClose>

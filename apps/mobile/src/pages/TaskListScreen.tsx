@@ -77,12 +77,20 @@ export default function TaskListScreen({ navigation }: Props) {
   useEffect(() => {
     if (!isFocused) return;
     const hasActive = collectTasks.some((t) => t.status === 'RUNNING' || t.status === 'PENDING');
-    if (!hasActive) return;
+    if (!hasActive && !resumingId) return;
     const id = setInterval(() => {
       loadCollectTasks();
     }, 2000);
     return () => clearInterval(id);
-  }, [isFocused, collectTasks, loadCollectTasks]);
+  }, [isFocused, collectTasks, resumingId, loadCollectTasks]);
+
+  useEffect(() => {
+    if (!resumingId) return;
+    const task = collectTasks.find((t) => t.taskId === resumingId);
+    if (task && task.status !== 'FAILED') {
+      setResumingId(null);
+    }
+  }, [collectTasks, resumingId]);
 
   const handleDelete = (task: CollectTask) => {
     if (task.status === 'RUNNING' || task.status === 'PENDING') {
@@ -95,19 +103,20 @@ export default function TaskListScreen({ navigation }: Props) {
     }
   };
 
-  const handleResume = async (task: CollectTask) => {
+  const handleResume = (task: CollectTask) => {
     setResumingId(task.taskId);
-    try {
-      const result = await resumeCollectTask(task.taskId);
-      if (!result.success) {
-        Alert.alert('续采失败', result.error || '未知错误');
-      }
-    } catch (err: any) {
-      Alert.alert('续采失败', err.message || '未知错误');
-    } finally {
-      setResumingId(null);
-      await loadCollectTasks().catch(() => {});
-    }
+    resumeCollectTask(task.taskId)
+      .then((result) => {
+        if (!result.success) {
+          Alert.alert('续采失败', result.error || '未知错误');
+        }
+        setResumingId((cur) => (cur === task.taskId ? null : cur));
+      })
+      .catch((err: any) => {
+        Alert.alert('续采失败', err.message || '未知错误');
+        setResumingId((cur) => (cur === task.taskId ? null : cur));
+      });
+    loadCollectTasks().catch(() => {});
   };
 
   const handleClearAll = () => {
