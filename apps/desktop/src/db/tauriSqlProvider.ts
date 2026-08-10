@@ -211,6 +211,15 @@ export class TauriSqlProvider implements DatabaseProvider {
     // 增量迁移：为已有 media 表补齐 series_group / series_season 列
     await this.addColumnIfMissing('media', 'series_group', 'TEXT');
     await this.addColumnIfMissing('media', 'series_season', 'INTEGER');
+    // 增量迁移：为已有 media 表补齐评分相关列
+    await this.addColumnIfMissing('media', 'rating', 'REAL');
+    await this.addColumnIfMissing('media', 'rating_count', 'INTEGER');
+    await this.addColumnIfMissing('media', 'rating_source', 'TEXT');
+    await this.addColumnIfMissing('media', 'rating_updated_at', 'TEXT');
+    // 清理历史 CMS 评分补充数据（幂等，评分只保留豆瓣抓取结果）
+    await this.db!.execute(
+      `UPDATE media SET rating = NULL, rating_count = NULL, rating_source = NULL, rating_updated_at = NULL WHERE rating_source = 'CMS'`
+    );
     // 增量迁移：为已有 video_source 表补齐健康检查相关列
     await this.addColumnIfMissing('video_source', 'last_success_at', 'TEXT');
     await this.addColumnIfMissing('video_source', 'avg_response_time', 'INTEGER');
@@ -466,7 +475,7 @@ export class TauriSqlProvider implements DatabaseProvider {
         orderBy = 'view_count DESC, updated_at DESC';
         break;
       case 'rating':
-        orderBy = 'favorite_count DESC, view_count DESC';
+        orderBy = 'rating DESC, rating_count DESC, view_count DESC';
         break;
       case 'year':
         orderBy = 'year DESC, updated_at DESC';
@@ -499,9 +508,10 @@ export class TauriSqlProvider implements DatabaseProvider {
         id, title, original_title, alias, type, year, area, genre, director, cast,
         description, poster_url, backdrop_url, status, remarks, fingerprint,
         current_episodes, total_episodes, is_short_drama, duration_check_status, episode_duration,
-        view_count, favorite_count, search_count, hidden, series_group, series_season,
+        view_count, rating, rating_count, rating_source, rating_updated_at,
+        favorite_count, search_count, hidden, series_group, series_season,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(fingerprint) DO UPDATE SET
         title = excluded.title,
         original_title = excluded.original_title,
@@ -531,7 +541,9 @@ export class TauriSqlProvider implements DatabaseProvider {
         media.status || null, media.remarks || null, media.fingerprint,
         media.currentEpisodes || null, media.totalEpisodes || null,
         media.isShortDrama ? 1 : 0, media.durationCheckStatus || null, media.episodeDuration || null,
-        media.viewCount || 0, 0, 0, media.hidden ? 1 : 0,
+        media.viewCount || 0,
+        media.rating ?? null, media.ratingCount ?? null, media.ratingSource || null, media.ratingUpdatedAt || null,
+        0, 0, media.hidden ? 1 : 0,
         media.seriesGroup || null, media.seriesSeason ?? null,
         media.createdAt || now, now,
       ]
@@ -555,6 +567,16 @@ export class TauriSqlProvider implements DatabaseProvider {
     await this.db!.execute(
       `UPDATE media SET poster_url = ?, updated_at = ? WHERE id = ?`,
       [posterUrl, updatedAt, mediaId]
+    );
+  }
+
+  async updateMediaRating(
+    mediaId: string,
+    data: { rating: number | null; ratingCount: number | null; source: 'DOUBAN'; updatedAt: string }
+  ): Promise<void> {
+    await this.db!.execute(
+      `UPDATE media SET rating = ?, rating_count = ?, rating_source = ?, rating_updated_at = ? WHERE id = ?`,
+      [data.rating, data.ratingCount, data.source, data.updatedAt, mediaId]
     );
   }
 

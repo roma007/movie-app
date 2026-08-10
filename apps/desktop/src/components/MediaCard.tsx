@@ -3,7 +3,7 @@ import type { Media } from '@movie-app/core';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PosterImage } from '@/components/PosterImage';
-import { X } from 'lucide-react';
+import { X, Star } from 'lucide-react';
 
 export function MediaCard({ 
   media, 
@@ -35,6 +35,15 @@ export function MediaCard({
             alt={media.title}
             className="size-full object-cover group-hover:scale-105 transition-transform duration-300"
           />
+          {media.rating != null && media.rating > 0 && (
+            <Badge
+              variant="secondary"
+              className="absolute top-1 right-1 shrink-0 text-[10px] px-1.5 py-0.5 bg-black/50 backdrop-blur-sm border-none text-amber-400 font-semibold"
+            >
+              <Star className="size-2.5 fill-current mr-0.5" />
+              {media.rating.toFixed(1)}
+            </Badge>
+          )}
           {onDelete && (
             <button
               onClick={(e) => {
@@ -69,6 +78,15 @@ export function MediaCard({
           alt={media.title}
           className="size-full object-cover group-hover:scale-105 transition-transform duration-300"
         />
+        {media.rating != null && media.rating > 0 && (
+          <Badge
+            variant="secondary"
+            className="absolute top-2 right-2 shrink-0 text-xs px-2 py-1 bg-black/50 backdrop-blur-sm border-none text-amber-400 font-semibold"
+          >
+            <Star className="size-3 fill-current mr-0.5" />
+            {media.rating.toFixed(1)}
+          </Badge>
+        )}
         {(media.status === 'ONGOING' || media.status === 'PUBLISHED') && media.type !== 'VARIETY' && media.currentEpisodes && (
           <Badge 
             variant="secondary" 

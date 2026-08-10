@@ -6,7 +6,7 @@ import { useScaledFontSize } from '../themes/useScaledFontSize';
 import { hexToRgba } from '../themes/colorUtils';
 import { radius } from '../themes/radiusTokens';
 import PosterImage from './PosterImage';
-import { X } from 'lucide-react-native';
+import { X, Star } from 'lucide-react-native';
 import type { Media } from '@movie-app/core';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -150,6 +150,24 @@ export default function MediaCard({ media, onPress, compact = false, onLongPress
     compactPosterWrap: {
       position: 'relative',
     },
+    ratingBadgeContainer: {
+      position: 'absolute',
+      top: 6,
+      right: 6,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: radius.full,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      overflow: 'hidden',
+    },
+    ratingBadgeText: {
+      fontSize: s(11),
+      color: colors.warning,
+      fontWeight: 'bold',
+      marginLeft: 2,
+    },
     deleteBadge: {
       position: 'absolute',
       top: 5,
@@ -182,6 +200,12 @@ export default function MediaCard({ media, onPress, compact = false, onLongPress
                 <Text style={styles.placeholderText}>{media.title[0]}</Text>
               </View>
             )}
+            {media.rating != null && media.rating > 0 && (
+              <View style={styles.ratingBadgeContainer}>
+                <Star size={11} color={colors.warning} fill={colors.warning} />
+                <Text style={styles.ratingBadgeText}>{media.rating.toFixed(1)}</Text>
+              </View>
+            )}
             {editing && onDelete && (
               <TouchableOpacity style={styles.deleteBadge} onPress={onDelete} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
                 <X size={12} color="#fff" />
@@ -203,6 +227,12 @@ export default function MediaCard({ media, onPress, compact = false, onLongPress
         ) : (
           <View style={[styles.placeholder, styles.poster]}>
             <Text style={styles.placeholderText}>{media.title[0]}</Text>
+          </View>
+        )}
+        {media.rating != null && media.rating > 0 && (
+          <View style={styles.ratingBadgeContainer}>
+            <Star size={11} color={colors.warning} fill={colors.warning} />
+            <Text style={styles.ratingBadgeText}>{media.rating.toFixed(1)}</Text>
           </View>
         )}
         {(media.status === 'ONGOING' || media.status === 'PUBLISHED') && media.type !== 'VARIETY' && media.currentEpisodes && (

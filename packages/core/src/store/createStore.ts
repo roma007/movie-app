@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { DatabaseProvider } from '../db/provider';
 import type { Media, VideoSource, ImportSourceItem, ParsedImportSource, Favorite, WatchHistory, PaginatedMeta, CollectTask, CollectionLog, CollectPreviewItem, SavePreviewResult, UserUsageType } from '../types';
 import type { CollectConfig, ShortDramaConfig } from '../services/systemConfigService';
+import { RatingService } from '../services/ratingService';
 
 const STORE_API_VERSION_KEY = '__MOVIE_APP_STORE_API_VERSION__';
 const STORE_API_STAMP_KEY = '__movieAppStoreApiVersion';
@@ -57,6 +58,7 @@ export interface AppState {
   mediaList: Media[];
   mediaMeta: PaginatedMeta | null;
   currentMedia: Media | null;
+  isRatingLoading: boolean;
   episodes: any[];
   episodesLoading: boolean;
   playSources: any[];
@@ -108,6 +110,7 @@ export interface AppState {
   getYearsByType: (type?: string) => Promise<number[]>;
   getAreasByType: (type?: string) => Promise<string[]>;
   loadMediaDetail: (id: string) => Promise<void>;
+  fetchMediaRating: (id: string) => Promise<void>;
   loadEpisodes: (mediaId: string, season?: number, sourceId?: string) => Promise<void>;
   loadSeasonEpisodes: (mediaId: string, season: number) => Promise<string | null>;
   loadPlaySources: (episodeId: string) => Promise<void>;
@@ -236,6 +239,7 @@ export function createAppStore(db: DatabaseProvider) {
     mediaList: [],
     mediaMeta: null,
     currentMedia: null,
+    isRatingLoading: false,
     episodes: [],
     episodesLoading: false,
     playSources: [],
@@ -310,6 +314,23 @@ export function createAppStore(db: DatabaseProvider) {
         set({ error: err.message });
       } finally {
         set({ isLoading: false });
+      }
+    },
+
+    fetchMediaRating: async (id: string) => {
+      try {
+        const media = await db.getMediaById(id);
+        if (!media) return;
+        set({ isRatingLoading: true });
+        const service = new RatingService(db);
+        const rating = await service.getOrFetchRating(id, media.title, media.year, media.type);
+        if (!rating) return;
+        const updated = await db.getMediaById(id);
+        if (updated) set({ currentMedia: updated });
+      } catch {
+        // 评分抓取失败静默，不阻塞详情页
+      } finally {
+        set({ isRatingLoading: false });
       }
     },
 

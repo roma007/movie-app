@@ -6,6 +6,8 @@ export interface HttpOptions {
   headers?: Record<string, string>;
   timeout?: number;
   signal?: AbortSignal;
+  /** fetch 的 mode。默认 no-cors 用于浏览器降级场景；读取跨域 JSON（如豆瓣）时需传 'cors'。 */
+  mode?: 'cors' | 'no-cors' | 'same-origin' | 'navigate';
 }
 
 export interface HttpResponse {
@@ -54,7 +56,7 @@ function createDefaultHttpClient(): HttpClient {
             ...options?.headers,
           },
           signal: controller.signal,
-          mode: 'no-cors',
+          mode: options?.mode ?? 'no-cors',
         });
         
         clearTimeout(timeoutId);

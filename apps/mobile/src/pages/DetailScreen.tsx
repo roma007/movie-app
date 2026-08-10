@@ -4,7 +4,7 @@ import { useAppStore } from '../useAppStore';
 import { getProvider } from '../init';
 import { clearCategoryFilterCache } from '../categoryFilterCache';
 import { VideoDurationService, UNCATEGORIZED_GENRE } from '@movie-app/core';
-import { Heart, ArrowLeft, EyeOff } from 'lucide-react-native';
+import { Heart, ArrowLeft, EyeOff, Star } from 'lucide-react-native';
 import type { Episode, PlaySource, VideoSource } from '@movie-app/core';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
@@ -22,7 +22,7 @@ interface Props {
 
 export default function DetailScreen({ route, navigation }: Props) {
   const { id } = route.params;
-  const { currentMedia, episodes, seasons, isLoading, episodeSources, seriesMedia, loadMediaDetail, loadEpisodes, loadSeasons, loadSeasonEpisodes, loadSeriesMedia, hideMediaByGenres } = useAppStore();
+  const { currentMedia, episodes, seasons, isLoading, episodeSources, seriesMedia, loadMediaDetail, loadEpisodes, loadSeasons, loadSeasonEpisodes, loadSeriesMedia, hideMediaByGenres, fetchMediaRating, isRatingLoading } = useAppStore();
   const colors = useThemeColors();
   const cardOpacity = useThemeStore((s) => s.cardOpacity);
   const cardBg = hexToRgba(colors.card, cardOpacity / 100);
@@ -75,6 +75,10 @@ export default function DetailScreen({ route, navigation }: Props) {
     alias: { fontSize: s(13), color: colors.mutedForeground, marginBottom: 4 },
     subtitle: { fontSize: s(14), color: colors.textSecondary, marginBottom: 4 },
     updateTime: { fontSize: s(13), color: colors.error, marginBottom: 8 },
+    ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8 },
+    ratingValue: { fontSize: s(18), fontWeight: 'bold', color: colors.warning },
+    ratingCount: { fontSize: s(12), color: colors.mutedForeground },
+    ratingLoading: { fontSize: s(13), color: colors.mutedForeground, marginLeft: 2 },
     genreRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     genre: { fontSize: s(12), color: colors.text, backgroundColor: hexToRgba(colors.mutedForeground, cardOpacity / 100 * 0.2), paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, overflow: 'hidden' },
     section: { padding: 20 },
@@ -117,6 +121,7 @@ export default function DetailScreen({ route, navigation }: Props) {
     loadMediaDetail(id);
     loadSeasons(id);
     loadSeriesMedia(id);
+    fetchMediaRating(id);
 
     // 收藏状态
     getProvider().isFavorite(id).then(setIsFav).catch(() => {});
@@ -330,6 +335,22 @@ export default function DetailScreen({ route, navigation }: Props) {
           <Text style={styles.updateTime}>
             更新：{new Date(currentMedia.updatedAt).toISOString().split('T')[0]}
           </Text>
+          {currentMedia.rating != null && currentMedia.rating > 0 ? (
+            <View style={styles.ratingRow}>
+              <Star size={14} color={colors.warning} fill={colors.warning} />
+              <Text style={styles.ratingValue}>{currentMedia.rating.toFixed(1)}</Text>
+              {currentMedia.ratingCount != null && currentMedia.ratingCount > 0 && (
+                <Text style={styles.ratingCount}>
+                  {currentMedia.ratingCount >= 10000 ? `${(currentMedia.ratingCount / 10000).toFixed(1)}万人` : `${currentMedia.ratingCount}人`}评分
+                </Text>
+              )}
+            </View>
+          ) : isRatingLoading ? (
+            <View style={styles.ratingRow}>
+              <ActivityIndicator size="small" color={colors.mutedForeground} />
+              <Text style={styles.ratingLoading}>正在获取评分...</Text>
+            </View>
+          ) : null}
           <View style={styles.genreRow}>
             {currentMedia.genres.slice(0, 3).map((g: string, i: number) => (
               <Text key={i} style={styles.genre}>{g}</Text>

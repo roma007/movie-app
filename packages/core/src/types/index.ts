@@ -27,6 +27,10 @@ export interface Media {
   durationCheckStatus?: 'SUMMARY' | 'PROBE' | 'FALLBACK' | null;
   episodeDuration?: number | null;
   viewCount: number;
+  rating?: number | null;
+  ratingCount?: number | null;
+  ratingSource?: 'DOUBAN' | null;
+  ratingUpdatedAt?: string | null;
   hidden?: boolean;
   createdAt: string;
   updatedAt: string;

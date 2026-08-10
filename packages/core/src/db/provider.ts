@@ -39,6 +39,15 @@ export interface DatabaseProvider {
     updatedAt: string
   ): Promise<void>;
   updateMediaPoster(mediaId: string, posterUrl: string | null, updatedAt: string): Promise<void>;
+  updateMediaRating(
+    mediaId: string,
+    data: {
+      rating: number | null;
+      ratingCount: number | null;
+      source: 'DOUBAN';
+      updatedAt: string;
+    }
+  ): Promise<void>;
   incrementViewCount(id: string): Promise<void>;
   incrementSearchCount(id: string): Promise<void>;
   searchMedia(

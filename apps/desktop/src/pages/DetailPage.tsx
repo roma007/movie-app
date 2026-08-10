@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
-import { Heart, ChevronRight, ArrowLeft, EyeOff } from 'lucide-react';
+import { Heart, ChevronRight, ArrowLeft, EyeOff, Star } from 'lucide-react';
 import type { Media, Episode, PlaySource, VideoSource } from '@movie-app/core';
 import { VideoDurationService, UNCATEGORIZED_GENRE } from '@movie-app/core';
 import { PosterImage } from '@/components/PosterImage';
@@ -26,7 +26,7 @@ export default function DetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const { currentMedia, episodes, seasons, isLoading, error, episodeSources, seriesMedia, loadMediaDetail, loadSeasons, loadEpisodes, loadSeasonEpisodes, loadSeriesMedia, toggleFav, hideMediaByGenres } = useAppStore();
+  const { currentMedia, episodes, seasons, isLoading, error, episodeSources, seriesMedia, loadMediaDetail, loadSeasons, loadEpisodes, loadSeasonEpisodes, loadSeriesMedia, toggleFav, hideMediaByGenres, fetchMediaRating, isRatingLoading } = useAppStore();
   const toast = useToast();
   const setBgImage = useBackgroundStore((s) => s.setBgImage);
   const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
@@ -51,6 +51,7 @@ export default function DetailPage() {
   useEffect(() => {
     if (!id) return;
     loadMediaDetail(id);
+    fetchMediaRating(id);
     loadSeasons(id);
     loadSeriesMedia(id);
     getProvider().isFavorite(id).then(setIsFav).catch(() => {});
@@ -294,6 +295,22 @@ export default function DetailPage() {
                 {media.alias && (
                   <p className="text-sm"><span className="text-muted-foreground">又名：</span>{media.alias}</p>
                 )}
+                {media.rating != null && media.rating > 0 ? (
+                  <p className="flex items-center gap-1.5">
+                    <Star className="size-4 text-amber-400 fill-current shrink-0" />
+                    <span className="text-lg font-semibold text-amber-400 leading-none">{media.rating.toFixed(1)}</span>
+                    {media.ratingCount != null && media.ratingCount > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {media.ratingCount >= 10000 ? `${(media.ratingCount / 10000).toFixed(1)}万人` : `${media.ratingCount}人`}评分
+                      </span>
+                    )}
+                  </p>
+                ) : isRatingLoading ? (
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span className="inline-block size-3.5 rounded-full border-2 border-muted-foreground border-t-transparent animate-spin" />
+                    正在获取评分...
+                  </p>
+                ) : null}
                 <p className="text-sm"><span className="text-muted-foreground">类型：</span>{media.genres.join(',')}</p>
                 <p className="text-sm"><span className="text-muted-foreground">年份：</span>{media.year}</p>
                 <p className="text-sm"><span className="text-muted-foreground">地区：</span>{media.area || '未知'}</p>
