@@ -10,6 +10,7 @@ import { useThemeStore } from '../themes/store';
 import { useScaledFontSize } from '../themes/useScaledFontSize';
 import { hexToRgba } from '../themes/colorUtils';
 import { NextEpisodeOverlay } from '../components/NextEpisodeOverlay';
+import { SkipForwardOverlay } from '../components/SkipForwardOverlay';
 import BlurredBackground from '../components/BlurredBackground';
 import { Button } from '../components/ui/Button';
 import type { PlaySource, VideoSource, Episode, Media } from '@movie-app/core';
@@ -52,6 +53,13 @@ export default function PlayScreen({ route, navigation }: Props) {
   // 功能4: 下一集浮层
   const [overlayVisible, setOverlayVisible] = useState(false);
   const overlayDismissedRef = useRef(false);
+
+  // 功能7: 从头播放快进浮窗
+  const [skipForwardVisible, setSkipForwardVisible] = useState(false);
+  const skipForwardVisibleRef = useRef(false);
+  const skipDismissedRef = useRef(false);
+  const startedFromBeginningRef = useRef(false);
+  const skipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 功能6: 进度保存节流
   const [lastSaveTime, setLastSaveTime] = useState(0);
@@ -210,6 +218,14 @@ export default function PlayScreen({ route, navigation }: Props) {
           if (!nearEnd) seekTime = history.progress;
         }
         setInitialCurrentTime(seekTime);
+        startedFromBeginningRef.current = seekTime === 0;
+        setSkipForwardVisible(false);
+        skipForwardVisibleRef.current = false;
+        skipDismissedRef.current = false;
+        if (skipTimerRef.current) {
+          clearTimeout(skipTimerRef.current);
+          skipTimerRef.current = null;
+        }
         setPlaySources(sources);
         if (sources.length > 0) {
           setVideoUrl(sources[0].url);
@@ -254,7 +270,7 @@ export default function PlayScreen({ route, navigation }: Props) {
     }
   }, [player, initialCurrentTime]);
 
-  // 定时保存进度 (10s) + 下一集浮层检测
+  // 定时保存进度 (10s) + 下一集浮层检测 + 从头播放快进浮窗
   useEffect(() => {
     if (!player) return;
     const interval = setInterval(() => {
@@ -272,7 +288,33 @@ export default function PlayScreen({ route, navigation }: Props) {
           dur > threshold &&
           ct > 0 &&
           dur - ct <= threshold;
-        setOverlayVisible(canShow);
+        if (canShow) {
+          setOverlayVisible(true);
+          setSkipForwardVisible(false);
+          skipForwardVisibleRef.current = false;
+          if (skipTimerRef.current) {
+            clearTimeout(skipTimerRef.current);
+            skipTimerRef.current = null;
+          }
+        }
+
+        // 从头播放快进浮窗
+        if (
+          startedFromBeginningRef.current &&
+          !skipDismissedRef.current &&
+          !skipForwardVisibleRef.current &&
+          ct > 0
+        ) {
+          setSkipForwardVisible(true);
+          skipForwardVisibleRef.current = true;
+          if (!skipTimerRef.current) {
+            skipTimerRef.current = setTimeout(() => {
+              setSkipForwardVisible(false);
+              skipForwardVisibleRef.current = false;
+              skipTimerRef.current = null;
+            }, 5 * 60 * 1000);
+          }
+        }
       }
     }, 5000);
     return () => clearInterval(interval);
@@ -327,6 +369,28 @@ export default function PlayScreen({ route, navigation }: Props) {
     setOverlayVisible(false);
     overlayDismissedRef.current = true;
   };
+
+  const handleSkipForward = (delta: number) => {
+    const p = playerRef.current;
+    if (!p) return;
+    const dur = p.duration || 0;
+    p.currentTime = Math.min(p.currentTime + delta, dur > 0 ? dur : p.currentTime + delta);
+  };
+
+  const handleSkipForwardClose = () => {
+    setSkipForwardVisible(false);
+    skipForwardVisibleRef.current = false;
+    skipDismissedRef.current = true;
+  };
+
+  useEffect(() => {
+    return () => {
+      if (skipTimerRef.current) {
+        clearTimeout(skipTimerRef.current);
+        skipTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const seasonToMediaMap = new Map<number, string>();
   seriesMedia.forEach(m => {
@@ -414,6 +478,11 @@ export default function PlayScreen({ route, navigation }: Props) {
           nextEpisodeTitle={nextEpisodeTitle}
           onNext={handleNextEpisode}
           onClose={handleOverlayClose}
+        />
+        <SkipForwardOverlay
+          show={skipForwardVisible}
+          onSkip={handleSkipForward}
+          onClose={handleSkipForwardClose}
         />
       </View>
 

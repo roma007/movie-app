@@ -57,12 +57,32 @@ export function PlayerHost() {
   const [overlayVisible, setOverlayVisible] = useState(false);
   const overlayDismissedRef = useRef(false);
   const reachedOutroRef = useRef(false);
+  const [skipForwardVisible, setSkipForwardVisible] = useState(false);
+  const skipDismissedRef = useRef(false);
+  const startedFromBeginningRef = useRef(false);
+  const skipTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     setOverlayVisible(false);
     overlayDismissedRef.current = false;
     reachedOutroRef.current = false;
-  }, [session?.episodeId, session?.playSourceId]);
+    startedFromBeginningRef.current = (session?.currentTime ?? 0) === 0;
+    setSkipForwardVisible(false);
+    skipDismissedRef.current = false;
+    if (skipTimerRef.current !== null) {
+      window.clearTimeout(skipTimerRef.current);
+      skipTimerRef.current = null;
+    }
+  }, [session?.episodeId, session?.playSourceId, session?.currentTime]);
+
+  useEffect(() => {
+    return () => {
+      if (skipTimerRef.current !== null) {
+        window.clearTimeout(skipTimerRef.current);
+        skipTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const handleBossKey = useCallback(async () => {
     try {
@@ -309,6 +329,18 @@ export function PlayerHost() {
     overlayDismissedRef.current = true;
   };
 
+  const handleSkipForward = (delta: number) => {
+    const video = playerRef.current?.el?.querySelector('video');
+    if (!video) return;
+    const target = Math.min(video.currentTime + delta, video.duration || video.currentTime + delta);
+    video.currentTime = target;
+  };
+
+  const handleSkipForwardClose = () => {
+    setSkipForwardVisible(false);
+    skipDismissedRef.current = true;
+  };
+
   const handlePlayerTimeUpdate = (currentTime: number, duration: number) => {
     handleTimeUpdate(currentTime, duration);
     const threshold = (session.outroThresholdMinutes ?? 10) * 60;
@@ -319,7 +351,28 @@ export function PlayerHost() {
       reachedOutro &&
       session.showNextEpisodeOverlay !== false &&
       session.nextEpisode != null;
-    setOverlayVisible(canShow);
+    if (canShow) {
+      setOverlayVisible(true);
+      setSkipForwardVisible(false);
+      if (skipTimerRef.current !== null) {
+        window.clearTimeout(skipTimerRef.current);
+        skipTimerRef.current = null;
+      }
+    }
+    if (
+      startedFromBeginningRef.current &&
+      !skipDismissedRef.current &&
+      !skipForwardVisible &&
+      currentTime > 0
+    ) {
+      setSkipForwardVisible(true);
+      if (skipTimerRef.current === null) {
+        skipTimerRef.current = window.setTimeout(() => {
+          setSkipForwardVisible(false);
+          skipTimerRef.current = null;
+        }, 5 * 60 * 1000);
+      }
+    }
   };
 
   const nextEpisodeTitle = session.nextEpisode
@@ -444,6 +497,9 @@ export function PlayerHost() {
                 overlayVisible={overlayVisible}
                 onNext={handleNextEpisode}
                 onClose={handleOverlayClose}
+                skipForwardVisible={skipForwardVisible}
+                onSkipForward={handleSkipForward}
+                onSkipForwardClose={handleSkipForwardClose}
               />
             }
           />

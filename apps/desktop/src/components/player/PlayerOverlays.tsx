@@ -1,15 +1,27 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import { NextEpisodeOverlay } from './NextEpisodeOverlay';
+import { SkipForwardOverlay } from './SkipForwardOverlay';
 
 interface PlayerOverlaysProps {
   nextEpisodeTitle: string;
   overlayVisible: boolean;
   onNext: () => void;
   onClose: () => void;
+  skipForwardVisible: boolean;
+  onSkipForward: (delta: number) => void;
+  onSkipForwardClose: () => void;
 }
 
-export function PlayerOverlays({ nextEpisodeTitle, overlayVisible, onNext, onClose }: PlayerOverlaysProps) {
+export function PlayerOverlays({
+  nextEpisodeTitle,
+  overlayVisible,
+  onNext,
+  onClose,
+  skipForwardVisible,
+  onSkipForward,
+  onSkipForwardClose,
+}: PlayerOverlaysProps) {
   const [shortcutsVisible, setShortcutsVisible] = useState(true);
 
   return (
@@ -36,6 +48,11 @@ export function PlayerOverlays({ nextEpisodeTitle, overlayVisible, onNext, onClo
           <div>全屏 <kbd className="ml-1 text-text-secondary">f</kbd></div>
         </div>
       )}
+      <SkipForwardOverlay
+        show={skipForwardVisible}
+        onSkip={onSkipForward}
+        onClose={onSkipForwardClose}
+      />
       <NextEpisodeOverlay
         show={overlayVisible}
         nextEpisodeTitle={nextEpisodeTitle}

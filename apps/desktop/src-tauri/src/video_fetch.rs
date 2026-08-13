@@ -1,22 +1,86 @@
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Duration;
 
 use reqwest::Client;
 use serde_json::json;
 use tauri::ipc::{InvokeResponseBody, Response};
+use tauri::{AppHandle, Manager};
 
 const USER_AGENT: &str =
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36";
 
-const LOG_FILE: &str = "/tmp/video_fetch.log";
+const LOG_FILE_NAME: &str = "video_fetch.log";
+static LOG_PATH: OnceLock<PathBuf> = OnceLock::new();
+
+fn init_log_path(app: &AppHandle) {
+    LOG_PATH.get_or_init(|| {
+        app.path()
+            .app_log_dir()
+            .unwrap_or_else(|_| std::env::temp_dir())
+            .join(LOG_FILE_NAME)
+    });
+}
 
 fn log_line(msg: &str) {
-    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(LOG_FILE) {
+    let Some(path) = LOG_PATH.get() else { return };
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(f, "{}", msg);
     }
+}
+
+/// 仅允许 http/https，拒绝 file:/data:/ftp: 等非网络协议。
+fn ensure_http_url(url: &str) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(url).map_err(|e| format!("非法 URL: {}", e))?;
+    match parsed.scheme() {
+        "http" | "https" => Ok(()),
+        scheme => Err(format!("不支持的协议: {}://", scheme)),
+    }
+}
+
+/// 日志脱敏：只保留 scheme://host[:port]/path，截断 query 与 fragment（签名 token 常位于 query）。
+fn redact_url(url: &str) -> String {
+    match reqwest::Url::parse(url) {
+        Ok(u) => {
+            let mut s = format!("{}://{}", u.scheme(), u.host_str().unwrap_or(""));
+            if let Some(port) = u.port() {
+                s.push_str(&format!(":{}", port));
+            }
+            s.push_str(u.path());
+            s
+        }
+        Err(_) => url.to_string(),
+    }
+}
+
+fn is_sensitive_header(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("token")
+        || n.contains("secret")
+        || n.contains("apikey")
+        || n.contains("api_key")
+        || matches!(
+            n.as_str(),
+            "authorization"
+                | "proxy-authorization"
+                | "cookie"
+                | "set-cookie"
+                | "x-api-key"
+                | "x-access-token"
+        )
+}
+
+fn redact_headers(headers: &HashMap<String, String>) -> HashMap<String, String> {
+    headers
+        .iter()
+        .map(|(k, v)| {
+            let value = if is_sensitive_header(k) { "***".to_string() } else { v.clone() };
+            (k.clone(), value)
+        })
+        .collect()
 }
 
 /// 递归输出完整的错误链（reqwest 的错误只打 `to_string()` 只能看到顶层
@@ -57,10 +121,14 @@ pub(crate) fn http_client() -> &'static Client {
 ///   [status: u16 LE][headers_json_len: u32 LE][headers_json][body 原始字节]
 #[tauri::command]
 pub async fn video_fetch(
+    app: AppHandle,
     url: String,
     headers: Option<HashMap<String, String>>,
     range: Option<String>,
 ) -> Result<Response, String> {
+    init_log_path(&app);
+    ensure_http_url(&url)?;
+
     let mut req = http_client().get(&url).timeout(Duration::from_secs(60));
 
     if let Some(ref headers) = headers {
@@ -79,7 +147,15 @@ pub async fn video_fetch(
     }
 
     let resp = req.send().await.map_err(|e| {
-        log_err(&format!("[video_fetch] 请求失败 {} (headers={:?})", url, headers), &e);
+        let redacted = headers.as_ref().map(redact_headers);
+        log_err(
+            &format!(
+                "[video_fetch] 请求失败 {} (headers={:?})",
+                redact_url(&url),
+                redacted
+            ),
+            &e,
+        );
         e.to_string()
     })?;
 
@@ -93,11 +169,16 @@ pub async fn video_fetch(
     }
 
     let bytes = resp.bytes().await.map_err(|e| {
-        log_err(&format!("[video_fetch] 响应读取失败 {}", url), &e);
+        log_err(&format!("[video_fetch] 响应读取失败 {}", redact_url(&url)), &e);
         e.to_string()
     })?;
 
-    log_line(&format!("[video_fetch] {}: status={} body_len={}", url, status, bytes.len()));
+    log_line(&format!(
+        "[video_fetch] {}: status={} body_len={}",
+        redact_url(&url),
+        status,
+        bytes.len()
+    ));
 
     let headers_json = json!(resp_headers).to_string().into_bytes();
     let mut frame = Vec::with_capacity(2 + 4 + headers_json.len() + bytes.len());
@@ -112,8 +193,12 @@ pub async fn video_fetch(
 /// 预热源域名连接：向该 URL 发起一个 Range 小请求，使连接池提前建立到其 host
 /// 的 keep-alive 连接，后续该 host 的清单/分片请求免握手。失败静默不影响播放。
 #[tauri::command]
-pub async fn prewarm(url: String) {
+pub async fn prewarm(app: AppHandle, url: String) {
+    init_log_path(&app);
     let start = std::time::Instant::now();
+    if ensure_http_url(&url).is_err() {
+        return;
+    }
     let mut req = http_client()
         .get(&url)
         .header(reqwest::header::RANGE, "bytes=0-0")
@@ -128,12 +213,17 @@ pub async fn prewarm(url: String) {
         Ok(resp) => {
             let status = resp.status();
             let _ = resp.bytes().await;
-            log_line(&format!("[prewarm] {}: ok({}) {}ms", url, status, start.elapsed().as_millis()));
+            log_line(&format!(
+                "[prewarm] {}: ok({}) {}ms",
+                redact_url(&url),
+                status,
+                start.elapsed().as_millis()
+            ));
         }
         Err(e) => {
             log_err(&format!(
                 "[prewarm] {}: fail {}ms",
-                url,
+                redact_url(&url),
                 start.elapsed().as_millis()
             ), &e);
         }
