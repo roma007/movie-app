@@ -286,6 +286,14 @@ export default function DetailScreen({ route, navigation }: Props) {
 
   const isMovie = currentMedia.type === 'MOVIE';
 
+  const typeScreenMap: Record<string, string> = {
+    MOVIE: 'Movie',
+    TV: 'TV',
+    VARIETY: 'Variety',
+    ANIME: 'Anime',
+    DOCUMENTARY: 'Documentary',
+  };
+
   return (
     <BlurredBackground imageUrl={bgImageUrl}>
     <ScrollView style={styles.container}>
@@ -352,8 +360,17 @@ export default function DetailScreen({ route, navigation }: Props) {
             </View>
           ) : null}
           <View style={styles.genreRow}>
-            {currentMedia.genres.slice(0, 3).map((g: string, i: number) => (
-              <Text key={i} style={styles.genre}>{g}</Text>
+            {currentMedia.genres.map((g: string, i: number) => (
+              <TouchableOpacity
+                key={i}
+                activeOpacity={0.7}
+                onPress={() => {
+                  const screen = typeScreenMap[currentMedia.type];
+                  if (screen) navigation.navigate(screen, { subType: g });
+                }}
+              >
+                <Text style={styles.genre}>{g}</Text>
+              </TouchableOpacity>
             ))}
           </View>
         </View>

@@ -106,7 +106,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
     }
     try {
       const [subs, yrs, areasList] = await Promise.all([
-        provider.getSubTypesByType(type),
+        provider.getSubTypesByType(type, undefined, true),
         provider.getYearsByType(type),
         provider.getAreasByType(type),
       ]);
@@ -152,8 +152,13 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
 
   const route = useRoute<any>();
   const refreshStamp = route.params?.refresh;
+  const routeSubType = route.params?.subType as string | undefined;
   const loadListRef = useRef(loadList);
   loadListRef.current = loadList;
+
+  useEffect(() => {
+    if (routeSubType) setSelectedSubType(routeSubType);
+  }, [routeSubType]);
 
   useEffect(() => {
     if (refreshStamp) loadListRef.current(1, true);
@@ -184,9 +189,12 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
     setExpandedFilter(prev => prev === name ? null : name);
   };
 
-  const subTypeOptions = useMemo(() =>
-    subTypes.map(s => ({ label: s, value: s })),
-  [subTypes]);
+  const subTypeOptions = useMemo(() => {
+    const list = selectedSubType && !subTypes.includes(selectedSubType)
+      ? [selectedSubType, ...subTypes]
+      : subTypes;
+    return list.map(s => ({ label: s, value: s }));
+  }, [subTypes, selectedSubType]);
 
   const yearOptions = useMemo(() =>
     years.map(y => ({ label: String(y), value: y })),

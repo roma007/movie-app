@@ -3,7 +3,7 @@ export * from './types';
 
 // 工具
 export { DataNormalizer, normalizer } from './utils/normalizer';
-export { NOISE_SUBTYPES, isNoiseSubtype, expandSubTypes } from './utils/genreSubtypes';
+export { NOISE_SUBTYPES, isNoiseSubtype, expandSubTypes, extractFirstSubtypes } from './utils/genreSubtypes';
 export { DEAD_IMAGE_HOSTS, extractImageHost, isKnownDeadPosterUrl, isUsablePosterUrl } from './utils/posterHost';
 export {
   isAiDrama,

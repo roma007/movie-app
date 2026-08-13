@@ -63,7 +63,7 @@ export interface DatabaseProvider {
   ): Promise<PaginatedResponse<Media>>;
 
   getGenresByType(type?: string): Promise<string[]>;
-  getSubTypesByType(type?: string, includeHidden?: boolean): Promise<string[]>;
+  getSubTypesByType(type?: string, includeHidden?: boolean, firstOnly?: boolean): Promise<string[]>;
   getYearsByType(type?: string): Promise<number[]>;
   getAreasByType(type?: string): Promise<string[]>;
   hasShortDrama(type?: string): Promise<boolean>;

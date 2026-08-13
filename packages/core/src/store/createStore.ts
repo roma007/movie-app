@@ -106,7 +106,7 @@ export interface AppState {
 
   loadMediaList: (params?: any) => Promise<void>;
   getGenresByType: (type?: string) => Promise<string[]>;
-  getSubTypesByType: (type?: string, includeHidden?: boolean) => Promise<string[]>;
+  getSubTypesByType: (type?: string, includeHidden?: boolean, firstOnly?: boolean) => Promise<string[]>;
   getYearsByType: (type?: string) => Promise<number[]>;
   getAreasByType: (type?: string) => Promise<string[]>;
   loadMediaDetail: (id: string) => Promise<void>;
@@ -293,8 +293,8 @@ export function createAppStore(db: DatabaseProvider) {
       return await db.getGenresByType(type);
     },
 
-    getSubTypesByType: async (type?: string, includeHidden?: boolean) => {
-      return await db.getSubTypesByType(type, includeHidden);
+    getSubTypesByType: async (type?: string, includeHidden?: boolean, firstOnly?: boolean) => {
+      return await db.getSubTypesByType(type, includeHidden, firstOnly);
     },
 
     getYearsByType: async (type?: string) => {

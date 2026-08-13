@@ -311,7 +311,22 @@ export default function DetailPage() {
                     正在获取评分...
                   </p>
                 ) : null}
-                <p className="text-sm"><span className="text-muted-foreground">类型：</span>{media.genres.join(',')}</p>
+                <p className="text-sm">
+                  <span className="text-muted-foreground">类型：</span>
+                  {media.genres.length > 0 ? media.genres.map((g, i) => (
+                    <span key={g}>
+                      <button
+                        type="button"
+                        onClick={() => navigate(`${typeRouteMap[media.type] || '/'}?subType=${encodeURIComponent(g)}`)}
+                        className="hover:text-text transition-colors cursor-pointer"
+                        title={`筛选「${g}」类视频`}
+                      >
+                        {g}
+                      </button>
+                      {i < media.genres.length - 1 && <span>,</span>}
+                    </span>
+                  )) : '未知'}
+                </p>
                 <p className="text-sm"><span className="text-muted-foreground">年份：</span>{media.year}</p>
                 <p className="text-sm"><span className="text-muted-foreground">地区：</span>{media.area || '未知'}</p>
                 <p className="text-sm text-error"><span className="text-muted-foreground">更新时间：</span>{new Date(media.updatedAt).toISOString().split('T')[0]}</p>

@@ -271,7 +271,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
   const fetchFilters = async () => {
     try {
       const [subTypeList, yearList, areaList] = await Promise.all([
-        getSubTypesByType(type),
+        getSubTypesByType(type, undefined, true),
         getYearsByType(type),
         getAreasByType(type),
       ]);
@@ -321,6 +321,10 @@ export default function CategoryPage({ type }: CategoryPageProps) {
   };
 
   const totalPages = mediaMeta?.totalPages || 1;
+
+  const displayedSubTypes = activeSubType && !subTypes.includes(activeSubType)
+    ? [activeSubType, ...subTypes]
+    : subTypes;
 
   const handlePageChange = (page: number) => {
     if (page < 1 || page > totalPages) return;
@@ -418,7 +422,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                     >
                       全部
                     </Button>
-                    {subTypes.map((g) => (
+                    {displayedSubTypes.map((g) => (
                       <Button
                         key={g}
                         variant={activeSubType === g ? 'default' : 'outline'}

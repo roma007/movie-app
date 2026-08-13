@@ -65,3 +65,27 @@ export function expandSubTypes(genres: Iterable<string | null | undefined>): str
   }
   return Array.from(out).sort();
 }
+
+// 仅取每个视频 genre 数组的第一个元素（主分类）作为子类型，去噪去重排序。
+// 分类页筛选项使用此逻辑，避免全量展开导致筛选项过多；管理页隐藏/删除仍用
+// expandSubTypes 全量展开。genres 为数据库读取到的 genre JSON 字符串集合。
+export function extractFirstSubtypes(genres: Iterable<string | null | undefined>): string[] {
+  const out = new Set<string>();
+  for (const genre of genres) {
+    if (!genre) continue;
+    const trimmed = genre.trim();
+    if (!trimmed || trimmed === '[]') continue;
+    let arr: unknown;
+    try {
+      arr = JSON.parse(trimmed);
+    } catch {
+      arr = null;
+    }
+    const first = Array.isArray(arr) ? arr[0] : trimmed;
+    if (typeof first !== 'string') continue;
+    const t = first.trim();
+    if (!t || isNoiseSubtype(t)) continue;
+    out.add(t);
+  }
+  return Array.from(out).sort();
+}

@@ -16,6 +16,7 @@ import {
   rowToWatchHistory,
   rowToCollectTask,
   expandSubTypes,
+  extractFirstSubtypes,
 } from '@movie-app/core';
 import type { DatabaseProvider } from '@movie-app/core';
 import type {
@@ -611,7 +612,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     return Array.from(allGenres).sort();
   }
 
-  async getSubTypesByType(type?: string, includeHidden?: boolean): Promise<string[]> {
+  async getSubTypesByType(type?: string, includeHidden?: boolean, firstOnly?: boolean): Promise<string[]> {
     let whereClause = 'WHERE genre IS NOT NULL AND genre != \'[]\'';
     if (!includeHidden) {
       whereClause += ' AND (hidden IS NULL OR hidden = 0)';
@@ -620,6 +621,13 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     if (type) {
       whereClause += ' AND type = ?';
       params.push(type);
+    }
+    if (firstOnly) {
+      const rows = await this.db!.getAllAsync<{ genre: string }>(
+        `SELECT genre FROM media ${whereClause}`,
+        params
+      );
+      return extractFirstSubtypes(rows.map(row => row.genre));
     }
     const rows = await this.db!.getAllAsync<{ genre: string }>(
       `SELECT DISTINCT genre FROM media ${whereClause}`,
