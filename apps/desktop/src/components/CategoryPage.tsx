@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { LayoutGrid, List, ChevronLeft, ChevronRight, Search, X, Columns3, ArrowLeft } from 'lucide-react';
+import { markSearchFromDetail, consumeSearchFromDetail, resetSearchFromDetail } from '../lib/searchReturnFlag';
 
 const pageSize = 30;
 
@@ -139,7 +140,6 @@ export default function CategoryPage({ type }: CategoryPageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const cameFromSearchRef = useRef(false);
   const [activeSubType, setActiveSubType] = useState<string | undefined>(() => searchParams.get('subType') || undefined);
   const [activeYear, setActiveYear] = useState<number | undefined>(() => {
     const year = searchParams.get('year');
@@ -175,7 +175,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
     if (state?.searchKeyword) {
       const kw = state.searchKeyword.trim();
       if (kw) {
-        cameFromSearchRef.current = true;
+        markSearchFromDetail();
         setSearchKeyword(kw);
         setIsSearching(true);
         searchMedia(kw).catch(() => {});
@@ -264,6 +264,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
   };
 
   const handleClearSearch = () => {
+    resetSearchFromDetail();
     setSearchKeyword('');
     setIsSearching(false);
     setIsSearchLoading(false);
@@ -353,8 +354,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
           <Button
             variant="ghost"
             onClick={() => {
-              if (cameFromSearchRef.current) {
-                cameFromSearchRef.current = false;
+              if (consumeSearchFromDetail()) {
                 navigate(-1);
               } else {
                 handleClearSearch();

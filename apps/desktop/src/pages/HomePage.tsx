@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { Media, Episode, UserUsageType, WatchHistory, HiddenCollectItem } from '@movie-app/core';
 import { useAppStore, getProvider } from '../useAppStore';
@@ -13,6 +13,7 @@ import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { ArrowLeft, Search, X, Heart, Clock, ChevronRight as ChevronRightIcon, Film, Tv, Sparkles, Download, Plus, Database, Loader2 } from 'lucide-react';
 import { useToast } from '@/components/Layout';
+import { markSearchFromDetail, consumeSearchFromDetail, resetSearchFromDetail } from '@/lib/searchReturnFlag';
 
 const USAGE_LABELS: Record<UserUsageType, string> = {
   SEARCH_FIRST: '搜索优先',
@@ -37,7 +38,6 @@ export default function HomePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const toast = useToast();
-  const cameFromSearchRef = useRef(false);
   const setBgImage = useBackgroundStore((s) => s.setBgImage);
   const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
   const [mediaMap, setMediaMap] = useState<Record<string, Media | null>>({});
@@ -69,7 +69,7 @@ export default function HomePage() {
     if (state?.searchKeyword) {
       const kw = state.searchKeyword.trim();
       if (kw) {
-        cameFromSearchRef.current = true;
+        markSearchFromDetail();
         setSearchKeyword(kw);
         setIsSearching(true);
         searchMedia(kw).catch(() => {});
@@ -179,6 +179,7 @@ export default function HomePage() {
   };
 
   const handleClearSearch = () => {
+    resetSearchFromDetail();
     setSearchKeyword('');
     setIsSearching(false);
     setIsSearchLoading(false);
@@ -459,8 +460,7 @@ export default function HomePage() {
           <Button
             variant="ghost"
             onClick={() => {
-              if (cameFromSearchRef.current) {
-                cameFromSearchRef.current = false;
+              if (consumeSearchFromDetail()) {
                 navigate(-1);
               } else {
                 handleClearSearch();

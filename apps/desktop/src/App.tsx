@@ -14,6 +14,7 @@ import VarietyPage from './pages/VarietyPage';
 import AnimePage from './pages/AnimePage';
 import DocumentaryPage from './pages/DocumentaryPage';
 import DetailPage from './pages/DetailPage';
+import SubtypePage from './pages/SubtypePage';
 import PlayPage from './pages/PlayPage';
 import FavoritesPage from './pages/FavoritesPage';
 import HistoryPage from './pages/HistoryPage';
@@ -106,6 +107,7 @@ export default function App() {
                 <Route path="/anime" element={<AnimePage />} />
                 <Route path="/documentary" element={<DocumentaryPage />} />
                 <Route path="/media/:id" element={<DetailPage />} />
+                <Route path="/subtype/:type/:subType" element={<SubtypePage />} />
                 <Route path="/play/:episodeId" element={<PlayPage />} />
                 <Route path="/favorites" element={<FavoritesPage />} />
                 <Route path="/history" element={<HistoryPage />} />

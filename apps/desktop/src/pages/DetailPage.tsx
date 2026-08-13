@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Heart, ChevronRight, ArrowLeft, EyeOff, Star } from 'lucide-react';
 import type { Media, Episode, PlaySource, VideoSource } from '@movie-app/core';
 import { VideoDurationService, UNCATEGORIZED_GENRE } from '@movie-app/core';
+import { markSearchFromDetail } from '@/lib/searchReturnFlag';
 import { PosterImage } from '@/components/PosterImage';
 
 const typeLabel: Record<string, string> = {
@@ -224,9 +225,11 @@ export default function DetailPage() {
 
   const getBackUrl = () => {
     if (prevState) {
+      if (prevState.subType && prevState.type) {
+        return `/subtype/${prevState.type}/${encodeURIComponent(prevState.subType)}`;
+      }
       const params = new URLSearchParams();
       if (prevState.page) params.set('page', String(prevState.page));
-      if (prevState.subType) params.set('subType', prevState.subType);
       if (prevState.year) params.set('year', String(prevState.year));
       if (prevState.area) params.set('area', prevState.area);
       if (prevState.episodeType) params.set('episodeType', prevState.episodeType);
@@ -317,9 +320,9 @@ export default function DetailPage() {
                     <span key={g}>
                       <button
                         type="button"
-                        onClick={() => navigate(`${typeRouteMap[media.type] || '/'}?subType=${encodeURIComponent(g)}`)}
+                        onClick={() => navigate(`/subtype/${media.type}/${encodeURIComponent(g)}`)}
                         className="hover:text-text transition-colors cursor-pointer"
-                        title={`筛选「${g}」类视频`}
+                        title={`浏览「${g}」类视频`}
                       >
                         {g}
                       </button>
@@ -343,7 +346,7 @@ export default function DetailPage() {
                 <span key={d}>
                   <button
                     type="button"
-                    onClick={() => navigate('/', { state: { searchKeyword: d } })}
+                    onClick={() => { markSearchFromDetail(); navigate('/', { state: { searchKeyword: d } }); }}
                     className="hover:text-text transition-colors cursor-pointer"
                   >
                     {d}
@@ -358,7 +361,7 @@ export default function DetailPage() {
                 <span key={a}>
                   <button
                     type="button"
-                    onClick={() => navigate('/', { state: { searchKeyword: a } })}
+                    onClick={() => { markSearchFromDetail(); navigate('/', { state: { searchKeyword: a } }); }}
                     className="hover:text-text transition-colors cursor-pointer"
                   >
                     {a}
