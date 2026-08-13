@@ -413,7 +413,7 @@ export default function DetailPage() {
                       key={s.id}
                       type="button"
                       onClick={() => handleSourceChange(s.id)}
-                      className={`text-left truncate rounded-l-md rounded-r-none transition-all duration-150 flex-1 ${
+                      className={`text-left text-xs truncate rounded-l-md rounded-r-none transition-all duration-150 flex-1 ${
                         selectedSourceId === s.id
                           ? 'w-24 bg-[var(--color-card-accent-alpha)] text-[var(--color-button-primary-text)] py-2.5 px-3 shadow-none'
                           : 'w-20 bg-[var(--color-card-dim-alpha)] text-[var(--color-button-secondary-text)] py-1.5 px-2 hover:text-text'
@@ -489,7 +489,7 @@ export default function DetailPage() {
                             <button
                               type="button"
                               onClick={() => navigate(`/play/${ep.id}${selectedSourceId ? `?sourceId=${selectedSourceId}` : ''}`)}
-                              className={`relative px-3 py-1.5 rounded text-xs font-medium transition-all duration-200 bg-[var(--color-card-dim-alpha)] text-text-secondary cursor-pointer hover:text-text hover:bg-[var(--color-hover-alpha)]${isWatched ? ' opacity-50' : ''}`}
+                              className={`relative px-3 py-1.5 rounded text-sm font-medium transition-all duration-200 bg-[var(--color-card-dim-alpha)] text-text-secondary cursor-pointer hover:text-text hover:bg-[var(--color-hover-alpha)]${isWatched ? ' opacity-50' : ''}`}
                               title="点击播放"
                             >
                               {title}

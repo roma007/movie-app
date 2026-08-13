@@ -14,6 +14,14 @@ export function ContextMenu() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
 
   const handleContextMenu = useCallback((e: MouseEvent) => {
+    const target = e.target as HTMLElement | null;
+    const isEditableTarget = !!target && (
+      target.tagName === 'INPUT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.isContentEditable ||
+      !!target.closest('input, textarea, [contenteditable="true"]')
+    );
+    if (isEditableTarget) return;
     e.preventDefault();
     setPosition({ x: e.clientX, y: e.clientY });
     const selection = window.getSelection();

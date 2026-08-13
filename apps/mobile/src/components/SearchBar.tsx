@@ -22,7 +22,7 @@ export default function SearchBar({ placeholder = '搜索电影、电视剧、�
   const handleSearch = () => {
     const kw = keyword.trim();
     if (!kw) return;
-    navigation.navigate('Search', { keyword: kw });
+    navigation.push('Search', { keyword: kw });
     setKeyword('');
   };
 

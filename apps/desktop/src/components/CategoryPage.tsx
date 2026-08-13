@@ -139,6 +139,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const cameFromSearchRef = useRef(false);
   const [activeSubType, setActiveSubType] = useState<string | undefined>(() => searchParams.get('subType') || undefined);
   const [activeYear, setActiveYear] = useState<number | undefined>(() => {
     const year = searchParams.get('year');
@@ -174,6 +175,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
     if (state?.searchKeyword) {
       const kw = state.searchKeyword.trim();
       if (kw) {
+        cameFromSearchRef.current = true;
         setSearchKeyword(kw);
         setIsSearching(true);
         searchMedia(kw).catch(() => {});
@@ -348,7 +350,18 @@ export default function CategoryPage({ type }: CategoryPageProps) {
     <div className="p-6 space-y-5 max-w-7xl mx-auto">
       <div className="flex gap-2">
         {isSearching && (
-          <Button variant="ghost" onClick={handleClearSearch} className="shrink-0">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              if (cameFromSearchRef.current) {
+                cameFromSearchRef.current = false;
+                navigate(-1);
+              } else {
+                handleClearSearch();
+              }
+            }}
+            className="shrink-0"
+          >
             <ArrowLeft className="size-4 mr-2" /> 返回
           </Button>
         )}

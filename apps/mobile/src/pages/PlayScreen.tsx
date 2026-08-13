@@ -115,17 +115,17 @@ export default function PlayScreen({ route, navigation }: Props) {
     sourceTab: { flex: 1, justifyContent: 'center', borderTopLeftRadius: radius.md, borderBottomLeftRadius: radius.md, borderTopRightRadius: 0, borderBottomRightRadius: 0 },
     sourceTabActive: { backgroundColor: accentBg, paddingVertical: 10, paddingHorizontal: 12, width: 92 },
     sourceTabInactive: { backgroundColor: dimBg, paddingVertical: 6, paddingHorizontal: 8, width: 76 },
-    sourceTabText: { fontSize: sf(12), fontWeight: '500', textAlign: 'left' },
+    sourceTabText: { fontSize: sf(11), fontWeight: '500', textAlign: 'left' },
     episodePanel: { flex: 1, minWidth: 0, backgroundColor: accentBg, borderTopRightRadius: radius.md, borderBottomRightRadius: radius.md, padding: 12 },
     episodesPlaceholder: { paddingVertical: 30, alignItems: 'center' },
     episodesPlaceholderText: { color: colors.mutedForeground, fontSize: sf(14) },
     episodeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
     episodeBtn: { paddingVertical: 10, paddingHorizontal: 6, borderRadius: radius.sm, alignItems: 'center' },
     episodeBtnIdle: { backgroundColor: dimBg },
-    episodeBtnActive: { backgroundColor: accentBg },
+    episodeBtnActive: { backgroundColor: colors.buttonPrimaryText },
     episodeBtnWatched: { opacity: 0.5 },
-    episodeBtnText: { color: colors.textSecondary, fontSize: sf(12), fontWeight: '500', textAlign: 'center' },
-    episodeBtnTextActive: { color: colors.buttonPrimaryText },
+    episodeBtnText: { color: colors.textSecondary, fontSize: sf(13), fontWeight: '500', textAlign: 'center' },
+    episodeBtnTextActive: { color: colors.cardDim },
   }), [colors, cardBg, surfaceBg, accentBg, dimBg, sf]);
 
   useEffect(() => {

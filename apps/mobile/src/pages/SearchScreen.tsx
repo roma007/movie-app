@@ -14,7 +14,7 @@ import { ArrowLeft } from 'lucide-react-native';
 
 interface Props {
   navigation: any;
-  route?: { params?: { keyword?: string; fromDetail?: string } };
+  route?: { params?: { keyword?: string } };
 }
 
 export default function SearchScreen({ navigation, route }: Props) {
@@ -144,10 +144,10 @@ export default function SearchScreen({ navigation, route }: Props) {
     <View style={styles.container}>
       <View style={styles.searchBar}>
         <Button variant="icon" size="sm" onPress={() => {
-          if (route?.params?.fromDetail) {
-            navigation.navigate('Detail', { id: route.params.fromDetail });
-          } else {
+          if (navigation.canGoBack()) {
             navigation.goBack();
+          } else {
+            navigation.navigate('Home');
           }
         }}>
           <ArrowLeft size={20} color={colors.text} />

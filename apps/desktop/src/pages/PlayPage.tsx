@@ -320,7 +320,7 @@ export default function PlayPage() {
                           setEpisodeListSwitching(true);
                           switchCmsSource(cms.id);
                         }}
-                        className={`text-left truncate rounded-l-md rounded-r-none transition-all duration-150 flex-1 ${
+                        className={`text-left text-xs truncate rounded-l-md rounded-r-none transition-all duration-150 flex-1 ${
                           selectedSourceId === cms.id
                             ? 'w-24 bg-[var(--color-card-accent-alpha)] text-[var(--color-button-primary-text)] py-2.5 px-3 shadow-none'
                             : 'w-20 bg-[var(--color-card-dim-alpha)] text-[var(--color-button-secondary-text)] py-1.5 px-2 hover:text-text'
@@ -350,7 +350,11 @@ export default function PlayPage() {
                             }
                           }}
                           title="点击播放"
-                          className={`relative px-3 py-1.5 rounded text-xs font-medium transition-all duration-200 bg-[var(--color-card-dim-alpha)] text-text-secondary cursor-pointer hover:text-text hover:bg-[var(--color-hover-alpha)]${ep.id === activeSession?.episodeId ? ' bg-[var(--color-card-accent-alpha)] text-[var(--color-button-primary-text)]' : ''}${ep.id !== activeSession?.episodeId && watchedEpisodes.has(ep.id) ? ' opacity-50' : ''}`}
+                          className={`relative px-3 py-1.5 rounded text-sm font-medium transition-all duration-200 cursor-pointer${
+                            ep.id === activeSession?.episodeId
+                              ? ' bg-[var(--color-button-primary-text)] text-[var(--color-primary)]'
+                              : ` bg-[var(--color-card-dim-alpha)] text-text-secondary hover:text-text hover:bg-[var(--color-hover-alpha)]${watchedEpisodes.has(ep.id) ? ' opacity-50' : ''}`
+                          }`}
                         >
                           {ep.title || `第${ep.episodeNumber}集`}
                         </button>

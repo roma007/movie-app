@@ -94,7 +94,7 @@ export default function DetailScreen({ route, navigation }: Props) {
     sourceTab: { flex: 1, justifyContent: 'center', borderTopLeftRadius: radius.md, borderBottomLeftRadius: radius.md, borderTopRightRadius: 0, borderBottomRightRadius: 0 },
     sourceTabActive: { backgroundColor: accentBg, paddingVertical: 10, paddingHorizontal: 12, width: 92 },
     sourceTabInactive: { backgroundColor: dimBg, paddingVertical: 6, paddingHorizontal: 8, width: 76 },
-    sourceTabText: { fontSize: s(12), fontWeight: '500', textAlign: 'left' },
+    sourceTabText: { fontSize: s(11), fontWeight: '500', textAlign: 'left' },
     episodePanel: { flex: 1, minWidth: 0, backgroundColor: accentBg, borderTopRightRadius: radius.md, borderBottomRightRadius: radius.md, padding: 12 },
     episodesPlaceholder: { paddingVertical: 30, alignItems: 'center' },
     episodesPlaceholderText: { color: colors.mutedForeground, fontSize: s(14) },
@@ -103,7 +103,7 @@ export default function DetailScreen({ route, navigation }: Props) {
     episodeButton: { paddingVertical: 10, paddingHorizontal: 6, borderRadius: radius.sm, alignItems: 'center' },
     episodeButtonIdle: { backgroundColor: dimBg },
     episodeButtonWatched: { opacity: 0.5 },
-    episodeButtonText: { color: colors.textSecondary, fontSize: s(12), fontWeight: '500', textAlign: 'center' },
+    episodeButtonText: { color: colors.textSecondary, fontSize: s(13), fontWeight: '500', textAlign: 'center' },
     episodeDuration: { color: colors.disabledForeground, fontSize: s(11), marginTop: 4 },
     error: { color: colors.error, textAlign: 'center', marginTop: 50 },
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
@@ -386,7 +386,7 @@ export default function DetailScreen({ route, navigation }: Props) {
           <Text style={styles.sectionTitle}>导演</Text>
           <View style={styles.nameRow}>
             {currentMedia.directors.map((d: string, i: number) => (
-              <TouchableOpacity key={d} onPress={() => navigation.navigate('搜索', { keyword: d, fromDetail: id })}>
+              <TouchableOpacity key={d} onPress={() => navigation.push('Search', { keyword: d })}>
                 <Text style={styles.nameLink}>
                   {d}{i < currentMedia.directors.length - 1 ? ' / ' : ''}
                 </Text>
@@ -401,7 +401,7 @@ export default function DetailScreen({ route, navigation }: Props) {
           <Text style={styles.sectionTitle}>演员</Text>
           <View style={styles.nameRow}>
             {currentMedia.actors.map((a: string, i: number) => (
-              <TouchableOpacity key={a} onPress={() => navigation.navigate('搜索', { keyword: a, fromDetail: id })}>
+              <TouchableOpacity key={a} onPress={() => navigation.push('Search', { keyword: a })}>
                 <Text style={styles.nameLink}>
                   {a}{i < currentMedia.actors.length - 1 ? ' / ' : ''}
                 </Text>
