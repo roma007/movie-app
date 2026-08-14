@@ -59,30 +59,16 @@ export function PlayerHost() {
   const reachedOutroRef = useRef(false);
   const [skipForwardVisible, setSkipForwardVisible] = useState(false);
   const skipDismissedRef = useRef(false);
-  const startedFromBeginningRef = useRef(false);
-  const skipTimerRef = useRef<number | null>(null);
+  const skipEligibleRef = useRef(false);
 
   useEffect(() => {
     setOverlayVisible(false);
     overlayDismissedRef.current = false;
     reachedOutroRef.current = false;
-    startedFromBeginningRef.current = (session?.currentTime ?? 0) === 0;
+    skipEligibleRef.current = (session?.currentTime ?? 0) < 5 * 60;
     setSkipForwardVisible(false);
     skipDismissedRef.current = false;
-    if (skipTimerRef.current !== null) {
-      window.clearTimeout(skipTimerRef.current);
-      skipTimerRef.current = null;
-    }
   }, [session?.episodeId, session?.playSourceId, session?.currentTime]);
-
-  useEffect(() => {
-    return () => {
-      if (skipTimerRef.current !== null) {
-        window.clearTimeout(skipTimerRef.current);
-        skipTimerRef.current = null;
-      }
-    };
-  }, []);
 
   const handleBossKey = useCallback(async () => {
     try {
@@ -354,24 +340,17 @@ export function PlayerHost() {
     if (canShow) {
       setOverlayVisible(true);
       setSkipForwardVisible(false);
-      if (skipTimerRef.current !== null) {
-        window.clearTimeout(skipTimerRef.current);
-        skipTimerRef.current = null;
-      }
+      skipDismissedRef.current = true;
     }
-    if (
-      startedFromBeginningRef.current &&
+    if (currentTime >= 5 * 60) {
+      setSkipForwardVisible(false);
+    } else if (
+      skipEligibleRef.current &&
       !skipDismissedRef.current &&
       !skipForwardVisible &&
       currentTime > 0
     ) {
       setSkipForwardVisible(true);
-      if (skipTimerRef.current === null) {
-        skipTimerRef.current = window.setTimeout(() => {
-          setSkipForwardVisible(false);
-          skipTimerRef.current = null;
-        }, 5 * 60 * 1000);
-      }
     }
   };
 

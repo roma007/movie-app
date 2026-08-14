@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAppStore } from '../useAppStore';
 import { useBackgroundStore } from '../themes/backgroundStore';
 import { MediaGrid } from '@/components/MediaCard';
@@ -29,20 +29,32 @@ const typeRoutes: Record<string, string> = {
 export default function SubtypePage() {
   const { type = '', subType = '' } = useParams<{ type: string; subType: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { mediaList, mediaMeta, isLoading, loadMediaList } = useAppStore();
   const setBgImage = useBackgroundStore((s) => s.setBgImage);
   const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(() => {
+    const page = searchParams.get('page');
+    return page ? Math.max(1, Number(page)) : 1;
+  });
 
   useEffect(() => {
     if (!type || !subType) return;
-    setCurrentPage(1);
-    loadMediaList({ page: 1, pageSize, type, subType });
-  }, [type, subType, loadMediaList]);
+    const page = searchParams.get('page');
+    setCurrentPage(page ? Math.max(1, Number(page)) : 1);
+  }, [type, subType, searchParams]);
+
+  useEffect(() => {
+    if (!type || !subType) return;
+    loadMediaList({ page: currentPage, pageSize, type, subType });
+  }, [type, subType, currentPage, loadMediaList]);
 
   const loadPage = (page: number) => {
     setCurrentPage(page);
-    loadMediaList({ page, pageSize, type, subType });
+    setSearchParams((prev) => {
+      prev.set('page', String(page));
+      return prev;
+    });
   };
 
   useEffect(() => {
@@ -70,7 +82,7 @@ export default function SubtypePage() {
   };
 
   const navigateState = useMemo(
-    () => ({ page: currentPage, type, subType }),
+    () => ({ page: currentPage, type, subType, subtypePage: true }),
     [currentPage, type, subType]
   );
 

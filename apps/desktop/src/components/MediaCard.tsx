@@ -13,7 +13,7 @@ export function MediaCard({
   onDelete,
 }: { 
   media: Media; 
-  navigateState?: { page?: number; type?: string; subType?: string; year?: number; area?: string; episodeType?: string };
+  navigateState?: { page?: number; type?: string; subType?: string; year?: number; area?: string; episodeType?: string; subtypePage?: boolean };
   onBeforeNavigate?: () => void;
   size?: 'normal' | 'small';
   onDelete?: (media: Media) => void;
@@ -149,7 +149,7 @@ export function MediaGrid({
   onBeforeNavigate,
 }: { 
   items: Media[]; 
-  navigateState?: { page?: number; type?: string; subType?: string; year?: number; area?: string; episodeType?: string };
+  navigateState?: { page?: number; type?: string; subType?: string; year?: number; area?: string; episodeType?: string; subtypePage?: boolean };
   onBeforeNavigate?: () => void;
 }) {
   if (items.length === 0) {

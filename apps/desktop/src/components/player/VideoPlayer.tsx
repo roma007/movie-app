@@ -49,9 +49,6 @@ export function VideoPlayer({
   onSourceChange,
   onVolumeChange,
 }: VideoPlayerProps) {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   const playerContainerRef = useRef<HTMLDivElement>(null);
 
   const [colorValues, setColorValues] = useState({
@@ -166,7 +163,6 @@ export function VideoPlayer({
     const src = sourcesList[idx];
     if (!src) return;
 
-    setLoading(false);
     console.error(
       `[VideoPlayer] 线路失败: index=${idx}, sourceId=${src.id}, sourceName=${src.sourceName}, url=${src.url}`,
     );
@@ -176,11 +172,10 @@ export function VideoPlayer({
 
     const nextIndex = idx + 1;
     if (nextIndex < sourcesList.length) {
-      setError(`线路 ${idx + 1} 失败，正在尝试线路 ${nextIndex + 1}...`);
       setTimeout(() => setCurrentIndex(nextIndex), 1500);
     } else {
-      console.error('[VideoPlayer] 所有线路均失败');
-      setError('所有线路均失败，请稍后重试');
+      console.error('[VideoPlayer] 所有线路均失败，5 秒后循环重试');
+      setTimeout(() => setCurrentIndex(0), 5000);
     }
   }, []);
 
@@ -269,12 +264,6 @@ export function VideoPlayer({
     if (src) onSourceChangeRef.current?.(src);
   }, [currentIndex, activeSources]);
 
-  const handleRetry = () => {
-    setError(null);
-    setCurrentIndex(0);
-    setLoading(true);
-  };
-
   if (activeSources.length === 0) {
     return (
       <div className="relative w-full aspect-video bg-black rounded-lg overflow-hidden">
@@ -290,26 +279,6 @@ export function VideoPlayer({
 
   return (
     <div ref={playerContainerRef} className="relative w-full aspect-video bg-black rounded-lg overflow-hidden">
-      {loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-card-alpha)] backdrop-blur-sm z-10">
-          <div className="text-text-secondary">
-            加载中...（线路 {currentIndex + 1}/{activeSources.length}）
-          </div>
-        </div>
-      )}
-      {error && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--color-card-alpha)] backdrop-blur-sm z-10 p-4">
-          <div className="text-destructive mb-4">{error}</div>
-          {activeSources.length > 0 && (
-            <button
-              onClick={handleRetry}
-              className="px-6 py-2 bg-muted-foreground/20 text-text rounded-lg hover:bg-[var(--color-hover-alpha)] transition-colors"
-            >
-              重试
-            </button>
-          )}
-        </div>
-      )}
       <MediaPlayer
         ref={playerRef}
         src={src}
@@ -322,12 +291,7 @@ export function VideoPlayer({
         onVolumeChange={(event) => {
           onVolumeChangeRef.current?.(event.volume, event.muted);
         }}
-        onLoadStart={() => {
-          if (currentSource) setLoading(true);
-        }}
         onCanPlay={() => {
-          setLoading(false);
-          setError(null);
           applyColorFilter();
           if (initialCurrentTime && initialCurrentTime > 0 && !initialSeekDoneRef.current) {
             const video = playerContainerRef.current?.querySelector('video');
@@ -336,10 +300,6 @@ export function VideoPlayer({
             }
             initialSeekDoneRef.current = true;
           }
-        }}
-        onHlsManifestParsed={() => {
-          setLoading(false);
-          setError(null);
         }}
         onHlsError={(data: any, _nativeEvent: any) => {
           console.error(

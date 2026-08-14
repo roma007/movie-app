@@ -23,6 +23,14 @@ const typeLabel: Record<string, string> = {
     DOCUMENTARY: '纪录片',
   };
 
+const typeRouteMap: Record<string, string> = {
+  MOVIE: '/movie',
+  TV: '/tv',
+  VARIETY: '/variety',
+  ANIME: '/anime',
+  DOCUMENTARY: '/documentary',
+};
+
 export default function DetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -31,7 +39,7 @@ export default function DetailPage() {
   const toast = useToast();
   const setBgImage = useBackgroundStore((s) => s.setBgImage);
   const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
-  const prevState = location.state as { page?: number; type?: string; subType?: string; year?: number; area?: string; episodeType?: string } | undefined;
+  const prevState = location.state as { page?: number; type?: string; subType?: string; year?: number; area?: string; episodeType?: string; subtypePage?: boolean } | undefined;
   const [currentSeason, setCurrentSeason] = useState(1);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [isFav, setIsFav] = useState(false);
@@ -178,12 +186,41 @@ export default function DetailPage() {
     }
   };
 
+  const getBackUrl = () => {
+    if (prevState) {
+      if (prevState.subType && prevState.type) {
+        if (prevState.subtypePage) {
+          const qs = prevState.page ? `?page=${prevState.page}` : '';
+          return `/subtype/${prevState.type}/${encodeURIComponent(prevState.subType)}${qs}`;
+        }
+        const params = new URLSearchParams();
+        if (prevState.page) params.set('page', String(prevState.page));
+        if (prevState.year) params.set('year', String(prevState.year));
+        if (prevState.area) params.set('area', prevState.area);
+        if (prevState.episodeType) params.set('episodeType', prevState.episodeType);
+        params.set('subType', prevState.subType);
+        const base = typeRouteMap[prevState.type] || '/';
+        const qs = params.toString();
+        return qs ? `${base}?${qs}` : base;
+      }
+      const params = new URLSearchParams();
+      if (prevState.page) params.set('page', String(prevState.page));
+      if (prevState.year) params.set('year', String(prevState.year));
+      if (prevState.area) params.set('area', prevState.area);
+      if (prevState.episodeType) params.set('episodeType', prevState.episodeType);
+      const base = prevState.type ? (typeRouteMap[prevState.type] || '/') : '/';
+      const qs = params.toString();
+      return qs ? `${base}?${qs}` : base;
+    }
+    return -1 as any;
+  };
+
   if (isLoading && !currentMedia) {
     return (
       <div className="p-6 max-w-7xl mx-auto">
         <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
           <div className="flex items-center gap-4 min-w-0">
-            <Button variant="ghost" onClick={() => navigate(-1)} className="hover:text-text shrink-0">
+            <Button variant="ghost" onClick={() => navigate(getBackUrl())} className="hover:text-text shrink-0">
               <ArrowLeft className="size-4 mr-2" />
               返回
             </Button>
@@ -214,31 +251,6 @@ export default function DetailPage() {
   if (!media) {
     return <div className="p-6 text-error">加载失败</div>;
   }
-
-  const typeRouteMap: Record<string, string> = {
-    MOVIE: '/movie',
-    TV: '/tv',
-    VARIETY: '/variety',
-    ANIME: '/anime',
-    DOCUMENTARY: '/documentary',
-  };
-
-  const getBackUrl = () => {
-    if (prevState) {
-      if (prevState.subType && prevState.type) {
-        return `/subtype/${prevState.type}/${encodeURIComponent(prevState.subType)}`;
-      }
-      const params = new URLSearchParams();
-      if (prevState.page) params.set('page', String(prevState.page));
-      if (prevState.year) params.set('year', String(prevState.year));
-      if (prevState.area) params.set('area', prevState.area);
-      if (prevState.episodeType) params.set('episodeType', prevState.episodeType);
-      const base = prevState.type ? (typeRouteMap[prevState.type] || '/') : '/';
-      const qs = params.toString();
-      return qs ? `${base}?${qs}` : base;
-    }
-    return -1 as any;
-  };
 
   const getTypeListUrl = () => typeRouteMap[media.type] || '/';
 

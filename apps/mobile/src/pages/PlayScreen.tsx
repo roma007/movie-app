@@ -58,8 +58,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   const [skipForwardVisible, setSkipForwardVisible] = useState(false);
   const skipForwardVisibleRef = useRef(false);
   const skipDismissedRef = useRef(false);
-  const startedFromBeginningRef = useRef(false);
-  const skipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipEligibleRef = useRef(false);
 
   // 功能6: 进度保存节流
   const [lastSaveTime, setLastSaveTime] = useState(0);
@@ -218,14 +217,10 @@ export default function PlayScreen({ route, navigation }: Props) {
           if (!nearEnd) seekTime = history.progress;
         }
         setInitialCurrentTime(seekTime);
-        startedFromBeginningRef.current = seekTime === 0;
+        skipEligibleRef.current = seekTime < 5 * 60;
         setSkipForwardVisible(false);
         skipForwardVisibleRef.current = false;
         skipDismissedRef.current = false;
-        if (skipTimerRef.current) {
-          clearTimeout(skipTimerRef.current);
-          skipTimerRef.current = null;
-        }
         setPlaySources(sources);
         if (sources.length > 0) {
           setVideoUrl(sources[0].url);
@@ -292,28 +287,21 @@ export default function PlayScreen({ route, navigation }: Props) {
           setOverlayVisible(true);
           setSkipForwardVisible(false);
           skipForwardVisibleRef.current = false;
-          if (skipTimerRef.current) {
-            clearTimeout(skipTimerRef.current);
-            skipTimerRef.current = null;
-          }
+          skipDismissedRef.current = true;
         }
 
-        // 从头播放快进浮窗
-        if (
-          startedFromBeginningRef.current &&
+        // 从头播放快进浮窗（按播放位置：0:00–5:00 内可见，过 5:00 消失）
+        if (ct >= 5 * 60) {
+          setSkipForwardVisible(false);
+          skipForwardVisibleRef.current = false;
+        } else if (
+          skipEligibleRef.current &&
           !skipDismissedRef.current &&
           !skipForwardVisibleRef.current &&
           ct > 0
         ) {
           setSkipForwardVisible(true);
           skipForwardVisibleRef.current = true;
-          if (!skipTimerRef.current) {
-            skipTimerRef.current = setTimeout(() => {
-              setSkipForwardVisible(false);
-              skipForwardVisibleRef.current = false;
-              skipTimerRef.current = null;
-            }, 5 * 60 * 1000);
-          }
         }
       }
     }, 5000);
@@ -382,15 +370,6 @@ export default function PlayScreen({ route, navigation }: Props) {
     skipForwardVisibleRef.current = false;
     skipDismissedRef.current = true;
   };
-
-  useEffect(() => {
-    return () => {
-      if (skipTimerRef.current) {
-        clearTimeout(skipTimerRef.current);
-        skipTimerRef.current = null;
-      }
-    };
-  }, []);
 
   const seasonToMediaMap = new Map<number, string>();
   seriesMedia.forEach(m => {

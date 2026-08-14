@@ -332,6 +332,10 @@ export default function CategoryPage({ type }: CategoryPageProps) {
   const handlePageChange = (page: number) => {
     if (page < 1 || page > totalPages) return;
     setCurrentPage(page);
+    setSearchParams((prev) => {
+      prev.set('page', String(page));
+      return prev;
+    });
     sessionStorage.removeItem(scrollKey);
     const main = document.getElementById('main-content');
     if (main) main.scrollTop = 0;
