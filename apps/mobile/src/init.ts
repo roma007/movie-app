@@ -84,6 +84,19 @@ export async function initApp(): Promise<void> {
     } catch (err) {
       console.error('[INIT] 启动自动增量采集调度器失败:', err);
     }
+
+    // 「越看越懂你」：启动时重建一次推荐分（后台执行，不阻塞首屏）
+    try {
+      setTimeout(() => {
+        store.getState().flushRecommendationRecompute().then((changed) => {
+          if (changed > 0) console.log(`[INIT] 推荐分重建完成（${changed} 条变化）`);
+        }).catch((err) => {
+          console.error('[INIT] 推荐分重建失败:', err);
+        });
+      }, 3000);
+    } catch (err) {
+      console.error('[INIT] 启动推荐分重建调度失败:', err);
+    }
   })();
   return s.initPromise;
 }

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { getProvider } from '../init';
-import { useAppStore } from '../useAppStore';
+import { useAppStore, getStore } from '../useAppStore';
 import { ArrowLeft, RotateCcw } from 'lucide-react-native';
 import { SystemConfigService } from '@movie-app/core';
 import { useThemeColors } from '../themes/useThemeColors';
@@ -245,6 +245,7 @@ export default function PlayScreen({ route, navigation }: Props) {
       if (now - lastSaveTime >= 10000 || nearEnd) {
         saveWatchProgress(mediaId, currentEpisodeId, Math.floor(currentTime), Math.floor(duration));
         setLastSaveTime(now);
+        getStore().getState().scheduleRecommendationRecompute();
       }
     }
   };

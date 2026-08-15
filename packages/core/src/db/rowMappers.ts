@@ -21,7 +21,14 @@ function parseStringArray(raw: string | null | undefined): string[] {
     if (!Array.isArray(arr)) return [];
     return Array.from(new Set(arr.filter((x): x is string => typeof x === 'string' && x.length > 0)));
   } catch {
-    return [];
+    return Array.from(
+      new Set(
+        raw
+          .split(/[,，]/)
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0)
+      )
+    );
   }
 }
 
@@ -56,6 +63,7 @@ export function rowToMedia(row: any): Media {
     ratingSource: (row.rating_source || null) as 'DOUBAN' | null,
     ratingUpdatedAt: row.rating_updated_at || null,
     hidden: row.hidden === 1,
+    personalScore: row.personal_score ?? 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

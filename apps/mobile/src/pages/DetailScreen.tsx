@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal } from 'react-native';
-import { useAppStore } from '../useAppStore';
+import { useAppStore, getStore } from '../useAppStore';
 import { getProvider } from '../init';
 import { clearCategoryFilterCache } from '../categoryFilterCache';
 import { VideoDurationService, UNCATEGORIZED_GENRE } from '@movie-app/core';
@@ -220,6 +220,7 @@ export default function DetailScreen({ route, navigation }: Props) {
   const handleFav = async () => {
     const result = await getProvider().toggleFavorite(id);
     setIsFav(result);
+    getStore().getState().scheduleRecommendationRecompute();
   };
 
   const openHideModal = () => {

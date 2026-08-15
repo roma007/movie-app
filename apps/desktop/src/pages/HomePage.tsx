@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { Media, Episode, UserUsageType, WatchHistory, HiddenCollectItem } from '@movie-app/core';
-import { useAppStore, getProvider } from '../useAppStore';
+import { useAppStore, getProvider, getStore } from '../useAppStore';
 import { useBackgroundStore } from '../themes/backgroundStore';
 import { useImportDialogStore } from '../themes/importDialogStore';
 import { MediaGrid, MediaCard } from '@/components/MediaCard';
@@ -172,7 +172,9 @@ export default function HomePage() {
     setIsSearching(true);
     setIsSearchLoading(true);
     try {
+      await getProvider().addSearchHistory(kw);
       await searchMedia(kw);
+      getStore().getState().scheduleRecommendationRecompute();
     } finally {
       setIsSearchLoading(false);
     }

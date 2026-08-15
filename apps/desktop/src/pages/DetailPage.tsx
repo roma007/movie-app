@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '../useAppStore';
 import { useToast } from '@/components/Layout';
-import { getProvider } from '../init';
+import { getProvider, getStore } from '../init';
 import { useBackgroundStore } from '../themes/backgroundStore';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Heart, ChevronRight, ArrowLeft, EyeOff, Star } from 'lucide-react';
-import type { Media, Episode, PlaySource, VideoSource } from '@movie-app/core';
+import type { Media, Episode, PlaySource, VideoSource, MediaNavState } from '@movie-app/core';
 import { VideoDurationService, UNCATEGORIZED_GENRE } from '@movie-app/core';
 import { markSearchFromDetail } from '@/lib/searchReturnFlag';
 import { PosterImage } from '@/components/PosterImage';
@@ -39,7 +39,7 @@ export default function DetailPage() {
   const toast = useToast();
   const setBgImage = useBackgroundStore((s) => s.setBgImage);
   const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
-  const prevState = location.state as { page?: number; type?: string; subType?: string; year?: number; area?: string; episodeType?: string; subtypePage?: boolean } | undefined;
+  const prevState = location.state as MediaNavState | undefined;
   const [currentSeason, setCurrentSeason] = useState(1);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [isFav, setIsFav] = useState(false);
@@ -168,6 +168,7 @@ export default function DetailPage() {
     if (!id) return;
     const result = await toggleFav(id);
     setIsFav(result);
+    getStore().getState().scheduleRecommendationRecompute();
   };
 
   const handleHide = async () => {
@@ -190,14 +191,18 @@ export default function DetailPage() {
     if (prevState) {
       if (prevState.subType && prevState.type) {
         if (prevState.subtypePage) {
-          const qs = prevState.page ? `?page=${prevState.page}` : '';
-          return `/subtype/${prevState.type}/${encodeURIComponent(prevState.subType)}${qs}`;
+          const params = new URLSearchParams();
+          if (prevState.page) params.set('page', String(prevState.page));
+          if (prevState.sort) params.set('sort', prevState.sort);
+          const qs = params.toString();
+          return `/subtype/${prevState.type}/${encodeURIComponent(prevState.subType)}${qs ? `?${qs}` : ''}`;
         }
         const params = new URLSearchParams();
         if (prevState.page) params.set('page', String(prevState.page));
         if (prevState.year) params.set('year', String(prevState.year));
         if (prevState.area) params.set('area', prevState.area);
         if (prevState.episodeType) params.set('episodeType', prevState.episodeType);
+        if (prevState.sort) params.set('sort', prevState.sort);
         params.set('subType', prevState.subType);
         const base = typeRouteMap[prevState.type] || '/';
         const qs = params.toString();
@@ -208,6 +213,7 @@ export default function DetailPage() {
       if (prevState.year) params.set('year', String(prevState.year));
       if (prevState.area) params.set('area', prevState.area);
       if (prevState.episodeType) params.set('episodeType', prevState.episodeType);
+      if (prevState.sort) params.set('sort', prevState.sort);
       const base = prevState.type ? (typeRouteMap[prevState.type] || '/') : '/';
       const qs = params.toString();
       return qs ? `${base}?${qs}` : base;

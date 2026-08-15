@@ -32,6 +32,7 @@ export interface Media {
   ratingSource?: 'DOUBAN' | null;
   ratingUpdatedAt?: string | null;
   hidden?: boolean;
+  personalScore?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -133,13 +134,25 @@ export interface PaginatedResponse<T> {
 export interface ListParams {
   page?: number;
   pageSize?: number;
-  sort?: 'hot' | 'latest' | 'rating' | 'year';
+  sort?: 'hot' | 'latest' | 'rating' | 'year' | 'recommend';
   type?: string;
   year?: number;
   genre?: string;
   subType?: string;
   area?: string;
   isShortDrama?: boolean;
+}
+
+/** 列表页 → 详情页跳转携带的来源状态（用于返回还原同一列表状态）。 */
+export interface MediaNavState {
+  page?: number;
+  type?: string;
+  subType?: string;
+  year?: number;
+  area?: string;
+  episodeType?: string;
+  sort?: 'latest' | 'recommend';
+  subtypePage?: boolean;
 }
 
 export type TaskStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';

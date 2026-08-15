@@ -238,6 +238,17 @@ export async function initApp(onProgress?: (step: string) => void): Promise<void
         await logToDb(errMsg, 'error');
       }
 
+      report('Step 4d: 重建「越看越懂你」推荐分...');
+      try {
+        const changed = await _store.getState().flushRecommendationRecompute();
+        if (changed > 0) await logToDb(`Recommendation scores recomputed (${changed} changed)`);
+        report(`Step 4d: 推荐分重建完成（${changed} 条变化）`);
+      } catch (err) {
+        const errMsg = `推荐分重建失败: ${err instanceof Error ? err.message : String(err)}`;
+        console.error(errMsg);
+        await logToDb(errMsg, 'error');
+      }
+
       const elapsed = Date.now() - startTime;
       report(`=== initApp 完成 (${elapsed}ms) ===`);
       await logToDb(`initApp completed (${elapsed}ms)`);

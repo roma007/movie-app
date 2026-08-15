@@ -67,10 +67,18 @@ export const SCHEMA_SQL = `
     favorite_count INTEGER DEFAULT 0,
     search_count INTEGER DEFAULT 0,
     hidden INTEGER DEFAULT 0,
+    personal_score INTEGER DEFAULT 0,
     series_group TEXT,
     series_season INTEGER,
     created_at TEXT,
     updated_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS impression (
+    media_id TEXT PRIMARY KEY,
+    shown_count INTEGER DEFAULT 1,
+    first_shown_at TEXT,
+    last_shown_at TEXT
   );
 
   CREATE TABLE IF NOT EXISTS episode (
@@ -194,6 +202,27 @@ export const SCHEMA_SQL = `
     created_at TEXT
   );
 
+  -- 「越看越懂你」用户兴趣标签画像（v2 抖音式推荐）
+  CREATE TABLE IF NOT EXISTS user_interest_tag (
+    tag TEXT NOT NULL,
+    tag_type TEXT NOT NULL,
+    strength REAL DEFAULT 0,
+    sample_count INTEGER DEFAULT 0,
+    updated_at TEXT,
+    PRIMARY KEY (tag, tag_type)
+  );
+
+  -- 推荐快照：全量重排后的最终序（打散+探索后），列表按 position 分页
+  CREATE TABLE IF NOT EXISTS recommend_snapshot (
+    media_id TEXT PRIMARY KEY,
+    position INTEGER,
+    score INTEGER DEFAULT 0,
+    genre_group TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_user_interest_tag_strength ON user_interest_tag(strength);
+  CREATE INDEX IF NOT EXISTS idx_recommend_snapshot_position ON recommend_snapshot(position);
+
   CREATE INDEX IF NOT EXISTS idx_collection_log_ts ON collection_log(timestamp);
   CREATE INDEX IF NOT EXISTS idx_collection_log_task ON collection_log(task_id);
 
@@ -207,6 +236,7 @@ export const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_media_type ON media(type);
   CREATE INDEX IF NOT EXISTS idx_media_type_updated_at ON media(type, updated_at);
   CREATE INDEX IF NOT EXISTS idx_media_hidden ON media(hidden);
+  CREATE INDEX IF NOT EXISTS idx_media_personal_score ON media(personal_score, updated_at);
 `;
 
 /**

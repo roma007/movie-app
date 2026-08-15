@@ -217,6 +217,8 @@ export class TauriSqlProvider implements DatabaseProvider {
     await this.addColumnIfMissing('media', 'rating_count', 'INTEGER');
     await this.addColumnIfMissing('media', 'rating_source', 'TEXT');
     await this.addColumnIfMissing('media', 'rating_updated_at', 'TEXT');
+    // 增量迁移：为已有 media 表补齐「越看越懂你」推荐分列
+    await this.addColumnIfMissing('media', 'personal_score', 'INTEGER');
     // 清理历史 CMS 评分补充数据（幂等，评分只保留豆瓣抓取结果）
     await this.db!.execute(
       `UPDATE media SET rating = NULL, rating_count = NULL, rating_source = NULL, rating_updated_at = NULL WHERE rating_source = 'CMS'`
@@ -443,33 +445,61 @@ export class TauriSqlProvider implements DatabaseProvider {
     const pageSize = params.pageSize || 20;
     const offset = (page - 1) * pageSize;
 
-    let whereClause = ' WHERE (hidden IS NULL OR hidden = 0)';
-    const queryParams: any[] = [];
-    if (params.type) {
-      whereClause += ' AND type = ?';
-      queryParams.push(params.type);
-    }
-    if (params.year) {
-      whereClause += ' AND year = ?';
-      queryParams.push(params.year);
-    }
-    if (params.area) {
-      whereClause += ' AND area = ?';
-      queryParams.push(params.area);
-    }
-    if (params.genre) {
-      whereClause += ' AND genre LIKE ?';
-      queryParams.push(`%${params.genre}%`);
-    }
-    if (params.subType) {
-      whereClause += ' AND genre LIKE ?';
-      queryParams.push(`%${params.subType}%`);
-    }
-    if (params.isShortDrama !== undefined) {
-      whereClause += ' AND is_short_drama = ?';
-      queryParams.push(params.isShortDrama ? 1 : 0);
+    // 构建过滤条件（支持表别名前缀，推荐快照 join 场景需要）
+    const buildWhere = (alias: string) => {
+      const col = (name: string) => (alias ? `${alias}.${name}` : name);
+      const conditions: string[] = [`(${col('hidden')} IS NULL OR ${col('hidden')} = 0)`];
+      const qp: any[] = [];
+      if (params.type) {
+        conditions.push(`${col('type')} = ?`);
+        qp.push(params.type);
+      }
+      if (params.year) {
+        conditions.push(`${col('year')} = ?`);
+        qp.push(params.year);
+      }
+      if (params.area) {
+        conditions.push(`${col('area')} = ?`);
+        qp.push(params.area);
+      }
+      if (params.genre) {
+        conditions.push(`${col('genre')} LIKE ?`);
+        qp.push(`%${params.genre}%`);
+      }
+      if (params.subType) {
+        conditions.push(`${col('genre')} LIKE ?`);
+        qp.push(`%${params.subType}%`);
+      }
+      if (params.isShortDrama !== undefined) {
+        conditions.push(`${col('is_short_drama')} = ?`);
+        qp.push(params.isShortDrama ? 1 : 0);
+      }
+      return { where: ` WHERE ${conditions.join(' AND ')}`, qp };
+    };
+
+    // 「为你推荐」：按推荐快照 position 分页；快照为空（冷启动）回退最新序
+    if (params.sort === 'recommend') {
+      const snapRows = await this.db!.select<{ count: number }[]>(
+        `SELECT COUNT(*) as count FROM recommend_snapshot`
+      );
+      const hasSnapshot = (snapRows[0]?.count || 0) > 0;
+      if (hasSnapshot) {
+        const { where, qp } = buildWhere('m');
+        const countRows = await this.db!.select<{ count: number }[]>(
+          `SELECT COUNT(*) as count FROM recommend_snapshot rs JOIN media m ON m.id = rs.media_id${where}`,
+          qp
+        );
+        const total = countRows[0]?.count || 0;
+        const totalPages = Math.ceil(total / pageSize);
+        const rows = await this.db!.select<any[]>(
+          `SELECT m.* FROM recommend_snapshot rs JOIN media m ON m.id = rs.media_id${where} ORDER BY rs.position ASC LIMIT ? OFFSET ?`,
+          [...qp, pageSize, offset]
+        );
+        return { items: rows.map(rowToMedia), meta: { page, pageSize, total, totalPages } };
+      }
     }
 
+    const { where, qp } = buildWhere('');
     let orderBy: string;
     switch (params.sort) {
       case 'hot':
@@ -488,15 +518,15 @@ export class TauriSqlProvider implements DatabaseProvider {
     }
 
     const countRows = await this.db!.select<{ count: number }[]>(
-      `SELECT COUNT(*) as count FROM media${whereClause}`,
-      queryParams
+      `SELECT COUNT(*) as count FROM media${where}`,
+      qp
     );
     const total = countRows[0]?.count || 0;
     const totalPages = Math.ceil(total / pageSize);
 
     const rows = await this.db!.select<any[]>(
-      `SELECT * FROM media${whereClause} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
-      [...queryParams, pageSize, offset]
+      `SELECT * FROM media${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
+      [...qp, pageSize, offset]
     );
 
     return { items: rows.map(rowToMedia), meta: { page, pageSize, total, totalPages } };
@@ -1300,6 +1330,81 @@ export class TauriSqlProvider implements DatabaseProvider {
 
   async deleteSearchHistory(keyword: string): Promise<void> {
     await this.db!.execute('DELETE FROM search_history WHERE keyword = ?', [keyword]);
+  }
+
+  async recordImpressions(items: { mediaId: string; shownAt: string }[]): Promise<string[]> {
+    if (items.length === 0) return [];
+    const placeholders = items.map(() => '(?, ?, ?)').join(', ');
+    const params: any[] = [];
+    for (const item of items) {
+      params.push(item.mediaId, item.shownAt, item.shownAt);
+    }
+    await this.db!.execute(
+      `INSERT INTO impression (media_id, shown_count, first_shown_at, last_shown_at)
+       VALUES ${placeholders}
+       ON CONFLICT(media_id) DO UPDATE SET
+         shown_count = impression.shown_count + 1,
+         last_shown_at = excluded.last_shown_at`,
+      params
+    );
+    const ids = items.map((i) => i.mediaId);
+    const rows = await this.db!.select<{ media_id: string }[]>(
+      `SELECT media_id FROM impression WHERE shown_count IN (3, 6) AND media_id IN (${ids.map(() => '?').join(', ')})`,
+      ids
+    );
+    return rows.map((r) => r.media_id);
+  }
+
+  async replaceUserInterestTags(rows: {
+    tag: string;
+    tagType: 'genre' | 'director' | 'actor' | 'keyword';
+    strength: number;
+    sampleCount: number;
+    updatedAt: string;
+  }[]): Promise<void> {
+    await this.db!.execute('DELETE FROM user_interest_tag');
+    const batchSize = 100;
+    for (let i = 0; i < rows.length; i += batchSize) {
+      const batch = rows.slice(i, i + batchSize);
+      const placeholders = batch.map(() => '(?, ?, ?, ?, ?)').join(', ');
+      const params: any[] = [];
+      for (const r of batch) {
+        params.push(r.tag, r.tagType, r.strength, r.sampleCount, r.updatedAt);
+      }
+      await this.db!.execute(
+        `INSERT INTO user_interest_tag (tag, tag_type, strength, sample_count, updated_at) VALUES ${placeholders}`,
+        params
+      );
+    }
+  }
+
+  async replaceRecommendationSnapshot(rows: {
+    mediaId: string;
+    position: number;
+    score: number;
+    genreGroup: string;
+  }[]): Promise<void> {
+    await this.db!.execute('DELETE FROM recommend_snapshot');
+    const batchSize = 100;
+    for (let i = 0; i < rows.length; i += batchSize) {
+      const batch = rows.slice(i, i + batchSize);
+      const placeholders = batch.map(() => '(?, ?, ?, ?)').join(', ');
+      const params: any[] = [];
+      for (const r of batch) {
+        params.push(r.mediaId, r.position, r.score, r.genreGroup);
+      }
+      await this.db!.execute(
+        `INSERT INTO recommend_snapshot (media_id, position, score, genre_group) VALUES ${placeholders}`,
+        params
+      );
+    }
+  }
+
+  async resetRecommendationData(): Promise<void> {
+    await this.db!.execute('DELETE FROM impression');
+    await this.db!.execute('DELETE FROM user_interest_tag');
+    await this.db!.execute('DELETE FROM recommend_snapshot');
+    await this.db!.execute('UPDATE media SET personal_score = 0');
   }
 
   async createCollectTask(task: CollectTask): Promise<void> {

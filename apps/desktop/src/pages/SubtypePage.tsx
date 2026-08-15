@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAppStore } from '../useAppStore';
+import { getProvider, getStore } from '../init';
 import { useBackgroundStore } from '../themes/backgroundStore';
 import { MediaGrid } from '@/components/MediaCard';
 import { Button } from '@/components/ui/button';
@@ -37,22 +38,49 @@ export default function SubtypePage() {
     const page = searchParams.get('page');
     return page ? Math.max(1, Number(page)) : 1;
   });
+  const [sort, setSort] = useState<'latest' | 'recommend'>(() => {
+    return searchParams.get('sort') === 'latest' ? 'latest' : 'recommend';
+  });
 
   useEffect(() => {
     if (!type || !subType) return;
     const page = searchParams.get('page');
     setCurrentPage(page ? Math.max(1, Number(page)) : 1);
+    setSort(searchParams.get('sort') === 'latest' ? 'latest' : 'recommend');
   }, [type, subType, searchParams]);
 
   useEffect(() => {
     if (!type || !subType) return;
-    loadMediaList({ page: currentPage, pageSize, type, subType });
-  }, [type, subType, currentPage, loadMediaList]);
+    loadMediaList({ page: currentPage, pageSize, type, subType, sort });
+  }, [type, subType, currentPage, sort, loadMediaList]);
+
+  useEffect(() => {
+    if (!type || !subType || mediaList.length === 0) return;
+    const shownAt = new Date().toISOString();
+    void getProvider()
+      .recordImpressions(mediaList.map((m) => ({ mediaId: m.id, shownAt })))
+      .then((boundaryIds) => {
+        if (boundaryIds.length > 0) {
+          getStore().getState().scheduleRecommendationRecompute();
+        }
+      })
+      .catch((e) => console.error('记录列表展示失败:', e));
+  }, [type, subType, mediaList]);
 
   const loadPage = (page: number) => {
     setCurrentPage(page);
     setSearchParams((prev) => {
       prev.set('page', String(page));
+      return prev;
+    });
+  };
+
+  const handleSortChange = (value: 'latest' | 'recommend') => {
+    if (value === sort) return;
+    setSort(value);
+    setSearchParams((prev) => {
+      prev.set('sort', value);
+      prev.delete('page');
       return prev;
     });
   };
@@ -82,8 +110,8 @@ export default function SubtypePage() {
   };
 
   const navigateState = useMemo(
-    () => ({ page: currentPage, type, subType, subtypePage: true }),
-    [currentPage, type, subType]
+    () => ({ page: currentPage, type, subType, sort, subtypePage: true }),
+    [currentPage, type, subType, sort]
   );
 
   return (
@@ -104,6 +132,26 @@ export default function SubtypePage() {
           <span className="text-muted-foreground"> · </span>
           <span className="text-text">{subType}</span>
         </h1>
+      </div>
+
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-xs text-muted-foreground">排序</span>
+        <Button
+          variant={sort === 'recommend' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => handleSortChange('recommend')}
+          className="text-xs"
+        >
+          为你推荐
+        </Button>
+        <Button
+          variant={sort === 'latest' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => handleSortChange('latest')}
+          className="text-xs"
+        >
+          最新
+        </Button>
       </div>
 
       {isLoading && mediaList.length === 0 ? (

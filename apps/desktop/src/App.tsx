@@ -25,6 +25,7 @@ import CollectConfigPage from './pages/CollectConfigPage';
 import CollectGuidePage from './pages/CollectGuidePage';
 import AppearanceSettingsPage from './pages/AppearanceSettingsPage';
 import UsagePreferencesPage from './pages/UsagePreferencesPage';
+import RecommendationSettingsPage from './pages/RecommendationSettingsPage';
 import VideoManagementPage from './pages/VideoManagementPage';
 import TestCollectPage from './pages/TestCollectPage';
 import HelpCenterPage from './pages/HelpCenterPage';
@@ -116,6 +117,7 @@ export default function App() {
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/settings/appearance" element={<AppearanceSettingsPage />} />
                 <Route path="/settings/preferences" element={<UsagePreferencesPage />} />
+                <Route path="/settings/recommendation" element={<RecommendationSettingsPage />} />
                 <Route path="/settings/collect" element={<CollectConfigPage />} />
                 <Route path="/help/guide" element={<CollectGuidePage />} />
                 <Route path="/settings/video" element={<VideoManagementPage />} />

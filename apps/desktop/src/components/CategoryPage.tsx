@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import type { Media } from '@movie-app/core';
 import { useAppStore } from '../useAppStore';
+import { getProvider, getStore } from '../init';
 import { useBackgroundStore } from '../themes/backgroundStore';
 import { MediaGrid } from '@/components/MediaCard';
 import { Button } from '@/components/ui/button';
@@ -157,6 +158,9 @@ export default function CategoryPage({ type }: CategoryPageProps) {
     const page = searchParams.get('page');
     return page ? Math.max(1, Number(page)) : 1;
   });
+  const [sort, setSort] = useState<'latest' | 'recommend'>(() => {
+    return searchParams.get('sort') === 'latest' ? 'latest' : 'recommend';
+  });
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedColumns, setSelectedColumns] = useState<string[]>(loadColumns);
   const [showColumnsMenu, setShowColumnsMenu] = useState(false);
@@ -212,12 +216,14 @@ export default function CategoryPage({ type }: CategoryPageProps) {
     const area = searchParams.get('area');
     const page = searchParams.get('page');
     const episodeType = searchParams.get('episodeType');
+    const sortParam = searchParams.get('sort');
 
     setActiveSubType(subType || undefined);
     setActiveYear(year ? Number(year) : undefined);
     setActiveArea(area || undefined);
     setCurrentPage(page ? Math.max(1, Number(page)) : 1);
     setActiveEpisodeType(episodeType === 'short' || episodeType === 'long' ? episodeType : undefined);
+    setSort(sortParam === 'latest' ? 'latest' : 'recommend');
   }, [searchParams]);
 
   const saveScrollPosition = () => {
@@ -226,8 +232,22 @@ export default function CategoryPage({ type }: CategoryPageProps) {
   };
 
   useEffect(() => {
-    loadMediaList({ page: currentPage, pageSize, type, subType: activeSubType, year: activeYear, area: activeArea, isShortDrama: activeEpisodeType === 'short' ? true : activeEpisodeType === 'long' ? false : undefined });
-  }, [type, activeSubType, activeYear, activeArea, activeEpisodeType, currentPage]);
+    loadMediaList({ page: currentPage, pageSize, type, sort, subType: activeSubType, year: activeYear, area: activeArea, isShortDrama: activeEpisodeType === 'short' ? true : activeEpisodeType === 'long' ? false : undefined });
+  }, [type, sort, activeSubType, activeYear, activeArea, activeEpisodeType, currentPage]);
+
+  // 「越看越懂你」：浏览模式（非搜索）记录每页展示；到达惩罚边界则触发重算
+  useEffect(() => {
+    if (isSearching || mediaList.length === 0) return;
+    const shownAt = new Date().toISOString();
+    void getProvider()
+      .recordImpressions(mediaList.map((m) => ({ mediaId: m.id, shownAt })))
+      .then((boundaryIds) => {
+        if (boundaryIds.length > 0) {
+          getStore().getState().scheduleRecommendationRecompute();
+        }
+      })
+      .catch((e) => console.error('记录列表展示失败:', e));
+  }, [mediaList, isSearching]);
 
   useEffect(() => {
     if (isLoading) {
@@ -257,7 +277,9 @@ export default function CategoryPage({ type }: CategoryPageProps) {
     setIsSearching(true);
     setIsSearchLoading(true);
     try {
+      await getProvider().addSearchHistory(kw);
       await searchMedia(kw);
+      getStore().getState().scheduleRecommendationRecompute();
     } finally {
       setIsSearchLoading(false);
     }
@@ -268,7 +290,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
     setSearchKeyword('');
     setIsSearching(false);
     setIsSearchLoading(false);
-    loadMediaList({ page: 1, pageSize, type, subType: activeSubType, year: activeYear, area: activeArea, isShortDrama: activeEpisodeType === 'short' ? true : activeEpisodeType === 'long' ? false : undefined });
+    loadMediaList({ page: 1, pageSize, type, sort, subType: activeSubType, year: activeYear, area: activeArea, isShortDrama: activeEpisodeType === 'short' ? true : activeEpisodeType === 'long' ? false : undefined });
   };
 
   const fetchFilters = async () => {
@@ -318,6 +340,16 @@ export default function CategoryPage({ type }: CategoryPageProps) {
       prev.delete('year');
       prev.delete('area');
       prev.delete('episodeType');
+      prev.delete('page');
+      return prev;
+    });
+  };
+
+  const handleSortChange = (value: 'latest' | 'recommend') => {
+    if (value === sort) return;
+    setSort(value);
+    applyFilterChange((prev) => {
+      prev.set('sort', value);
       prev.delete('page');
       return prev;
     });
@@ -426,6 +458,28 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                   清除筛选
                 </Button>
               )}
+
+              <div className="space-y-1">
+                <span className="text-xs text-muted-foreground">排序</span>
+                <div className="flex flex-wrap gap-1">
+                  <Button
+                    variant={sort === 'recommend' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => handleSortChange('recommend')}
+                    className="text-xs"
+                  >
+                    为你推荐
+                  </Button>
+                  <Button
+                    variant={sort === 'latest' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => handleSortChange('latest')}
+                    className="text-xs"
+                  >
+                    最新
+                  </Button>
+                </div>
+              </div>
 
               {subTypes.length > 0 && (
                 <div className="space-y-1">
@@ -636,7 +690,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
           ) : viewMode === 'grid' ? (
             <MediaGrid
               items={mediaList}
-              navigateState={{ page: currentPage, type, subType: activeSubType, year: activeYear, area: activeArea, episodeType: activeEpisodeType }}
+              navigateState={{ page: currentPage, type, sort, subType: activeSubType, year: activeYear, area: activeArea, episodeType: activeEpisodeType }}
               onBeforeNavigate={saveScrollPosition}
             />
           ) : (
@@ -662,7 +716,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                       onClick={() => {
                         saveScrollPosition();
                         navigate(`/media/${m.id}`, {
-                          state: { page: currentPage, type, subType: activeSubType, year: activeYear, area: activeArea, episodeType: activeEpisodeType }
+                          state: { page: currentPage, type, sort, subType: activeSubType, year: activeYear, area: activeArea, episodeType: activeEpisodeType }
                         });
                       }}
                     >

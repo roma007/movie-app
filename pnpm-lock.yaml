@@ -74,8 +74,8 @@ importers:
         specifier: ^2.1.0
         version: 2.1.1
       hls.js:
-        specifier: ^1.6.16
-        version: 1.6.16
+        specifier: ~1.6.18
+        version: 1.6.18
       lucide-react:
         specifier: ^0.400.0
         version: 0.400.0(react@19.2.3)
@@ -2517,8 +2517,8 @@ packages:
   hermes-parser@0.36.1:
     resolution: {integrity: sha512-GApNk4zLHi2UWoWZZkx7LNCOSzLSc5lB55pZ/PhK7ycFeg7u5LcF88p/WbpIi1XUDtE0MpHE3uRR3u3KB7TjSQ==}
 
-  hls.js@1.6.16:
-    resolution: {integrity: sha512-VSIRpLfRwlAAdGL4wiTucx2ScRipo0ed1FBatWkyt832jC4CReKstga6yIhYVwGu9LOBjuX9wzmRMeQdBJtzEA==}
+  hls.js@1.6.18:
+    resolution: {integrity: sha512-Rtovq9oJt9HWBqFJF9wZrZM7dRvdGHYNdMMv+wSDGDE2+FIybgs8RPJpR3kya1TZKBHVv2NOgLmn/M0MFjrQ3g==}
 
   hosted-git-info@7.0.2:
     resolution: {integrity: sha512-puUZAUKT5m8Zzvs72XWy3HtvVbTWljRE66cP60bxJzAqf2DgICo7lYTY2IHUmLnNpjYvw5bvmoHvPc0QO2a62w==}
@@ -6212,7 +6212,7 @@ snapshots:
     dependencies:
       hermes-estree: 0.36.1
 
-  hls.js@1.6.16: {}
+  hls.js@1.6.18: {}
 
   hosted-git-info@7.0.2:
     dependencies:

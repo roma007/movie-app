@@ -219,6 +219,50 @@ const MIGRATIONS: Migration[] = [
     description: 'clear_cms_rating_fallback',
     sql: `UPDATE media SET rating = NULL, rating_count = NULL, rating_source = NULL, rating_updated_at = NULL WHERE rating_source = 'CMS';`,
   },
+  {
+    version: 25,
+    description: 'add_personal_score_to_media',
+    sql: `ALTER TABLE media ADD COLUMN personal_score INTEGER DEFAULT 0;`,
+  },
+  {
+    version: 26,
+    description: 'create_impression_table',
+    sql: `CREATE TABLE IF NOT EXISTS impression (
+      media_id TEXT PRIMARY KEY,
+      shown_count INTEGER DEFAULT 1,
+      first_shown_at TEXT,
+      last_shown_at TEXT
+    );`,
+  },
+  {
+    version: 27,
+    description: 'create_user_interest_tag_table',
+    sql: `CREATE TABLE IF NOT EXISTS user_interest_tag (
+            tag TEXT NOT NULL,
+            tag_type TEXT NOT NULL,
+            strength REAL DEFAULT 0,
+            sample_count INTEGER DEFAULT 0,
+            updated_at TEXT,
+            PRIMARY KEY (tag, tag_type)
+          );
+          CREATE INDEX IF NOT EXISTS idx_user_interest_tag_strength ON user_interest_tag(strength);`,
+  },
+  {
+    version: 28,
+    description: 'create_recommend_snapshot_table',
+    sql: `CREATE TABLE IF NOT EXISTS recommend_snapshot (
+            media_id TEXT PRIMARY KEY,
+            position INTEGER,
+            score INTEGER DEFAULT 0,
+            genre_group TEXT
+          );
+          CREATE INDEX IF NOT EXISTS idx_recommend_snapshot_position ON recommend_snapshot(position);`,
+  },
+  {
+    version: 29,
+    description: 'create_media_personal_score_index',
+    sql: `CREATE INDEX IF NOT EXISTS idx_media_personal_score ON media(personal_score, updated_at);`,
+  },
 ];
 
 /**
@@ -388,33 +432,61 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     const pageSize = params.pageSize || 20;
     const offset = (page - 1) * pageSize;
 
-    let whereClause = ' WHERE (hidden IS NULL OR hidden = 0)';
-    const queryParams: any[] = [];
-    if (params.type) {
-      whereClause += ' AND type = ?';
-      queryParams.push(params.type);
-    }
-    if (params.year) {
-      whereClause += ' AND year = ?';
-      queryParams.push(params.year);
-    }
-    if (params.area) {
-      whereClause += ' AND area = ?';
-      queryParams.push(params.area);
-    }
-    if (params.genre) {
-      whereClause += ' AND genre LIKE ?';
-      queryParams.push(`%${params.genre}%`);
-    }
-    if (params.subType) {
-      whereClause += ' AND genre LIKE ?';
-      queryParams.push(`%${params.subType}%`);
-    }
-    if (params.isShortDrama !== undefined) {
-      whereClause += ' AND is_short_drama = ?';
-      queryParams.push(params.isShortDrama ? 1 : 0);
+    // 构建过滤条件（支持表别名前缀，推荐快照 join 场景需要）
+    const buildWhere = (alias: string) => {
+      const col = (name: string) => (alias ? `${alias}.${name}` : name);
+      const conditions: string[] = [`(${col('hidden')} IS NULL OR ${col('hidden')} = 0)`];
+      const qp: any[] = [];
+      if (params.type) {
+        conditions.push(`${col('type')} = ?`);
+        qp.push(params.type);
+      }
+      if (params.year) {
+        conditions.push(`${col('year')} = ?`);
+        qp.push(params.year);
+      }
+      if (params.area) {
+        conditions.push(`${col('area')} = ?`);
+        qp.push(params.area);
+      }
+      if (params.genre) {
+        conditions.push(`${col('genre')} LIKE ?`);
+        qp.push(`%${params.genre}%`);
+      }
+      if (params.subType) {
+        conditions.push(`${col('genre')} LIKE ?`);
+        qp.push(`%${params.subType}%`);
+      }
+      if (params.isShortDrama !== undefined) {
+        conditions.push(`${col('is_short_drama')} = ?`);
+        qp.push(params.isShortDrama ? 1 : 0);
+      }
+      return { where: ` WHERE ${conditions.join(' AND ')}`, qp };
+    };
+
+    // 「为你推荐」：按推荐快照 position 分页；快照为空（冷启动）回退最新序
+    if (params.sort === 'recommend') {
+      const snapRow = await this.db!.getFirstAsync<{ count: number }>(
+        `SELECT COUNT(*) as count FROM recommend_snapshot`
+      );
+      const hasSnapshot = (snapRow?.count || 0) > 0;
+      if (hasSnapshot) {
+        const { where, qp } = buildWhere('m');
+        const countRow = await this.db!.getFirstAsync<{ count: number }>(
+          `SELECT COUNT(*) as count FROM recommend_snapshot rs JOIN media m ON m.id = rs.media_id${where}`,
+          qp
+        );
+        const total = countRow?.count || 0;
+        const totalPages = Math.ceil(total / pageSize);
+        const rows = await this.db!.getAllAsync<any>(
+          `SELECT m.* FROM recommend_snapshot rs JOIN media m ON m.id = rs.media_id${where} ORDER BY rs.position ASC LIMIT ? OFFSET ?`,
+          [...qp, pageSize, offset]
+        );
+        return { items: rows.map(rowToMedia), meta: { page, pageSize, total, totalPages } };
+      }
     }
 
+    const { where, qp } = buildWhere('');
     let orderBy: string;
     switch (params.sort) {
       case 'hot':
@@ -433,15 +505,15 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     }
 
     const countResult = await this.db!.getFirstAsync<{ count: number }>(
-      `SELECT COUNT(*) as count FROM media${whereClause}`,
-      queryParams
+      `SELECT COUNT(*) as count FROM media${where}`,
+      qp
     );
     const total = countResult?.count || 0;
     const totalPages = Math.ceil(total / pageSize);
 
     const rows = await this.db!.getAllAsync<any>(
-      `SELECT * FROM media${whereClause} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
-      [...queryParams, pageSize, offset]
+      `SELECT * FROM media${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
+      [...qp, pageSize, offset]
     );
 
     return { items: rows.map(rowToMedia), meta: { page, pageSize, total, totalPages } };
@@ -1246,6 +1318,81 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async deleteSearchHistory(keyword: string): Promise<void> {
     await this.db!.runAsync('DELETE FROM search_history WHERE keyword = ?', [keyword]);
+  }
+
+  async recordImpressions(items: { mediaId: string; shownAt: string }[]): Promise<string[]> {
+    if (items.length === 0) return [];
+    const placeholders = items.map(() => '(?, ?, ?)').join(', ');
+    const params: any[] = [];
+    for (const item of items) {
+      params.push(item.mediaId, item.shownAt, item.shownAt);
+    }
+    await this.db!.runAsync(
+      `INSERT INTO impression (media_id, shown_count, first_shown_at, last_shown_at)
+       VALUES ${placeholders}
+       ON CONFLICT(media_id) DO UPDATE SET
+         shown_count = impression.shown_count + 1,
+         last_shown_at = excluded.last_shown_at`,
+      params
+    );
+    const ids = items.map((i) => i.mediaId);
+    const rows = await this.db!.getAllAsync<{ media_id: string }>(
+      `SELECT media_id FROM impression WHERE shown_count IN (3, 6) AND media_id IN (${ids.map(() => '?').join(', ')})`,
+      ids
+    );
+    return rows.map((r) => r.media_id);
+  }
+
+  async replaceUserInterestTags(rows: {
+    tag: string;
+    tagType: 'genre' | 'director' | 'actor' | 'keyword';
+    strength: number;
+    sampleCount: number;
+    updatedAt: string;
+  }[]): Promise<void> {
+    await this.db!.runAsync('DELETE FROM user_interest_tag');
+    const batchSize = 100;
+    for (let i = 0; i < rows.length; i += batchSize) {
+      const batch = rows.slice(i, i + batchSize);
+      const placeholders = batch.map(() => '(?, ?, ?, ?, ?)').join(', ');
+      const params: any[] = [];
+      for (const r of batch) {
+        params.push(r.tag, r.tagType, r.strength, r.sampleCount, r.updatedAt);
+      }
+      await this.db!.runAsync(
+        `INSERT INTO user_interest_tag (tag, tag_type, strength, sample_count, updated_at) VALUES ${placeholders}`,
+        params
+      );
+    }
+  }
+
+  async replaceRecommendationSnapshot(rows: {
+    mediaId: string;
+    position: number;
+    score: number;
+    genreGroup: string;
+  }[]): Promise<void> {
+    await this.db!.runAsync('DELETE FROM recommend_snapshot');
+    const batchSize = 100;
+    for (let i = 0; i < rows.length; i += batchSize) {
+      const batch = rows.slice(i, i + batchSize);
+      const placeholders = batch.map(() => '(?, ?, ?, ?)').join(', ');
+      const params: any[] = [];
+      for (const r of batch) {
+        params.push(r.mediaId, r.position, r.score, r.genreGroup);
+      }
+      await this.db!.runAsync(
+        `INSERT INTO recommend_snapshot (media_id, position, score, genre_group) VALUES ${placeholders}`,
+        params
+      );
+    }
+  }
+
+  async resetRecommendationData(): Promise<void> {
+    await this.db!.runAsync('DELETE FROM impression');
+    await this.db!.runAsync('DELETE FROM user_interest_tag');
+    await this.db!.runAsync('DELETE FROM recommend_snapshot');
+    await this.db!.runAsync('UPDATE media SET personal_score = 0');
   }
 
   async createCollectTask(task: CollectTask): Promise<void> {

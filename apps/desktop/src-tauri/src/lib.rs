@@ -29,6 +29,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             video_fetch::video_fetch,
             video_fetch::prewarm,
+            video_fetch::log_line,
             window_state::get_window_state,
             window_state::set_window_remember
         ]);

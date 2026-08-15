@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import type { Media } from '@movie-app/core';
+import type { Media, MediaNavState } from '@movie-app/core';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PosterImage } from '@/components/PosterImage';
@@ -13,7 +13,7 @@ export function MediaCard({
   onDelete,
 }: { 
   media: Media; 
-  navigateState?: { page?: number; type?: string; subType?: string; year?: number; area?: string; episodeType?: string; subtypePage?: boolean };
+  navigateState?: MediaNavState;
   onBeforeNavigate?: () => void;
   size?: 'normal' | 'small';
   onDelete?: (media: Media) => void;
@@ -149,7 +149,7 @@ export function MediaGrid({
   onBeforeNavigate,
 }: { 
   items: Media[]; 
-  navigateState?: { page?: number; type?: string; subType?: string; year?: number; area?: string; episodeType?: string; subtypePage?: boolean };
+  navigateState?: MediaNavState;
   onBeforeNavigate?: () => void;
 }) {
   if (items.length === 0) {

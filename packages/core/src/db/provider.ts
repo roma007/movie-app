@@ -144,6 +144,27 @@ export interface DatabaseProvider {
   clearSearchHistory(): Promise<void>;
   deleteSearchHistory(keyword: string): Promise<void>;
 
+  // —— Recommendation DAO ——
+  /** 批量记录列表展示（跨会话累计 shown_count，UPSERT 合并）。返回到达惩罚边界（shown_count 3/6）的 mediaId 列表，供调度方触发重算。 */
+  recordImpressions(items: { mediaId: string; shownAt: string }[]): Promise<string[]>;
+  /** 重建用户兴趣标签表（先清空后批量插入）。 */
+  replaceUserInterestTags(rows: {
+    tag: string;
+    tagType: 'genre' | 'director' | 'actor' | 'keyword';
+    strength: number;
+    sampleCount: number;
+    updatedAt: string;
+  }[]): Promise<void>;
+  /** 重建推荐快照表（先清空后批量插入，分块写）。 */
+  replaceRecommendationSnapshot(rows: {
+    mediaId: string;
+    position: number;
+    score: number;
+    genreGroup: string;
+  }[]): Promise<void>;
+  /** 清空 impression、user_interest_tag、recommend_snapshot 并将全表 personal_score 置 0（「清空重学」数据部分）。 */
+  resetRecommendationData(): Promise<void>;
+
   // —— CollectTask DAO ——
   createCollectTask(task: CollectTask): Promise<void>;
   getCollectTaskById(taskId: string): Promise<CollectTask | null>;

@@ -144,6 +144,16 @@ export interface AppState {
   clearHistory: () => Promise<void>;
   removeHistoryItem: (mediaId: string) => Promise<void>;
 
+  // —— 「越看越懂你」推荐 ——
+  /** 事件触发：合并多次事件后执行一次全量重算（带节流，内部串行）。 */
+  scheduleRecommendationRecompute: () => void;
+  /** 立即全量重算并等待完成（启动/清空重学后使用）。 */
+  flushRecommendationRecompute: () => Promise<number>;
+  /** 清空重学：清 impression + score 置 0 + 刷新学习起始时间。 */
+  resetRecommendationLearning: () => Promise<void>;
+  /** 获取设置页「推荐偏好」概览。 */
+  getRecommendationOverview: () => Promise<RecommendationOverview>;
+
   loadCollectConfig: () => Promise<void>;
   updateCollectConfig: (config: Partial<CollectConfig>) => Promise<void>;
 
@@ -224,6 +234,7 @@ import { SystemConfigService } from '../services/systemConfigService';
 import { CollectorService } from '../services/collectorService';
 import { SourceImportService } from '../services/sourceImportService';
 import { AutoCollectScheduler } from '../services/autoCollectScheduler';
+import { RecommendationService, type RecommendationOverview } from '../services/recommendationService';
 
 /**
  * Zustand store 工厂函数（依赖注入 DatabaseProvider）。
@@ -233,6 +244,7 @@ export function createAppStore(db: DatabaseProvider) {
   const configService = new SystemConfigService(db);
   const collectorService = new CollectorService(db);
   const sourceImportService = new SourceImportService(db);
+  const recommendationService = new RecommendationService(db);
   let autoCollectScheduler: AutoCollectScheduler | null = null;
 
   const store = create<AppState>((set, get) => ({
@@ -583,6 +595,22 @@ export function createAppStore(db: DatabaseProvider) {
       } catch (err: any) {
         set({ error: err.message });
       }
+    },
+
+    scheduleRecommendationRecompute: () => {
+      recommendationService.scheduleRecompute();
+    },
+
+    flushRecommendationRecompute: async () => {
+      return recommendationService.flushRecompute();
+    },
+
+    resetRecommendationLearning: async () => {
+      await recommendationService.reset();
+    },
+
+    getRecommendationOverview: async () => {
+      return recommendationService.getOverview();
     },
 
     loadCollectConfig: async () => {

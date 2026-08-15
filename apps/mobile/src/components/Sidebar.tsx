@@ -150,6 +150,9 @@ export default function Sidebar() {
             <TouchableOpacity style={styles.menuItem} onPress={() => handleNav('VideoManagement')}>
               <Text style={styles.menuText}>视频管理</Text>
             </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => handleNav('RecommendationSettings')}>
+              <Text style={styles.menuText}>推荐偏好</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={handleClearHistory}>
               <Text style={styles.menuText}>清除观看历史</Text>
             </TouchableOpacity>

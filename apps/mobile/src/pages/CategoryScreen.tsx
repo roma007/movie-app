@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Dimensions, Animated } from 'react-native';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
-import { getProvider } from '../useAppStore';
+import { getProvider, getStore } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useScaledFontSize } from '../themes/useScaledFontSize';
 import MediaCard from '../components/MediaCard';
@@ -53,6 +53,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
   const [selectedYear, setSelectedYear] = useState<number | undefined>();
   const [selectedArea, setSelectedArea] = useState('');
   const [selectedEpisodeType, setSelectedEpisodeType] = useState<'short' | 'long' | undefined>();
+  const [sort, setSort] = useState<'latest' | 'recommend'>('recommend');
   const [showShortDramaFilter, setShowShortDramaFilter] = useState(false);
 
   const [expandedFilter, setExpandedFilter] = useState<string | null>(null);
@@ -68,7 +69,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
     isLoadingRef.current = true;
     setIsLoading(true);
     try {
-      const params: Record<string, any> = { page: pageNum, pageSize: PAGE_SIZE, type };
+      const params: Record<string, any> = { page: pageNum, pageSize: PAGE_SIZE, type, sort };
       if (selectedSubType) params.subType = selectedSubType;
       if (selectedYear) params.year = selectedYear;
       if (selectedArea) params.area = selectedArea;
@@ -76,6 +77,18 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
       else if (selectedEpisodeType === 'long') params.isShortDrama = false;
 
       const result = await provider.listMedia(params);
+
+      // 「越看越懂你」：浏览模式记录每页展示；到达惩罚边界则触发重算
+      if (result.items.length > 0) {
+        const shownAt = new Date().toISOString();
+        provider.recordImpressions(result.items.map((m: Media) => ({ mediaId: m.id, shownAt })))
+          .then((boundaryIds) => {
+            if (boundaryIds.length > 0) {
+              getStore().getState().scheduleRecommendationRecompute();
+            }
+          })
+          .catch((e: any) => console.error('记录列表展示失败:', e));
+      }
 
       if (replace) {
         setMediaList(result.items);
@@ -94,7 +107,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
       setIsLoading(false);
       isLoadingRef.current = false;
     }
-  }, [type, selectedSubType, selectedYear, selectedArea, selectedEpisodeType, provider]);
+  }, [type, sort, selectedSubType, selectedYear, selectedArea, selectedEpisodeType, provider]);
 
   const loadFilterOptions = useCallback(async () => {
     const cached = getFilterCache(type);
@@ -148,7 +161,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
   useDebounce(() => {
     flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
     loadList(1, true);
-  }, 200, [selectedSubType, selectedYear, selectedArea, selectedEpisodeType, loadList]);
+  }, 200, [selectedSubType, selectedYear, selectedArea, selectedEpisodeType, sort, loadList]);
 
   const route = useRoute<any>();
   const refreshStamp = route.params?.refresh;
@@ -310,6 +323,17 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
 
         {hasAnyFilter && (
           <View style={styles.filterBar}>
+            <FilterDropdown
+              label="排序"
+              options={[
+                { label: '为你推荐', value: 'recommend' },
+                { label: '最新', value: 'latest' },
+              ]}
+              selected={sort}
+              onSelect={(v) => { setSort((v as 'latest' | 'recommend') || 'recommend'); setExpandedFilter(null); }}
+              isExpanded={expandedFilter === 'sort'}
+              onToggle={() => toggleFilter('sort')}
+            />
             {subTypes.length > 0 && (
               <FilterDropdown
                 label="分类"
@@ -361,7 +385,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
         renderItem={({ item }) => (
           <MediaCard
             media={item}
-            onPress={() => navigation.navigate('Detail', { id: item.id })}
+            onPress={() => navigation.navigate('Detail', { id: item.id, sort })}
           />
         )}
         keyExtractor={item => item.id}

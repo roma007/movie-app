@@ -18,14 +18,18 @@ static LOG_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 fn init_log_path(app: &AppHandle) {
     LOG_PATH.get_or_init(|| {
-        app.path()
+        let dir = app
+            .path()
             .app_log_dir()
-            .unwrap_or_else(|_| std::env::temp_dir())
-            .join(LOG_FILE_NAME)
+            .unwrap_or_else(|_| std::env::temp_dir());
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            eprintln!("[video_fetch] 创建日志目录失败 {}: {}", dir.display(), e);
+        }
+        dir.join(LOG_FILE_NAME)
     });
 }
 
-fn log_line(msg: &str) {
+fn log_line_raw(msg: &str) {
     let Some(path) = LOG_PATH.get() else { return };
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(f, "{}", msg);
@@ -92,7 +96,7 @@ fn log_err(msg: &str, e: &dyn std::error::Error) {
         s.push_str(&format!("\n    caused by: {}", cause));
         src = cause.source();
     }
-    log_line(&s);
+    log_line_raw(&s);
 }
 
 /// 全局常驻连接池客户端。
@@ -173,7 +177,7 @@ pub async fn video_fetch(
         e.to_string()
     })?;
 
-    log_line(&format!(
+    log_line_raw(&format!(
         "[video_fetch] {}: status={} body_len={}",
         redact_url(&url),
         status,
@@ -192,6 +196,14 @@ pub async fn video_fetch(
 
 /// 预热源域名连接：向该 URL 发起一个 Range 小请求，使连接池提前建立到其 host
 /// 的 keep-alive 连接，后续该 host 的清单/分片请求免握手。失败静默不影响播放。
+/// webview 侧日志桥：前端 console.error / 全局 error 事件转发到 video_fetch.log，
+/// 便于离线排查（DevTools console 不可外部读取）。
+#[tauri::command]
+pub fn log_line(app: AppHandle, msg: String) {
+    init_log_path(&app);
+    log_line_raw(&format!("[webview] {}", msg));
+}
+
 #[tauri::command]
 pub async fn prewarm(app: AppHandle, url: String) {
     init_log_path(&app);
@@ -213,7 +225,7 @@ pub async fn prewarm(app: AppHandle, url: String) {
         Ok(resp) => {
             let status = resp.status();
             let _ = resp.bytes().await;
-            log_line(&format!(
+            log_line_raw(&format!(
                 "[prewarm] {}: ok({}) {}ms",
                 redact_url(&url),
                 status,

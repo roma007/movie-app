@@ -73,6 +73,7 @@ async function finalSave(session: PlaybackSession | null): Promise<void> {
     await getStore()
       .getState()
       .saveWatchProgress(session.media.id, session.episodeId || null, Math.floor(currentTimeRef.value), Math.floor(dur));
+    getStore().getState().scheduleRecommendationRecompute();
   } catch (err) {
     console.error('[playerStore] 最终保存观看进度失败:', err);
   }
@@ -321,6 +322,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       void getStore()
         .getState()
         .saveWatchProgress(s.media.id, s.episodeId || null, Math.floor(currentTime), Math.floor(duration));
+      getStore().getState().scheduleRecommendationRecompute();
     }
   },
 

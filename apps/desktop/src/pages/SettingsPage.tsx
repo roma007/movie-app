@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
 import { useBackgroundStore } from '../themes/backgroundStore';
-import { Database, ChevronRight, Palette, SlidersHorizontal } from 'lucide-react';
+import { Database, ChevronRight, Palette, SlidersHorizontal, Sparkles } from 'lucide-react';
 
 export default function SettingsPage() {
   const navigate = useNavigate();
@@ -19,6 +19,16 @@ export default function SettingsPage() {
           <div className="flex items-center gap-3">
             <SlidersHorizontal className="size-4 text-muted-foreground" />
             <span>使用偏好</span>
+          </div>
+          <ChevronRight className="size-4 text-muted-foreground" />
+        </button>
+        <button
+          className="flex items-center justify-between py-3 w-[calc(100%+2rem)] text-left hover:bg-secondary/50 transition-colors -mx-4 px-4"
+          onClick={() => navigate('/settings/recommendation')}
+        >
+          <div className="flex items-center gap-3">
+            <Sparkles className="size-4 text-muted-foreground" />
+            <span>推荐偏好</span>
           </div>
           <ChevronRight className="size-4 text-muted-foreground" />
         </button>

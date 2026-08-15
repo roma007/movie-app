@@ -17,6 +17,7 @@ import AiSourceImportScreen from './src/pages/AiSourceImportScreen';
 import CollectConfigScreen from './src/pages/CollectConfigScreen';
 import AppearanceSettingsScreen from './src/pages/AppearanceSettingsScreen';
 import UsagePreferencesScreen from './src/pages/UsagePreferencesScreen';
+import RecommendationSettingsScreen from './src/pages/RecommendationSettingsScreen';
 import TaskListScreen from './src/pages/TaskListScreen';
 import HelpCenterScreen from './src/pages/HelpCenterScreen';
 import CollectGuideScreen from './src/pages/CollectGuideScreen';
@@ -59,6 +60,7 @@ function RootNavigator() {
         <Stack.Screen name="CollectConfig" component={CollectConfigScreen} />
         <Stack.Screen name="AppearanceSettings" component={AppearanceSettingsScreen} />
         <Stack.Screen name="UsagePreferences" component={UsagePreferencesScreen} />
+        <Stack.Screen name="RecommendationSettings" component={RecommendationSettingsScreen} />
         <Stack.Screen name="TaskList" component={TaskListScreen} />
         <Stack.Screen name="HelpCenter" component={HelpCenterScreen} />
         <Stack.Screen name="CollectGuide" component={CollectGuideScreen} />

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { useAppStore, getCollector, getProvider } from '../useAppStore';
+import { useAppStore, getCollector, getProvider, getStore } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
 import { useScaledFontSize } from '../themes/useScaledFontSize';
@@ -47,6 +47,7 @@ export default function SearchScreen({ navigation, route }: Props) {
       if (id !== searchIdRef.current) return;
       await searchMedia(kw);
       if (id !== searchIdRef.current) return;
+      getStore().getState().scheduleRecommendationRecompute();
       refreshHistory();
     } catch (err) {
       if (id === searchIdRef.current) console.error('搜索失败:', err);

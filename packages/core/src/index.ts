@@ -43,6 +43,7 @@ export { SystemConfigService, type CollectConfig, type ShortDramaConfig } from '
 export { AutoCollectScheduler } from './services/autoCollectScheduler';
 export { VideoDurationService, setVideoFetchFn, getVideoFetchFn } from './services/videoDurationService';
 export { SourceImportService } from './services/sourceImportService';
+export { RecommendationService, type RecommendationOverview } from './services/recommendationService';
 
 // 数据库抽象层
 export { PRAGMA_SQL, SCHEMA_SQL, INSERT_DEFAULT_SOURCE_SQL, COUNT_VIDEO_SOURCE_SQL, splitSqlStatements } from './db/schema';
