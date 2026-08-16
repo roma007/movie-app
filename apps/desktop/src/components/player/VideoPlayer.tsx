@@ -441,6 +441,7 @@ export function VideoPlayer({
                   <DefaultMenuCheckbox
                     label="显示预读分片进度"
                     checked={segmentProgressOn}
+                    defaultChecked={segmentProgressOn}
                     onChange={setSegmentProgressOn}
                   />
                 </DefaultMenuItem>
