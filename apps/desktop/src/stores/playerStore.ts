@@ -72,7 +72,14 @@ async function finalSave(session: PlaybackSession | null): Promise<void> {
   try {
     await getStore()
       .getState()
-      .saveWatchProgress(session.media.id, session.episodeId || null, Math.floor(currentTimeRef.value), Math.floor(dur));
+      .saveWatchProgress(
+        session.media.id,
+        session.episodeId || null,
+        Math.floor(currentTimeRef.value),
+        Math.floor(dur),
+        session.selectedSourceId ?? session.episode?.sourceId ?? null,
+        session.playSourceId ?? null,
+      );
     getStore().getState().scheduleRecommendationRecompute();
   } catch (err) {
     console.error('[playerStore] 最终保存观看进度失败:', err);
@@ -234,8 +241,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       if (media) {
         const configService = new SystemConfigService(provider);
         try {
-          const [saved, allHistory, playbackConfig] = await Promise.all([
-            provider.getWatchHistoryByMediaId(media.id),
+          const [allHistory, playbackConfig] = await Promise.all([
             provider.getAllWatchHistoryByMediaId(media.id),
             configService.getPlaybackConfig(),
           ]);
@@ -251,10 +257,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
                 (h.progress > 60 || (h.duration > 0 && h.progress / h.duration >= 0.1)),
             )
             .map((h) => h.episodeId as string);
-          if (saved && saved.progress > 0) {
-            const matchEpisode = !saved.episodeId || saved.episodeId === ep.id;
-            const nearEnd = saved.duration > 0 && saved.progress >= saved.duration - 5;
-            if (matchEpisode && !nearEnd) resume = saved.progress;
+          // 续播判定：同媒体 + 同季 + 同播放源 + 同集号 + 同播放线路。
+          // 按当前集变体（episode_id 隐含媒体/季/集号）取最新记录，再校验播放源与播放线路。
+          // 旧数据（source_id/play_source_id 为 NULL）视为任意源/任意线路，向后兼容。
+          const savedEp = await provider.getWatchHistoryByEpisodeId(media.id, ep.id);
+          if (savedEp && savedEp.progress > 0) {
+            const sameSource = !savedEp.sourceId || savedEp.sourceId === ep.sourceId;
+            const sameLine = !savedEp.playSourceId || savedEp.playSourceId === playSourceId;
+            const nearEnd = savedEp.duration > 0 && savedEp.progress >= savedEp.duration - 5;
+            if (sameSource && sameLine && !nearEnd) resume = savedEp.progress;
           }
         } catch (err) {
           console.error('[playerStore] 读取观看配置/历史失败:', err);
@@ -321,7 +332,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       lastSaveRef.value = now;
       void getStore()
         .getState()
-        .saveWatchProgress(s.media.id, s.episodeId || null, Math.floor(currentTime), Math.floor(duration));
+        .saveWatchProgress(
+          s.media.id,
+          s.episodeId || null,
+          Math.floor(currentTime),
+          Math.floor(duration),
+          s.selectedSourceId ?? s.episode?.sourceId ?? null,
+          s.playSourceId ?? null,
+        );
       getStore().getState().scheduleRecommendationRecompute();
     }
   },

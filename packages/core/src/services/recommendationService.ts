@@ -23,7 +23,12 @@ import type { DatabaseProvider } from '../db/provider';
  *   已看抑制：最近 recentWindowDays 天看过的正分 × recentFactor
  *   子分类降权：点开即弃率过高的子分类整部 -15
  *   续季关联：已消费 series_group 的后续季 +seriesContinueBoost
- *   重排：排序(确定性抖动) → 主 genre 贪心打散(连续≤dispersionMaxConsecutive) → 每 explore 比例插探索位
+ *   不感兴趣：dislike 影片 -10（同 giveUp），画像负向（同类联动），推荐序/探索池剔除
+ *   重排：排序(确定性抖动) → 同季去重(U6) → 三维打散(genre/director/series，U5) → 每 explore 比例插探索位
+ *
+ * 用户可控（v4）：
+ *   - 详情页「不感兴趣」→ dislike 表
+ *   - 设置页「已屏蔽标签」→ interest_tag_blacklist 表（画像与匹配均跳过）
  */
 
 export const LEARN_RESET_KEY = 'recommend.learnResetAt';
@@ -67,6 +72,8 @@ export const RECOMMEND_PARAMS = {
   bingeScore: 5,
   favoriteScore: 20,
   giveUpScore: -10,
+  /** 不感兴趣负向分（与弃看同级，但额外从推荐序/探索池剔除）。 */
+  dislikeScore: -10,
   searchBonus: 3,
   subtypePenalty: -15,
   subtypeMinSamples: 5,
@@ -104,6 +111,20 @@ export const RECOMMEND_PARAMS = {
   overviewStrengthFloor: 0.5,
 } as const;
 
+/** 不感兴趣列表项（设置页展示）。 */
+export interface DislikedMediaItem {
+  mediaId: string;
+  title: string;
+  createdAt: string;
+}
+
+/** 兴趣标签黑名单项。 */
+export interface TagBlacklistItem {
+  tag: string;
+  tagType: 'genre' | 'director' | 'actor' | 'keyword';
+  createdAt: string;
+}
+
 export interface RecommendationOverview {
   completedCount: number;
   giveUpCount: number;
@@ -113,6 +134,10 @@ export interface RecommendationOverview {
   topMedia: { id: string; title: string; score: number }[];
   searchKeywordCount: number;
   impressionMediaCount: number;
+  /** 已标记不感兴趣的影片数。 */
+  dislikedMediaCount: number;
+  /** 已屏蔽的兴趣标签。 */
+  blacklistedTags: TagBlacklistItem[];
 }
 
 interface GenreStats {
@@ -139,6 +164,8 @@ interface ScoreEntry {
   total: number;
   updatedAt: string;
   genreGroup: string;
+  directorGroup: string;
+  seriesGroup: string;
 }
 
 /** episode 集号视图（跨源：同一集在不同源是不同 episode_id，源内集号自洽）。 */
@@ -276,26 +303,39 @@ export class RecommendationService {
     // 收藏按收藏时间过滤：真重置时，重置前收藏同样不再参与学习
     const favoriteResetSql = resetAt ? ' WHERE created_at >= ?' : '';
 
-    const [historyRows, favoriteRows, impressionRows, searchRows, badSourceRows] = await Promise.all([
-      this.db.select<any>(`${this.HISTORY_JOIN_SQL}${historyResetSql}`, resetParams),
-      this.db.select<{ media_id: string; created_at: string }>(
-        `SELECT media_id, created_at FROM favorite${favoriteResetSql}`,
-        resetParams
-      ),
-      this.db.select<{ media_id: string; shown_count: number; last_shown_at: string }>(
-        'SELECT media_id, shown_count, last_shown_at FROM impression'
-      ),
-      this.db.select<any>(
-        `SELECT keyword, count, updated_at FROM search_history${searchResetSql} ORDER BY updated_at DESC LIMIT ?`,
-        [...resetParams, RECOMMEND_PARAMS.maxSearchKeywords]
-      ),
-      this.db.select<any>(
-        `SELECT e.media_id, ps.last_fail_at
-         FROM play_source ps
-         JOIN episode e ON e.id = ps.episode_id
-         WHERE ps.fail_count > 0 AND ps.last_fail_at IS NOT NULL`
-      ),
-    ]);
+    const [historyRows, favoriteRows, impressionRows, searchRows, badSourceRows, dislikedRows, tagBlacklistRows] =
+      await Promise.all([
+        this.db.select<any>(`${this.HISTORY_JOIN_SQL}${historyResetSql}`, resetParams),
+        this.db.select<{ media_id: string; created_at: string }>(
+          `SELECT media_id, created_at FROM favorite${favoriteResetSql}`,
+          resetParams
+        ),
+        this.db.select<{ media_id: string; shown_count: number; last_shown_at: string }>(
+          'SELECT media_id, shown_count, last_shown_at FROM impression'
+        ),
+        this.db.select<any>(
+          `SELECT keyword, count, updated_at FROM search_history${searchResetSql} ORDER BY updated_at DESC LIMIT ?`,
+          [...resetParams, RECOMMEND_PARAMS.maxSearchKeywords]
+        ),
+        this.db.select<any>(
+          `SELECT e.media_id, ps.last_fail_at
+           FROM play_source ps
+           JOIN episode e ON e.id = ps.episode_id
+           WHERE ps.fail_count > 0 AND ps.last_fail_at IS NOT NULL`
+        ),
+        this.db.select<{ media_id: string; created_at: string }>(
+          'SELECT media_id, created_at FROM dislike'
+        ),
+        this.db.select<{ tag: string; tag_type: string; created_at: string }>(
+          'SELECT tag, tag_type, created_at FROM interest_tag_blacklist'
+        ),
+      ]);
+
+    const disliked = new Set(dislikedRows.map((r) => r.media_id));
+    const tagBlacklist = new Set<string>();
+    for (const r of tagBlacklistRows) {
+      if (r.tag) tagBlacklist.add(`${r.tag_type}\u0000${r.tag}`);
+    }
 
     const now = Date.now();
     const exemptMedia = new Set<string>();
@@ -428,6 +468,8 @@ export class RecommendationService {
       favoriteAt,
       impressionAt,
       searchRows,
+      disliked,
+      tagBlacklist,
       now,
     });
 
@@ -456,11 +498,14 @@ export class RecommendationService {
         impressions,
         recentWatched,
         watchedSeriesMaxSeason,
+        disliked,
       });
       scores.set(row.id, {
         total,
         updatedAt: row.updated_at || '',
         genreGroup: tags.genres[0] || UNKNOWN_GENRE,
+        directorGroup: tags.directors[0] || '',
+        seriesGroup: row.series_group || '',
       });
       const old = row.personal_score ?? 0;
       if (old !== total) updates.push({ id: row.id, score: total });
@@ -496,7 +541,7 @@ export class RecommendationService {
       Array.from(interest.values()).some((it) => Math.abs(it.strength) > 0.0001) ||
       Array.from(scores.values()).some((s) => s.total !== 0);
     if (hasSignal) {
-      const snapshotRows = this.reorder(scores, mediaRows, watchedMedia, favorites, excludedCompleted);
+      const snapshotRows = this.reorder(scores, mediaRows, watchedMedia, favorites, excludedCompleted, disliked);
       await this.db.replaceRecommendationSnapshot(snapshotRows);
     } else {
       await this.db.replaceRecommendationSnapshot([]);
@@ -641,11 +686,14 @@ export class RecommendationService {
     favoriteAt: Map<string, string>;
     impressionAt: Map<string, string>;
     searchRows: any[];
+    disliked: Set<string>;
+    tagBlacklist: Set<string>;
     now: number;
   }): Map<string, InterestTag> {
     const {
       tagsOf, watchedMedia, completedMedia, completedDuration, bingeCount, giveUpMedia,
-      favorites, impressions, latest, favoriteAt, impressionAt, searchRows, now,
+      favorites, impressions, latest, favoriteAt, impressionAt, searchRows, disliked,
+      tagBlacklist, now,
     } = params;
 
     const interest = new Map<string, InterestTag>();
@@ -653,6 +701,7 @@ export class RecommendationService {
 
     const addSignal = (tag: string, type: 'genre' | 'director' | 'actor', value: number, at: string) => {
       const k = keyOf(type, tag);
+      if (tagBlacklist.has(k)) return;
       let it = interest.get(k);
       if (!it) {
         it = { tag, type, strength: 0, n: 0, updatedAt: at };
@@ -666,6 +715,7 @@ export class RecommendationService {
     // media 级信号 → media 标签强度（每部 media 每标签只计一次 n）
     const signalMedia = new Set<string>(watchedMedia);
     for (const id of favorites) signalMedia.add(id);
+    for (const id of disliked) signalMedia.add(id);
     for (const [id, shown] of impressions) {
       if (shown >= RECOMMEND_PARAMS.impressionThreshold && !watchedMedia.has(id)) signalMedia.add(id);
     }
@@ -680,6 +730,7 @@ export class RecommendationService {
       }
       if (favorites.has(mediaId)) sig += RECOMMEND_PARAMS.favoriteScore;
       if (giveUpMedia.has(mediaId)) sig += RECOMMEND_PARAMS.giveUpScore;
+      if (disliked.has(mediaId)) sig += RECOMMEND_PARAMS.dislikeScore;
       const shown = impressions.get(mediaId) || 0;
       if (shown >= RECOMMEND_PARAMS.impressionThreshold && !watchedMedia.has(mediaId)) {
         sig +=
@@ -704,6 +755,7 @@ export class RecommendationService {
       const kw = String(r.keyword || '').trim();
       if (!kw) continue;
       const at = r.updated_at || '';
+      if (tagBlacklist.has(keyOf('keyword', kw))) continue;
       const k = keyOf('keyword', kw);
       let it = interest.get(k);
       if (!it) {
@@ -739,11 +791,12 @@ export class RecommendationService {
     impressions: Map<string, number>;
     recentWatched: Set<string>;
     watchedSeriesMaxSeason: Map<string, number>;
+    disliked: Set<string>;
   }): number {
     const {
       row, tags, interest, keywordStrengths, penalized, watchedMedia,
       completedMedia, completedDuration, bingeCount, giveUpMedia, favorites, impressions,
-      recentWatched, watchedSeriesMaxSeason,
+      recentWatched, watchedSeriesMaxSeason, disliked,
     } = params;
 
     // —— 直接信号 ——
@@ -754,6 +807,7 @@ export class RecommendationService {
     }
     if (favorites.has(row.id)) direct += RECOMMEND_PARAMS.favoriteScore;
     if (giveUpMedia.has(row.id)) direct += RECOMMEND_PARAMS.giveUpScore;
+    if (disliked.has(row.id)) direct += RECOMMEND_PARAMS.dislikeScore;
     const shown = impressions.get(row.id) || 0;
     if (shown >= RECOMMEND_PARAMS.impressionThreshold && !watchedMedia.has(row.id)) {
       direct +=
@@ -807,7 +861,8 @@ export class RecommendationService {
   }
 
   /**
-   * 重排：已看剔除 → 排序(确定性抖动) → 主 genre 贪心打散 → 探索插槽（去重）→ 位置编号。
+   * 重排：已看/不感兴趣剔除 → 同季去重(U6) → 排序(确定性抖动) →
+   * 三维打散(genre/director/series，U5) → 探索插槽（去重）→ 位置编号。
    * 纯函数、确定性：翻页/返回可稳定还原。
    */
   private reorder(
@@ -815,22 +870,54 @@ export class RecommendationService {
     mediaRows: any[],
     watchedMedia: Set<string>,
     favorites: Set<string>,
-    excludedCompleted: Set<string>
+    excludedCompleted: Set<string>,
+    disliked: Set<string>
   ): { mediaId: string; position: number; score: number; genreGroup: string }[] {
     interface Item {
       id: string;
       score: number;
       updatedAt: string;
       genreGroup: string;
+      directorGroup: string;
+      seriesKey: string;
     }
     const UNKNOWN = UNKNOWN_GENRE;
 
-    const list: Item[] = mediaRows
-      .filter((r) => !excludedCompleted.has(r.id))
-      .map((r) => {
-        const s = scores.get(r.id)!;
-        return { id: r.id, score: s.total, updatedAt: s.updatedAt, genreGroup: s.genreGroup || UNKNOWN };
-      });
+    // —— U6 同季去重：同 (series_group, series_season) 只保留最高分一条；同时剔除已看/不感兴趣 ——
+    const seasonBest = new Map<string, any>();
+    const dedupRows: any[] = [];
+    for (const r of mediaRows) {
+      if (excludedCompleted.has(r.id) || disliked.has(r.id)) continue;
+      const group = r.series_group || '';
+      if (group) {
+        const key = `${group}\u0000${r.series_season ?? 0}`;
+        const cur = seasonBest.get(key);
+        const score = scores.get(r.id)?.total ?? 0;
+        if (!cur) {
+          seasonBest.set(key, r);
+          dedupRows.push(r);
+        } else if (score > (scores.get(cur.id)?.total ?? 0)) {
+          seasonBest.set(key, r);
+          dedupRows[dedupRows.indexOf(cur)] = r;
+        }
+      } else {
+        dedupRows.push(r);
+      }
+    }
+
+    const list: Item[] = dedupRows.map((r) => {
+      const s = scores.get(r.id)!;
+      const group = r.series_group || '';
+      // 无系列 media 的 seriesKey 用 id 唯一化，避免「无系列」作品互相构成打散维度
+      return {
+        id: r.id,
+        score: s.total,
+        updatedAt: s.updatedAt,
+        genreGroup: s.genreGroup || UNKNOWN,
+        directorGroup: s.directorGroup || '',
+        seriesKey: group || r.id,
+      };
+    });
 
     // 预排序：(total+jitter DESC, updated_at DESC, id ASC) —— 确定性（jitter 由 id 派生，恒定）
     list.sort(
@@ -840,7 +927,7 @@ export class RecommendationService {
         (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
     );
 
-    // 贪心打散：每次取剩余数量最多的桶，同类连续达上限则排除该桶
+    // —— U5 三维贪心打散：每次取剩余数量最多的桶；任一维度(genre/director/series)连续达上限即换桶 ——
     const buckets = new Map<string, Item[]>();
     for (const m of list) {
       let arr = buckets.get(m.genreGroup);
@@ -853,33 +940,53 @@ export class RecommendationService {
     const maxConsec = RECOMMEND_PARAMS.dispersionMaxConsecutive;
     const order: Item[] = [];
     let lastGenre: string | null = null;
-    let lastCount = 0;
+    let genreCount = 0;
+    let lastDirector: string | null = null;
+    let directorCount = 0;
+    let lastSeries: string | null = null;
+    let seriesCount = 0;
+    const conflicts = (g: string, d: string, s: string) =>
+      (lastGenre !== null && g === lastGenre && genreCount >= maxConsec) ||
+      (lastDirector !== null && d !== '' && d === lastDirector && directorCount >= maxConsec) ||
+      (lastSeries !== null && s !== '' && s === lastSeries && seriesCount >= maxConsec);
     while (order.length < list.length) {
       const cand = Array.from(buckets.entries()).filter(([, arr]) => arr.length > 0);
-      let usable = cand;
-      if (lastGenre !== null && lastCount >= maxConsec) {
-        const rest = cand.filter(([g]) => g !== lastGenre);
-        if (rest.length > 0) usable = rest;
-      }
-      usable.sort(
+      cand.sort(
         (a, b) =>
           b[1].length - a[1].length ||
           b[1][0].score + jitter(b[1][0].id) - (a[1][0].score + jitter(a[1][0].id)) ||
           (a[1][0].id < b[1][0].id ? -1 : a[1][0].id > b[1][0].id ? 1 : 0)
       );
-      const [g, arr] = usable[0];
+      let chosen = cand[0];
+      for (const entry of cand) {
+        const head = entry[1][0];
+        if (!conflicts(entry[0], head.directorGroup, head.seriesKey)) {
+          chosen = entry;
+          break;
+        }
+      }
+      const [g, arr] = chosen;
       const item = arr.shift()!;
       order.push(item);
-      if (g === lastGenre) lastCount++;
-      else {
-        lastGenre = g;
-        lastCount = 1;
-      }
+      genreCount = g === lastGenre ? genreCount + 1 : 1;
+      lastGenre = g;
+      const d = item.directorGroup;
+      directorCount = d === lastDirector ? directorCount + 1 : 1;
+      lastDirector = d;
+      const s = item.seriesKey;
+      seriesCount = s === lastSeries ? seriesCount + 1 : 1;
+      lastSeries = s;
     }
 
-    // 探索池：未互动且 total==0，按 (updated_at DESC, id ASC) —— 新片天然在池头（U3 整合：探索位优先新内容）
-    const explorePool = mediaRows
-      .filter((r) => !watchedMedia.has(r.id) && !favorites.has(r.id) && (scores.get(r.id)?.total ?? 0) === 0)
+    // 探索池：未互动、未不感兴趣且 total==0，按 (updated_at DESC, id ASC) —— 新片天然在池头（U3：探索位优先新内容）
+    const explorePool = dedupRows
+      .filter(
+        (r) =>
+          !watchedMedia.has(r.id) &&
+          !favorites.has(r.id) &&
+          !disliked.has(r.id) &&
+          (scores.get(r.id)?.total ?? 0) === 0
+      )
       .sort(
         (a, b) =>
           (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0) ||
@@ -899,7 +1006,14 @@ export class RecommendationService {
           const cand = explorePool[ep];
           ep++;
           const s = scores.get(cand.id)!;
-          inserted = { id: cand.id, score: s.total, updatedAt: s.updatedAt, genreGroup: s.genreGroup || UNKNOWN };
+          inserted = {
+            id: cand.id,
+            score: s.total,
+            updatedAt: s.updatedAt,
+            genreGroup: s.genreGroup || UNKNOWN,
+            directorGroup: s.directorGroup || '',
+            seriesKey: cand.series_group || cand.id,
+          };
         }
       }
       if (inserted) {
@@ -930,7 +1044,15 @@ export class RecommendationService {
     const searchResetSql = resetAt ? ' WHERE updated_at >= ?' : '';
     const resetParams = resetAt ? [resetAt] : [];
 
-    const [historyRows, searchCountRow, impressionCountRow, interestRows, topMediaRows] = await Promise.all([
+    const [
+      historyRows,
+      searchCountRow,
+      impressionCountRow,
+      interestRows,
+      topMediaRows,
+      dislikedCountRow,
+      blacklistRows,
+    ] = await Promise.all([
       this.db.select<any>(`${this.HISTORY_JOIN_SQL}${historyResetSql}`, resetParams),
       this.db.selectOne<{ count: number }>(
         `SELECT COUNT(*) as count FROM search_history${searchResetSql}`,
@@ -943,6 +1065,10 @@ export class RecommendationService {
       ),
       this.db.select<{ id: string; title: string; personal_score: number }>(
         'SELECT id, title, personal_score FROM media WHERE personal_score > 0 AND (hidden IS NULL OR hidden = 0) ORDER BY personal_score DESC, updated_at DESC LIMIT 10'
+      ),
+      this.db.selectOne<{ count: number }>('SELECT COUNT(*) as count FROM dislike'),
+      this.db.select<{ tag: string; tag_type: string; created_at: string }>(
+        `SELECT tag, tag_type, COALESCE(created_at, '') AS created_at FROM interest_tag_blacklist ORDER BY created_at DESC`
       ),
     ]);
 
@@ -1008,7 +1134,61 @@ export class RecommendationService {
       topMedia: topMediaRows.map((r) => ({ id: r.id, title: r.title, score: r.personal_score })),
       searchKeywordCount: searchCountRow?.count || 0,
       impressionMediaCount: impressionCountRow?.count || 0,
+      dislikedMediaCount: dislikedCountRow?.count || 0,
+      blacklistedTags: blacklistRows.map((r) => ({
+        tag: r.tag,
+        tagType: r.tag_type as TagBlacklistItem['tagType'],
+        createdAt: r.created_at,
+      })),
     };
+  }
+
+  /** 查询某 media 是否已标记不感兴趣。 */
+  async isDisliked(mediaId: string): Promise<boolean> {
+    const row = await this.db.selectOne<{ media_id: string }>('SELECT media_id FROM dislike WHERE media_id = ?', [mediaId]);
+    return !!row;
+  }
+
+  /** 切换不感兴趣：写库 + 触发热重算，返回切换后的状态。 */
+  async toggleDislike(mediaId: string): Promise<boolean> {
+    const disliked = await this.isDisliked(mediaId);
+    if (disliked) {
+      await this.db.removeDislike(mediaId);
+    } else {
+      await this.db.addDislike(mediaId);
+    }
+    this.scheduleRecompute();
+    return !disliked;
+  }
+
+  /** 不感兴趣列表详情（设置页展示）。 */
+  async getDislikedMedia(): Promise<DislikedMediaItem[]> {
+    return this.db.getDislikedMediaDetail();
+  }
+
+  /** 兴趣标签黑名单列表。 */
+  async listInterestTagBlacklist(): Promise<TagBlacklistItem[]> {
+    const rows = await this.db.getInterestTagBlacklist();
+    return rows.map((r) => ({
+      tag: r.tag,
+      tagType: r.tagType as TagBlacklistItem['tagType'],
+      createdAt: r.createdAt,
+    }));
+  }
+
+  /** 切换兴趣标签黑名单（先查状态再增/删），返回切换后的状态。 */
+  async toggleInterestTagBlacklist(tag: string, tagType: 'genre' | 'director' | 'actor' | 'keyword'): Promise<boolean> {
+    const blacklisted = await this.db.selectOne<{ tag: string }>(
+      'SELECT tag FROM interest_tag_blacklist WHERE tag = ? AND tag_type = ?',
+      [tag, tagType]
+    );
+    if (blacklisted) {
+      await this.db.removeInterestTagBlacklist(tag, tagType);
+    } else {
+      await this.db.addInterestTagBlacklist(tag, tagType);
+    }
+    this.scheduleRecompute();
+    return !blacklisted;
   }
 
   private aggregateGenreStats(

@@ -228,6 +228,9 @@ export class TauriSqlProvider implements DatabaseProvider {
     await this.addColumnIfMissing('video_source', 'avg_response_time', 'INTEGER');
     // 增量迁移：为已有 video_source 表补齐增量采集时间列
     await this.addColumnIfMissing('video_source', 'last_incremental_collected_at', 'TEXT');
+    // 增量迁移：为已有 watch_history 表补齐播放源/播放线路列（续播按「同源同线路」判定）
+    await this.addColumnIfMissing('watch_history', 'source_id', 'TEXT');
+    await this.addColumnIfMissing('watch_history', 'play_source_id', 'TEXT');
 
     // 始终重建 FTS5：确保虚拟表和辅助表状态一致，不受历史损坏影响
     await this.rebuildFts5();
@@ -1268,6 +1271,14 @@ export class TauriSqlProvider implements DatabaseProvider {
     return rows[0] ? rowToWatchHistory(rows[0]) : null;
   }
 
+  async getWatchHistoryByEpisodeId(mediaId: string, episodeId: string): Promise<WatchHistory | null> {
+    const rows = await this.db!.select<any[]>(
+      'SELECT * FROM watch_history WHERE media_id = ? AND episode_id = ? ORDER BY updated_at DESC LIMIT 1',
+      [mediaId, episodeId]
+    );
+    return rows[0] ? rowToWatchHistory(rows[0]) : null;
+  }
+
   async getAllWatchHistoryByMediaId(mediaId: string): Promise<WatchHistory[]> {
     const rows = await this.db!.select<any[]>(
       'SELECT * FROM watch_history WHERE media_id = ? ORDER BY updated_at DESC',
@@ -1276,17 +1287,26 @@ export class TauriSqlProvider implements DatabaseProvider {
     return rows.map(rowToWatchHistory);
   }
 
-  async upsertWatchHistory(mediaId: string, episodeId: string | null, progress: number, duration: number): Promise<void> {
+  async upsertWatchHistory(
+    mediaId: string,
+    episodeId: string | null,
+    progress: number,
+    duration: number,
+    sourceId?: string | null,
+    playSourceId?: string | null,
+  ): Promise<void> {
     const now = new Date().toISOString();
     const id = `wh_${mediaId}_${episodeId || 'movie'}`;
     await this.db!.execute(
-      `INSERT INTO watch_history (id, media_id, episode_id, progress, duration, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO watch_history (id, media_id, episode_id, progress, duration, source_id, play_source_id, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          progress = excluded.progress,
          duration = excluded.duration,
+         source_id = excluded.source_id,
+         play_source_id = excluded.play_source_id,
          updated_at = excluded.updated_at`,
-      [id, mediaId, episodeId, progress, duration, now]
+      [id, mediaId, episodeId, progress, duration, sourceId ?? null, playSourceId ?? null, now]
     );
   }
 
@@ -1405,6 +1425,49 @@ export class TauriSqlProvider implements DatabaseProvider {
     await this.db!.execute('DELETE FROM user_interest_tag');
     await this.db!.execute('DELETE FROM recommend_snapshot');
     await this.db!.execute('UPDATE media SET personal_score = 0');
+  }
+
+  async getDislikedMediaIds(): Promise<string[]> {
+    const rows = await this.db!.select<{ media_id: string }[]>('SELECT media_id FROM dislike');
+    return rows.map((r) => r.media_id);
+  }
+
+  async getDislikedMediaDetail(): Promise<{ mediaId: string; title: string; createdAt: string }[]> {
+    const rows = await this.db!.select<{ media_id: string; title: string; created_at: string }[]>(
+      `SELECT d.media_id, COALESCE(m.title, '') AS title, COALESCE(d.created_at, '') AS created_at
+       FROM dislike d LEFT JOIN media m ON m.id = d.media_id
+       ORDER BY d.created_at DESC`
+    );
+    return rows.map((r) => ({ mediaId: r.media_id, title: r.title, createdAt: r.created_at }));
+  }
+
+  async addDislike(mediaId: string): Promise<void> {
+    await this.db!.execute(
+      'INSERT INTO dislike (media_id, created_at) VALUES (?, ?) ON CONFLICT(media_id) DO UPDATE SET created_at = excluded.created_at',
+      [mediaId, new Date().toISOString()]
+    );
+  }
+
+  async removeDislike(mediaId: string): Promise<void> {
+    await this.db!.execute('DELETE FROM dislike WHERE media_id = ?', [mediaId]);
+  }
+
+  async getInterestTagBlacklist(): Promise<{ tag: string; tagType: string; createdAt: string }[]> {
+    const rows = await this.db!.select<{ tag: string; tag_type: string; created_at: string }[]>(
+      `SELECT tag, tag_type, COALESCE(created_at, '') AS created_at FROM interest_tag_blacklist ORDER BY created_at DESC`
+    );
+    return rows.map((r) => ({ tag: r.tag, tagType: r.tag_type, createdAt: r.created_at }));
+  }
+
+  async addInterestTagBlacklist(tag: string, tagType: string): Promise<void> {
+    await this.db!.execute(
+      'INSERT INTO interest_tag_blacklist (tag, tag_type, created_at) VALUES (?, ?, ?) ON CONFLICT(tag, tag_type) DO UPDATE SET created_at = excluded.created_at',
+      [tag, tagType, new Date().toISOString()]
+    );
+  }
+
+  async removeInterestTagBlacklist(tag: string, tagType: string): Promise<void> {
+    await this.db!.execute('DELETE FROM interest_tag_blacklist WHERE tag = ? AND tag_type = ?', [tag, tagType]);
   }
 
   async createCollectTask(task: CollectTask): Promise<void> {

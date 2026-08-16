@@ -4,7 +4,7 @@ import { useAppStore, getStore } from '../useAppStore';
 import { getProvider } from '../init';
 import { clearCategoryFilterCache } from '../categoryFilterCache';
 import { VideoDurationService, UNCATEGORIZED_GENRE } from '@movie-app/core';
-import { Heart, ArrowLeft, EyeOff, Star } from 'lucide-react-native';
+import { Heart, ThumbsDown, ArrowLeft, EyeOff, Star } from 'lucide-react-native';
 import type { Episode, PlaySource, VideoSource } from '@movie-app/core';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
@@ -22,7 +22,7 @@ interface Props {
 
 export default function DetailScreen({ route, navigation }: Props) {
   const { id } = route.params;
-  const { currentMedia, episodes, seasons, isLoading, episodeSources, seriesMedia, loadMediaDetail, loadEpisodes, loadSeasons, loadSeasonEpisodes, loadSeriesMedia, hideMediaByGenres, fetchMediaRating, isRatingLoading } = useAppStore();
+  const { currentMedia, episodes, seasons, isLoading, episodeSources, seriesMedia, loadMediaDetail, loadEpisodes, loadSeasons, loadSeasonEpisodes, loadSeriesMedia, hideMediaByGenres, fetchMediaRating, isRatingLoading, toggleDislike, isDisliked: checkDisliked } = useAppStore();
   const colors = useThemeColors();
   const cardOpacity = useThemeStore((s) => s.cardOpacity);
   const cardBg = hexToRgba(colors.card, cardOpacity / 100);
@@ -36,6 +36,9 @@ export default function DetailScreen({ route, navigation }: Props) {
 
   // 功能1: 收藏
   const [isFav, setIsFav] = useState(false);
+
+  // 功能: 不感兴趣
+  const [isDisliked, setIsDisliked] = useState(false);
 
   // 功能6: 隐藏此类视频
   const [hideModalVisible, setHideModalVisible] = useState(false);
@@ -125,6 +128,7 @@ export default function DetailScreen({ route, navigation }: Props) {
 
     // 收藏状态
     getProvider().isFavorite(id).then(setIsFav).catch(() => {});
+    checkDisliked(id).then(setIsDisliked).catch(() => {});
 
     // 已看剧集
     getProvider().getAllWatchHistoryByMediaId(id).then(history => {
@@ -220,6 +224,13 @@ export default function DetailScreen({ route, navigation }: Props) {
   const handleFav = async () => {
     const result = await getProvider().toggleFavorite(id);
     setIsFav(result);
+    getStore().getState().scheduleRecommendationRecompute();
+  };
+
+  // 功能: 不感兴趣切换
+  const handleDislike = async () => {
+    const result = await toggleDislike(id);
+    setIsDisliked(result);
     getStore().getState().scheduleRecommendationRecompute();
   };
 
@@ -333,6 +344,16 @@ export default function DetailScreen({ route, navigation }: Props) {
               onPress={handleFav}
             >
               {isFav ? '已收藏' : '收藏'}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              active={isDisliked}
+              style={styles.favButton}
+              leftIcon={<ThumbsDown size={16} color={isDisliked ? colors.error : colors.textSecondary} />}
+              onPress={handleDislike}
+            >
+              {isDisliked ? '已不感兴趣' : '不感兴趣'}
             </Button>
           </View>
           {currentMedia.alias && (

@@ -90,6 +90,8 @@ export interface WatchHistory {
   episodeId?: string | null;
   progress: number;
   duration: number;
+  sourceId?: string | null;
+  playSourceId?: string | null;
   updatedAt: string;
 }
 

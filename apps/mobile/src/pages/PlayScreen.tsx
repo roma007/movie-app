@@ -183,10 +183,9 @@ export default function PlayScreen({ route, navigation }: Props) {
         const episode = await provider.getEpisodeById(currentEpisodeId);
         if (cancelled || !episode) return;
 
-        const [m, sources, history, allHistory] = await Promise.all([
+        const [m, sources, allHistory] = await Promise.all([
           provider.getMediaById(episode.mediaId),
           provider.getPlaySourcesByEpisodeId(episode.id),
-          provider.getWatchHistoryByMediaId(episode.mediaId),
           provider.getAllWatchHistoryByMediaId(episode.mediaId),
         ]);
         if (cancelled) return;
@@ -210,11 +209,15 @@ export default function PlayScreen({ route, navigation }: Props) {
         }
         setWatchedEpisodes(watched);
 
-        // 恢复进度
+        // 恢复进度（同媒体 + 同季 + 同播放源 + 同集号 + 同播放线路）
+        const currentLineId = sources[0]?.id ?? null;
+        const history = await provider.getWatchHistoryByEpisodeId(episode.mediaId, episode.id);
         let seekTime = 0;
-        if (history && history.episodeId === episode.id) {
+        if (history && history.progress > 0) {
+          const sameSource = !history.sourceId || history.sourceId === episode.sourceId;
+          const sameLine = !history.playSourceId || history.playSourceId === currentLineId;
           const nearEnd = history.duration > 0 && history.progress >= history.duration - 5;
-          if (!nearEnd) seekTime = history.progress;
+          if (sameSource && sameLine && !nearEnd) seekTime = history.progress;
         }
         setInitialCurrentTime(seekTime);
         skipEligibleRef.current = seekTime < 5 * 60;
@@ -243,7 +246,14 @@ export default function PlayScreen({ route, navigation }: Props) {
       const now = Date.now();
       const nearEnd = Math.floor(currentTime) >= duration - 2;
       if (now - lastSaveTime >= 10000 || nearEnd) {
-        saveWatchProgress(mediaId, currentEpisodeId, Math.floor(currentTime), Math.floor(duration));
+        saveWatchProgress(
+          mediaId,
+          currentEpisodeId,
+          Math.floor(currentTime),
+          Math.floor(duration),
+          selectedSourceId ?? null,
+          playSources[activePlayIdx]?.id ?? null,
+        );
         setLastSaveTime(now);
         getStore().getState().scheduleRecommendationRecompute();
       }

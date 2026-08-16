@@ -130,6 +130,8 @@ export function rowToWatchHistory(row: any): WatchHistory {
     episodeId: row.episode_id,
     progress: row.progress || 0,
     duration: row.duration || 0,
+    sourceId: row.source_id,
+    playSourceId: row.play_source_id,
     updatedAt: row.updated_at,
   };
 }

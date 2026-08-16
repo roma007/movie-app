@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
-import { Heart, ChevronRight, ArrowLeft, EyeOff, Star } from 'lucide-react';
+import { Heart, ThumbsDown, ChevronRight, ArrowLeft, EyeOff, Star } from 'lucide-react';
 import type { Media, Episode, PlaySource, VideoSource, MediaNavState } from '@movie-app/core';
 import { VideoDurationService, UNCATEGORIZED_GENRE } from '@movie-app/core';
 import { markSearchFromDetail } from '@/lib/searchReturnFlag';
@@ -35,7 +35,7 @@ export default function DetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const { currentMedia, episodes, seasons, isLoading, error, episodeSources, seriesMedia, loadMediaDetail, loadSeasons, loadEpisodes, loadSeasonEpisodes, loadSeriesMedia, toggleFav, hideMediaByGenres, fetchMediaRating, isRatingLoading } = useAppStore();
+  const { currentMedia, episodes, seasons, isLoading, error, episodeSources, seriesMedia, loadMediaDetail, loadSeasons, loadEpisodes, loadSeasonEpisodes, loadSeriesMedia, toggleFav, hideMediaByGenres, fetchMediaRating, isRatingLoading, toggleDislike, isDisliked: checkDisliked } = useAppStore();
   const toast = useToast();
   const setBgImage = useBackgroundStore((s) => s.setBgImage);
   const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
@@ -43,6 +43,7 @@ export default function DetailPage() {
   const [currentSeason, setCurrentSeason] = useState(1);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [isFav, setIsFav] = useState(false);
+  const [isDisliked, setIsDisliked] = useState(false);
   const [, setEpisodeDurations] = useState<Record<string, number | null>>({});
   const [allPlaySources, setAllPlaySources] = useState<Record<string, PlaySource[]>>({});
   const [watchedEpisodes, setWatchedEpisodes] = useState<Set<string>>(new Set());
@@ -64,6 +65,7 @@ export default function DetailPage() {
     loadSeasons(id);
     loadSeriesMedia(id);
     getProvider().isFavorite(id).then(setIsFav).catch(() => {});
+    checkDisliked(id).then(setIsDisliked).catch(() => {});
     getProvider().getAllWatchHistoryByMediaId(id).then(history => {
       const watched = new Set<string>();
       for (const h of history) {
@@ -169,6 +171,13 @@ export default function DetailPage() {
     const result = await toggleFav(id);
     setIsFav(result);
     getStore().getState().scheduleRecommendationRecompute();
+  };
+
+  const handleDislike = async () => {
+    if (!id) return;
+    const result = await toggleDislike(id);
+    setIsDisliked(result);
+    toast(result ? '已标记为不感兴趣，不再推荐此类内容' : '已取消不感兴趣');
   };
 
   const handleHide = async () => {
@@ -311,6 +320,16 @@ export default function DetailPage() {
                     >
                       <Heart className={`size-4 ${isFav ? 'fill-current' : ''}`} />
                       {isFav ? '已收藏' : '收藏'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDislike}
+                      className={isDisliked ? 'bg-destructive/20 text-destructive' : ''}
+                      title="标记不感兴趣：降低本片及同类内容推荐权重"
+                    >
+                      <ThumbsDown className="size-4" />
+                      {isDisliked ? '已不感兴趣' : '不感兴趣'}
                     </Button>
                   </div>
                 {media.alias && (

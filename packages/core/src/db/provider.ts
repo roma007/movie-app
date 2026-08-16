@@ -133,7 +133,15 @@ export interface DatabaseProvider {
   getWatchHistoryCount(): Promise<number>;
   getWatchHistoryByMediaId(mediaId: string): Promise<WatchHistory | null>;
   getAllWatchHistoryByMediaId(mediaId: string): Promise<WatchHistory[]>;
-  upsertWatchHistory(mediaId: string, episodeId: string | null, progress: number, duration: number): Promise<void>;
+  getWatchHistoryByEpisodeId(mediaId: string, episodeId: string): Promise<WatchHistory | null>;
+  upsertWatchHistory(
+    mediaId: string,
+    episodeId: string | null,
+    progress: number,
+    duration: number,
+    sourceId?: string | null,
+    playSourceId?: string | null,
+  ): Promise<void>;
   clearWatchHistory(): Promise<void>;
   deleteWatchHistory(mediaId: string): Promise<void>;
 
@@ -164,6 +172,19 @@ export interface DatabaseProvider {
   }[]): Promise<void>;
   /** 清空 impression、user_interest_tag、recommend_snapshot 并将全表 personal_score 置 0（「清空重学」数据部分）。 */
   resetRecommendationData(): Promise<void>;
+
+  // —— Dislike DAO（不感兴趣） ——
+  /** 返回全部已标记不感兴趣的 mediaId。 */
+  getDislikedMediaIds(): Promise<string[]>;
+  /** 不感兴趣列表详情（含影片标题，供设置页展示）。 */
+  getDislikedMediaDetail(): Promise<{ mediaId: string; title: string; createdAt: string }[]>;
+  addDislike(mediaId: string): Promise<void>;
+  removeDislike(mediaId: string): Promise<void>;
+
+  // —— InterestTagBlacklist DAO（兴趣标签黑名单） ——
+  getInterestTagBlacklist(): Promise<{ tag: string; tagType: string; createdAt: string }[]>;
+  addInterestTagBlacklist(tag: string, tagType: string): Promise<void>;
+  removeInterestTagBlacklist(tag: string, tagType: string): Promise<void>;
 
   // —— CollectTask DAO ——
   createCollectTask(task: CollectTask): Promise<void>;

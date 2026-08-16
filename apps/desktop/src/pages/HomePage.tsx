@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
-import { ArrowLeft, Search, X, Heart, Clock, ChevronRight as ChevronRightIcon, Film, Tv, Sparkles, Download, Plus, Database, Loader2 } from 'lucide-react';
+import { ArrowLeft, Search, X, Heart, Clock, ChevronRight as ChevronRightIcon, Film, Tv, Sparkles, Download, Plus, Database, Loader2, Check } from 'lucide-react';
 import { useToast } from '@/components/Layout';
 import { markSearchFromDetail, consumeSearchFromDetail, resetSearchFromDetail } from '@/lib/searchReturnFlag';
 
@@ -294,40 +294,62 @@ export default function HomePage() {
         </div>
       )}
       {hasQuickSearched && !previewLoading && quickCollectCount === 0 && previewResults.length > 0 && (
-        <div className="space-y-2 max-h-64 overflow-y-auto bg-[var(--color-surface-alpha)] rounded-lg p-2">
-          {previewResults.map((item) => (
-            <label
-              key={item.previewId}
-              className="flex items-center gap-3 p-2 rounded hover:bg-secondary/50 cursor-pointer"
-            >
-              <input
-                type="checkbox"
-                checked={selectedPreviewIds.has(item.previewId)}
-                onChange={() => togglePreviewItem(item.previewId)}
-                className="size-5 accent-primary cursor-pointer"
-              />
-              {item.posterUrl && (
-                <PosterImage src={item.posterUrl} alt="" className="size-10 object-cover rounded" />
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">{item.title}</div>
-                <div className="text-xs text-muted-foreground">{item.year} · {item.type} · {item.sourceName}</div>
+        <div className="grid grid-cols-6 gap-4 max-h-[32rem] overflow-y-auto pr-1">
+          {previewResults.map((item) => {
+            const checked = selectedPreviewIds.has(item.previewId);
+            return (
+              <div
+                key={item.previewId}
+                className={`group cursor-pointer overflow-hidden rounded-lg bg-[var(--color-card-alpha)] border transition-all ${checked ? 'border-primary' : 'border-transparent hover:border-muted-foreground/40'}`}
+                onClick={() => togglePreviewItem(item.previewId)}
+              >
+                <div className="aspect-[2/3] bg-[var(--color-secondary-alpha)] overflow-hidden relative">
+                  {item.posterUrl && (
+                    <PosterImage src={item.posterUrl} alt="" className="size-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  )}
+                  <div className={`absolute top-1.5 left-1.5 z-10 flex items-center justify-center size-5 rounded-md border-2 transition-colors ${checked ? 'bg-primary border-primary text-white' : 'bg-black/40 border-white/70'}`}>
+                    {checked && <Check className="size-3.5" />}
+                  </div>
+                </div>
+                <div className="px-1.5 py-1.5 space-y-0.5">
+                  <div className="text-xs font-medium truncate">{item.title}</div>
+                  <div className="text-[10px] text-muted-foreground truncate">{item.year} · {item.area || item.type} · {item.sourceName}</div>
+                </div>
               </div>
-            </label>
-          ))}
+            );
+          })}
         </div>
       )}
       {hasQuickSearched && !previewLoading && quickCollectCount === 0 && previewResults.length > 0 && (
-        <>
-          <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mt-3">
+          <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">
               已选 {selectedPreviewIds.size} / 共 {previewResults.length} 个
             </span>
-            <Button size="sm" onClick={handleQuickCollect} disabled={isSaving} variant="default">
-              {isSaving ? <><Loader2 className="size-3 mr-1 animate-spin" /> 保存中...</> : <><Plus className="size-3 mr-1" />一键采集</>}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setSelectedPreviewIds(new Set(previewResults.map((p) => p.previewId)))}
+            >
+              全选
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setSelectedPreviewIds((prev) => {
+                  const next = new Set(previewResults.filter((p) => !prev.has(p.previewId)).map((p) => p.previewId));
+                  return next;
+                });
+              }}
+            >
+              反选
             </Button>
           </div>
-        </>
+          <Button size="sm" onClick={handleQuickCollect} disabled={isSaving} variant="default">
+            {isSaving ? <><Loader2 className="size-3 mr-1 animate-spin" /> 保存中...</> : <><Plus className="size-3 mr-1" />一键采集</>}
+          </Button>
+        </div>
       )}
     </Card>
   );

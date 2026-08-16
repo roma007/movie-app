@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
-import { ArrowLeft, Sparkles, ThumbsUp, ThumbsDown, Search, Eye, RotateCcw, RefreshCw } from 'lucide-react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { ArrowLeft, Sparkles, ThumbsUp, ThumbsDown, Search, Eye, RotateCcw, RefreshCw, Ban, Plus, X } from 'lucide-react-native';
 import { useAppStore } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
@@ -9,14 +9,23 @@ import { hexToRgba } from '../themes/colorUtils';
 import { radius } from '../themes/radiusTokens';
 import BlurredBackground from '../components/BlurredBackground';
 import { Button } from '../components/ui/Button';
-import type { RecommendationOverview } from '@movie-app/core';
+import type { RecommendationOverview, DislikedMediaItem, TagBlacklistItem } from '@movie-app/core';
+
+const TAG_TYPE_LABEL: Record<TagBlacklistItem['tagType'], string> = {
+  genre: '类型',
+  director: '导演',
+  actor: '演员',
+  keyword: '关键词',
+};
+
+const TAG_TYPE_OPTIONS: TagBlacklistItem['tagType'][] = ['genre', 'director', 'actor', 'keyword'];
 
 interface Props {
   navigation: any;
 }
 
 export default function RecommendationSettingsScreen({ navigation }: Props) {
-  const { getRecommendationOverview, resetRecommendationLearning, flushRecommendationRecompute } = useAppStore();
+  const { getRecommendationOverview, resetRecommendationLearning, flushRecommendationRecompute, getDislikedMedia, listInterestTagBlacklist, toggleInterestTagBlacklist, toggleDislike } = useAppStore();
   const colors = useThemeColors();
   const cardOpacity = useThemeStore((s) => s.cardOpacity);
   const cardBg = hexToRgba(colors.card, cardOpacity / 100);
@@ -25,6 +34,10 @@ export default function RecommendationSettingsScreen({ navigation }: Props) {
   const [overview, setOverview] = useState<RecommendationOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [resetting, setResetting] = useState(false);
+  const [dislikedList, setDislikedList] = useState<DislikedMediaItem[]>([]);
+  const [blacklist, setBlacklist] = useState<TagBlacklistItem[]>([]);
+  const [newTag, setNewTag] = useState('');
+  const [newTagType, setNewTagType] = useState<TagBlacklistItem['tagType']>('genre');
 
   const loadOverview = async () => {
     try {
@@ -37,9 +50,50 @@ export default function RecommendationSettingsScreen({ navigation }: Props) {
     }
   };
 
+  const loadLists = async () => {
+    try {
+      const [d, b] = await Promise.all([getDislikedMedia(), listInterestTagBlacklist()]);
+      setDislikedList(d);
+      setBlacklist(b);
+    } catch (err) {
+      console.error('加载列表失败:', err);
+    }
+  };
+
   useEffect(() => {
     loadOverview();
+    loadLists();
   }, []);
+
+  const handleAddTag = async () => {
+    const tag = newTag.trim();
+    if (!tag) return;
+    try {
+      await toggleInterestTagBlacklist(tag, newTagType);
+      setNewTag('');
+      await loadLists();
+    } catch (err) {
+      console.error('添加屏蔽标签失败:', err);
+    }
+  };
+
+  const handleRemoveTag = async (item: TagBlacklistItem) => {
+    try {
+      await toggleInterestTagBlacklist(item.tag, item.tagType);
+      await loadLists();
+    } catch (err) {
+      console.error('取消屏蔽标签失败:', err);
+    }
+  };
+
+  const handleRemoveDislike = async (mediaId: string) => {
+    try {
+      await toggleDislike(mediaId);
+      await loadLists();
+    } catch (err) {
+      console.error('取消不感兴趣失败:', err);
+    }
+  };
 
   const handleReset = () => {
     Alert.alert(
@@ -72,6 +126,7 @@ export default function RecommendationSettingsScreen({ navigation }: Props) {
     try {
       await flushRecommendationRecompute();
       await loadOverview();
+      await loadLists();
     } catch (err) {
       console.error('重新计算失败:', err);
       setLoading(false);
@@ -170,6 +225,57 @@ export default function RecommendationSettingsScreen({ navigation }: Props) {
       fontSize: s(13),
       color: colors.text,
     },
+    chipRemove: {
+      marginLeft: 4,
+    },
+    addRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 12,
+    },
+    addInput: {
+      flex: 1,
+      backgroundColor: hexToRgba(colors.input, cardOpacity / 100),
+      borderRadius: radius.md,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      color: colors.text,
+      fontSize: s(13),
+    },
+    typeChips: {
+      flexDirection: 'row',
+      gap: 6,
+    },
+    typeChip: {
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: radius.sm,
+      backgroundColor: hexToRgba(colors.mutedForeground, cardOpacity / 100 * 0.15),
+    },
+    typeChipActive: {
+      backgroundColor: colors.buttonPrimaryBg,
+    },
+    typeChipText: {
+      fontSize: s(12),
+      color: colors.textSecondary,
+    },
+    typeChipTextActive: {
+      color: colors.buttonPrimaryText,
+    },
+    dislikedRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 9,
+      paddingHorizontal: 10,
+      borderRadius: radius.md,
+    },
+    dislikedTitle: {
+      fontSize: s(14),
+      color: colors.text,
+      flex: 1,
+      marginRight: 8,
+    },
     loading: {
       paddingVertical: 40,
       alignItems: 'center',
@@ -236,6 +342,13 @@ export default function RecommendationSettingsScreen({ navigation }: Props) {
                       <Text style={styles.statLabel}>展示追踪</Text>
                     </View>
                   </View>
+                  <View style={styles.statCard}>
+                    <Ban size={18} color={colors.error} />
+                    <View>
+                      <Text style={styles.statValue}>{overview.dislikedMediaCount}</Text>
+                      <Text style={styles.statLabel}>不感兴趣</Text>
+                    </View>
+                  </View>
                 </View>
               </View>
 
@@ -280,6 +393,89 @@ export default function RecommendationSettingsScreen({ navigation }: Props) {
                       </View>
                     ))}
                   </View>
+                )}
+              </View>
+
+              <View style={[styles.card, styles.cardPadding]}>
+                <View style={styles.sectionTitle}>
+                  <Ban size={16} color={colors.mutedForeground} />
+                  <Text style={styles.sectionTitleText}>已屏蔽的兴趣标签</Text>
+                </View>
+                <Text style={styles.emptyText} numberOfLines={3}>
+                  被屏蔽的标签不再参与推荐学习与打分。影片详情页点「不感兴趣」会自动降低其类型/导演/演员类内容的权重。
+                </Text>
+                <View style={{ height: 10 }} />
+                <View style={styles.addRow}>
+                  <TextInput
+                    style={styles.addInput}
+                    value={newTag}
+                    onChangeText={setNewTag}
+                    placeholder="输入要屏蔽的标签名（如：恐怖）"
+                    placeholderTextColor={colors.mutedForeground}
+                    onSubmitEditing={handleAddTag}
+                    returnKeyType="done"
+                  />
+                  <Button variant="primary" size="sm" leftIcon={<Plus size={14} color={colors.buttonPrimaryText} />} onPress={handleAddTag} disabled={!newTag.trim()}>
+                    添加
+                  </Button>
+                </View>
+                <View style={styles.typeChips}>
+                  {TAG_TYPE_OPTIONS.map((t) => (
+                    <TouchableOpacity
+                      key={t}
+                      style={[styles.typeChip, newTagType === t && styles.typeChipActive]}
+                      onPress={() => setNewTagType(t)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.typeChipText, newTagType === t && styles.typeChipTextActive]}>{TAG_TYPE_LABEL[t]}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <View style={{ height: 12 }} />
+                {blacklist.length === 0 ? (
+                  <Text style={styles.emptyText}>暂无已屏蔽标签。</Text>
+                ) : (
+                  <View style={styles.chipRow}>
+                    {blacklist.map((item) => (
+                      <TouchableOpacity
+                        key={`${item.tagType}:${item.tag}`}
+                        style={styles.chip}
+                        onPress={() => handleRemoveTag(item)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.chipText}>
+                          {TAG_TYPE_LABEL[item.tagType]}：{item.tag}
+                          <Text style={styles.chipRemove}> ✕</Text>
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </View>
+
+              <View style={[styles.card, styles.cardPadding]}>
+                <View style={styles.sectionTitle}>
+                  <ThumbsDown size={16} color={colors.error} />
+                  <Text style={styles.sectionTitleText}>不感兴趣影片（{dislikedList.length}）</Text>
+                </View>
+                {dislikedList.length === 0 ? (
+                  <Text style={styles.emptyText}>
+                    暂无。在影片详情页点「不感兴趣」即可加入，这类影片将不再出现在推荐列表中。
+                  </Text>
+                ) : (
+                  dislikedList.map((m) => (
+                    <TouchableOpacity
+                      key={m.mediaId}
+                      style={styles.dislikedRow}
+                      onPress={() => navigation.navigate('Detail', { id: m.mediaId })}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.dislikedTitle} numberOfLines={1}>{m.title || m.mediaId}</Text>
+                      <TouchableOpacity onPress={() => handleRemoveDislike(m.mediaId)} hitSlop={8}>
+                        <X size={16} color={colors.mutedForeground} />
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  ))
                 )}
               </View>
             </>

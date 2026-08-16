@@ -136,6 +136,8 @@ export const SCHEMA_SQL = `
     episode_id TEXT,
     progress INTEGER DEFAULT 0,
     duration INTEGER DEFAULT 0,
+    source_id TEXT,
+    play_source_id TEXT,
     updated_at TEXT
   );
 
@@ -218,6 +220,20 @@ export const SCHEMA_SQL = `
     position INTEGER,
     score INTEGER DEFAULT 0,
     genre_group TEXT
+  );
+
+  -- 用户「不感兴趣」反馈：屏蔽具体影片（打分 -10、推荐序剔除、标签画像负向）
+  CREATE TABLE IF NOT EXISTS dislike (
+    media_id TEXT PRIMARY KEY,
+    created_at TEXT
+  );
+
+  -- 用户兴趣标签黑名单：屏蔽具体标签（genre/director/actor/keyword），画像与匹配均跳过
+  CREATE TABLE IF NOT EXISTS interest_tag_blacklist (
+    tag TEXT NOT NULL,
+    tag_type TEXT NOT NULL,
+    created_at TEXT,
+    PRIMARY KEY (tag, tag_type)
   );
 
   CREATE INDEX IF NOT EXISTS idx_user_interest_tag_strength ON user_interest_tag(strength);

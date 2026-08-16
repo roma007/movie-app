@@ -263,6 +263,26 @@ const MIGRATIONS: Migration[] = [
     description: 'create_media_personal_score_index',
     sql: `CREATE INDEX IF NOT EXISTS idx_media_personal_score ON media(personal_score, updated_at);`,
   },
+  {
+    version: 30,
+    description: 'create_dislike_and_interest_tag_blacklist_tables',
+    sql: `CREATE TABLE IF NOT EXISTS dislike (
+      media_id TEXT PRIMARY KEY,
+      created_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS interest_tag_blacklist (
+      tag TEXT NOT NULL,
+      tag_type TEXT NOT NULL,
+      created_at TEXT,
+      PRIMARY KEY (tag, tag_type)
+    );`,
+  },
+  {
+    version: 31,
+    description: 'add_watch_history_source_and_play_source_columns',
+    sql: `ALTER TABLE watch_history ADD COLUMN source_id TEXT;
+          ALTER TABLE watch_history ADD COLUMN play_source_id TEXT;`,
+  },
 ];
 
 /**
@@ -1254,6 +1274,14 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     return row ? rowToWatchHistory(row) : null;
   }
 
+  async getWatchHistoryByEpisodeId(mediaId: string, episodeId: string): Promise<WatchHistory | null> {
+    const row = await this.db!.getFirstAsync<any>(
+      'SELECT * FROM watch_history WHERE media_id = ? AND episode_id = ? ORDER BY updated_at DESC LIMIT 1',
+      [mediaId, episodeId]
+    );
+    return row ? rowToWatchHistory(row) : null;
+  }
+
   async getAllWatchHistoryByMediaId(mediaId: string): Promise<WatchHistory[]> {
     const rows = await this.db!.getAllAsync<any>(
       'SELECT * FROM watch_history WHERE media_id = ? ORDER BY updated_at DESC',
@@ -1262,17 +1290,26 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     return rows.map(rowToWatchHistory);
   }
 
-  async upsertWatchHistory(mediaId: string, episodeId: string | null, progress: number, duration: number): Promise<void> {
+  async upsertWatchHistory(
+    mediaId: string,
+    episodeId: string | null,
+    progress: number,
+    duration: number,
+    sourceId?: string | null,
+    playSourceId?: string | null,
+  ): Promise<void> {
     const now = new Date().toISOString();
     const id = `wh_${mediaId}_${episodeId || 'movie'}`;
     await this.db!.runAsync(
-      `INSERT INTO watch_history (id, media_id, episode_id, progress, duration, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO watch_history (id, media_id, episode_id, progress, duration, source_id, play_source_id, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          progress = excluded.progress,
          duration = excluded.duration,
+         source_id = excluded.source_id,
+         play_source_id = excluded.play_source_id,
          updated_at = excluded.updated_at`,
-      [id, mediaId, episodeId, progress, duration, now]
+      [id, mediaId, episodeId, progress, duration, sourceId ?? null, playSourceId ?? null, now]
     );
   }
 
@@ -1393,6 +1430,49 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     await this.db!.runAsync('DELETE FROM user_interest_tag');
     await this.db!.runAsync('DELETE FROM recommend_snapshot');
     await this.db!.runAsync('UPDATE media SET personal_score = 0');
+  }
+
+  async getDislikedMediaIds(): Promise<string[]> {
+    const rows = await this.db!.getAllAsync<{ media_id: string }>('SELECT media_id FROM dislike');
+    return rows.map((r) => r.media_id);
+  }
+
+  async getDislikedMediaDetail(): Promise<{ mediaId: string; title: string; createdAt: string }[]> {
+    const rows = await this.db!.getAllAsync<{ media_id: string; title: string; created_at: string }>(
+      `SELECT d.media_id, COALESCE(m.title, '') AS title, COALESCE(d.created_at, '') AS created_at
+       FROM dislike d LEFT JOIN media m ON m.id = d.media_id
+       ORDER BY d.created_at DESC`
+    );
+    return rows.map((r) => ({ mediaId: r.media_id, title: r.title, createdAt: r.created_at }));
+  }
+
+  async addDislike(mediaId: string): Promise<void> {
+    await this.db!.runAsync(
+      'INSERT INTO dislike (media_id, created_at) VALUES (?, ?) ON CONFLICT(media_id) DO UPDATE SET created_at = excluded.created_at',
+      [mediaId, new Date().toISOString()]
+    );
+  }
+
+  async removeDislike(mediaId: string): Promise<void> {
+    await this.db!.runAsync('DELETE FROM dislike WHERE media_id = ?', [mediaId]);
+  }
+
+  async getInterestTagBlacklist(): Promise<{ tag: string; tagType: string; createdAt: string }[]> {
+    const rows = await this.db!.getAllAsync<{ tag: string; tag_type: string; created_at: string }>(
+      `SELECT tag, tag_type, COALESCE(created_at, '') AS created_at FROM interest_tag_blacklist ORDER BY created_at DESC`
+    );
+    return rows.map((r) => ({ tag: r.tag, tagType: r.tag_type, createdAt: r.created_at }));
+  }
+
+  async addInterestTagBlacklist(tag: string, tagType: string): Promise<void> {
+    await this.db!.runAsync(
+      'INSERT INTO interest_tag_blacklist (tag, tag_type, created_at) VALUES (?, ?, ?) ON CONFLICT(tag, tag_type) DO UPDATE SET created_at = excluded.created_at',
+      [tag, tagType, new Date().toISOString()]
+    );
+  }
+
+  async removeInterestTagBlacklist(tag: string, tagType: string): Promise<void> {
+    await this.db!.runAsync('DELETE FROM interest_tag_blacklist WHERE tag = ? AND tag_type = ?', [tag, tagType]);
   }
 
   async createCollectTask(task: CollectTask): Promise<void> {

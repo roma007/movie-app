@@ -6,17 +6,32 @@ import { useToast } from '@/components/Layout';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, RefreshCw, Sparkles, RotateCcw, ThumbsDown, ThumbsUp, Search, Eye } from 'lucide-react';
-import type { RecommendationOverview } from '@movie-app/core';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { ArrowLeft, RefreshCw, Sparkles, RotateCcw, ThumbsDown, ThumbsUp, Search, Eye, X, Plus, Ban } from 'lucide-react';
+import type { RecommendationOverview, DislikedMediaItem, TagBlacklistItem } from '@movie-app/core';
+
+const TAG_TYPE_LABEL: Record<TagBlacklistItem['tagType'], string> = {
+  genre: '类型',
+  director: '导演',
+  actor: '演员',
+  keyword: '关键词',
+};
+
+const TAG_TYPE_OPTIONS = ['genre', 'director', 'actor', 'keyword'] as const;
 
 export default function RecommendationSettingsPage() {
   const navigate = useNavigate();
   const confirm = useConfirm();
   const toast = useToast();
-  const { getRecommendationOverview, resetRecommendationLearning, flushRecommendationRecompute } = useAppStore();
+  const { getRecommendationOverview, resetRecommendationLearning, flushRecommendationRecompute, getDislikedMedia, listInterestTagBlacklist, toggleInterestTagBlacklist, toggleDislike } = useAppStore();
   const [overview, setOverview] = useState<RecommendationOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [resetting, setResetting] = useState(false);
+  const [dislikedList, setDislikedList] = useState<DislikedMediaItem[]>([]);
+  const [blacklist, setBlacklist] = useState<TagBlacklistItem[]>([]);
+  const [newTag, setNewTag] = useState('');
+  const [newTagType, setNewTagType] = useState<TagBlacklistItem['tagType']>('genre');
 
   const loadOverview = async () => {
     try {
@@ -29,8 +44,19 @@ export default function RecommendationSettingsPage() {
     }
   };
 
+  const loadLists = async () => {
+    try {
+      const [d, b] = await Promise.all([getDislikedMedia(), listInterestTagBlacklist()]);
+      setDislikedList(d);
+      setBlacklist(b);
+    } catch (err: any) {
+      toast(`加载列表失败: ${err?.message || '未知错误'}`, 'error');
+    }
+  };
+
   useEffect(() => {
     loadOverview();
+    loadLists();
   }, []);
 
   const handleReset = async () => {
@@ -57,7 +83,41 @@ export default function RecommendationSettingsPage() {
     setLoading(true);
     await flushRecommendationRecompute();
     await loadOverview();
+    await loadLists();
     toast('推荐分已重新计算');
+  };
+
+  const handleAddTag = async () => {
+    const tag = newTag.trim();
+    if (!tag) return;
+    try {
+      await toggleInterestTagBlacklist(tag, newTagType);
+      setNewTag('');
+      await loadLists();
+      toast(`已屏蔽 ${TAG_TYPE_LABEL[newTagType]}「${tag}」`);
+    } catch (err: any) {
+      toast(`操作失败: ${err?.message || '未知错误'}`, 'error');
+    }
+  };
+
+  const handleRemoveTag = async (item: TagBlacklistItem) => {
+    try {
+      await toggleInterestTagBlacklist(item.tag, item.tagType);
+      await loadLists();
+      toast(`已取消屏蔽 ${TAG_TYPE_LABEL[item.tagType]}「${item.tag}」`);
+    } catch (err: any) {
+      toast(`操作失败: ${err?.message || '未知错误'}`, 'error');
+    }
+  };
+
+  const handleRemoveDislike = async (mediaId: string) => {
+    try {
+      await toggleDislike(mediaId);
+      await loadLists();
+      toast('已取消不感兴趣');
+    } catch (err: any) {
+      toast(`操作失败: ${err?.message || '未知错误'}`, 'error');
+    }
   };
 
   return (
@@ -126,6 +186,13 @@ export default function RecommendationSettingsPage() {
                 <div className="text-xs text-muted-foreground mt-1">展示追踪</div>
               </div>
             </Card>
+            <Card className="p-4 flex items-center gap-3">
+              <Ban className="size-5 text-error shrink-0" />
+              <div>
+                <div className="text-2xl font-bold leading-none">{overview.dislikedMediaCount}</div>
+                <div className="text-xs text-muted-foreground mt-1">不感兴趣</div>
+              </div>
+            </Card>
           </div>
 
           <Card className="p-5 space-y-3">
@@ -168,6 +235,93 @@ export default function RecommendationSettingsPage() {
                   <span key={g} className="px-3 py-1 rounded-md bg-muted-foreground/15 text-sm">
                     {g}
                   </span>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          <Card className="p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <Ban className="size-4 text-muted-foreground" />
+              <h2 className="font-medium">已屏蔽的兴趣标签</h2>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              被屏蔽的标签不再参与推荐学习与打分。影片详情页点「不感兴趣」会自动降低其类型/导演/演员类内容的权重。
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Input
+                value={newTag}
+                onChange={(e) => setNewTag(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleAddTag();
+                }}
+                placeholder="输入要屏蔽的标签名（如：恐怖）"
+                className="flex-1 min-w-40 h-9"
+              />
+              <select
+                value={newTagType}
+                onChange={(e) => setNewTagType(e.target.value as TagBlacklistItem['tagType'])}
+                className="h-9 rounded-md bg-[var(--color-input-alpha)] px-2 text-sm focus:outline-none"
+              >
+                {TAG_TYPE_OPTIONS.map((t) => (
+                  <option key={t} value={t}>
+                    {TAG_TYPE_LABEL[t]}
+                  </option>
+                ))}
+              </select>
+              <Button variant="outline" size="sm" onClick={handleAddTag} disabled={!newTag.trim()} className="h-9 shrink-0">
+                <Plus className="size-4" /> 添加
+              </Button>
+            </div>
+            {blacklist.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                暂无已屏蔽标签。
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {blacklist.map((item) => (
+                  <Badge key={`${item.tagType}:${item.tag}`} variant="outline" className="gap-1.5 pr-1.5 py-1">
+                    {TAG_TYPE_LABEL[item.tagType]}：{item.tag}
+                    <button
+                      onClick={() => handleRemoveTag(item)}
+                      className="text-muted-foreground hover:text-text transition-colors"
+                      title="取消屏蔽"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          <Card className="p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <ThumbsDown className="size-4 text-error" />
+              <h2 className="font-medium">不感兴趣影片（{dislikedList.length}）</h2>
+            </div>
+            {dislikedList.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                暂无。在影片详情页点「不感兴趣」即可加入，这类影片将不再出现在推荐列表中。
+              </p>
+            ) : (
+              <div className="space-y-1">
+                {dislikedList.map((m) => (
+                  <div key={m.mediaId} className="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-hover transition-colors">
+                    <button
+                      className="flex-1 text-left text-sm truncate hover:text-text"
+                      onClick={() => navigate(`/media/${m.mediaId}`)}
+                    >
+                      {m.title || m.mediaId}
+                    </button>
+                    <button
+                      onClick={() => handleRemoveDislike(m.mediaId)}
+                      className="text-muted-foreground hover:text-text shrink-0 transition-colors"
+                      title="取消不感兴趣"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
                 ))}
               </div>
             )}

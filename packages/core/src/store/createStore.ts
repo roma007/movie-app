@@ -140,7 +140,14 @@ export interface AppState {
   toggleFav: (mediaId: string) => Promise<boolean>;
 
   loadWatchHistory: (page?: number) => Promise<void>;
-  saveWatchProgress: (mediaId: string, episodeId: string | null, progress: number, duration: number) => Promise<void>;
+  saveWatchProgress: (
+    mediaId: string,
+    episodeId: string | null,
+    progress: number,
+    duration: number,
+    sourceId?: string | null,
+    playSourceId?: string | null,
+  ) => Promise<void>;
   clearHistory: () => Promise<void>;
   removeHistoryItem: (mediaId: string) => Promise<void>;
 
@@ -153,6 +160,16 @@ export interface AppState {
   resetRecommendationLearning: () => Promise<void>;
   /** 获取设置页「推荐偏好」概览。 */
   getRecommendationOverview: () => Promise<RecommendationOverview>;
+  /** 查询某 media 是否已标记不感兴趣。 */
+  isDisliked: (mediaId: string) => Promise<boolean>;
+  /** 切换不感兴趣（写库 + 触发重算），返回切换后的状态。 */
+  toggleDislike: (mediaId: string) => Promise<boolean>;
+  /** 不感兴趣列表详情（设置页展示）。 */
+  getDislikedMedia: () => Promise<DislikedMediaItem[]>;
+  /** 兴趣标签黑名单列表。 */
+  listInterestTagBlacklist: () => Promise<TagBlacklistItem[]>;
+  /** 切换兴趣标签黑名单（写库 + 触发重算），返回切换后的状态。 */
+  toggleInterestTagBlacklist: (tag: string, tagType: 'genre' | 'director' | 'actor' | 'keyword') => Promise<boolean>;
 
   loadCollectConfig: () => Promise<void>;
   updateCollectConfig: (config: Partial<CollectConfig>) => Promise<void>;
@@ -234,7 +251,7 @@ import { SystemConfigService } from '../services/systemConfigService';
 import { CollectorService } from '../services/collectorService';
 import { SourceImportService } from '../services/sourceImportService';
 import { AutoCollectScheduler } from '../services/autoCollectScheduler';
-import { RecommendationService, type RecommendationOverview } from '../services/recommendationService';
+import { RecommendationService, type RecommendationOverview, type DislikedMediaItem, type TagBlacklistItem } from '../services/recommendationService';
 
 /**
  * Zustand store 工厂函数（依赖注入 DatabaseProvider）。
@@ -555,15 +572,22 @@ export function createAppStore(db: DatabaseProvider) {
       }
     },
 
-    saveWatchProgress: async (mediaId: string, episodeId: string | null, progress: number, duration: number) => {
+    saveWatchProgress: async (
+      mediaId: string,
+      episodeId: string | null,
+      progress: number,
+      duration: number,
+      sourceId?: string | null,
+      playSourceId?: string | null,
+    ) => {
       try {
-        await db.upsertWatchHistory(mediaId, episodeId, progress, duration);
+        await db.upsertWatchHistory(mediaId, episodeId, progress, duration, sourceId, playSourceId);
         const count = await db.getWatchHistoryCount();
         set((state) => {
           const now = new Date().toISOString();
           const id = `wh_${mediaId}_${episodeId || 'movie'}`;
           const existingIndex = state.watchHistory.findIndex(h => h.mediaId === mediaId);
-          const updatedItem = { id, mediaId, episodeId, progress, duration, updatedAt: now };
+          const updatedItem = { id, mediaId, episodeId, progress, duration, sourceId, playSourceId, updatedAt: now };
           let newHistory;
           if (existingIndex >= 0) {
             newHistory = [...state.watchHistory];
@@ -611,6 +635,26 @@ export function createAppStore(db: DatabaseProvider) {
 
     getRecommendationOverview: async () => {
       return recommendationService.getOverview();
+    },
+
+    isDisliked: async (mediaId: string) => {
+      return recommendationService.isDisliked(mediaId);
+    },
+
+    toggleDislike: async (mediaId: string) => {
+      return recommendationService.toggleDislike(mediaId);
+    },
+
+    getDislikedMedia: async () => {
+      return recommendationService.getDislikedMedia();
+    },
+
+    listInterestTagBlacklist: async () => {
+      return recommendationService.listInterestTagBlacklist();
+    },
+
+    toggleInterestTagBlacklist: async (tag, tagType) => {
+      return recommendationService.toggleInterestTagBlacklist(tag, tagType);
     },
 
     loadCollectConfig: async () => {
