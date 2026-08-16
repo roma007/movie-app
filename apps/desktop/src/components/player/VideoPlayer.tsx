@@ -179,6 +179,7 @@ export function VideoPlayer({
         const ct = videoEl!.currentTime;
         const dur = videoEl!.duration || 0;
         currentTimeRef.current = ct;
+        prefetchManager.onPlaybackTime(ct);
         onTimeUpdateRef.current?.(ct, dur);
       };
       videoEl.addEventListener('timeupdate', handler);
@@ -448,6 +449,7 @@ export function VideoPlayer({
           }}
         />
         {overlays}
+        <SegmentProgress open={segmentProgressOn} onClose={() => setSegmentProgressOn(false)} />
       </MediaPlayer>
       {loading && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black text-muted-foreground">
@@ -460,7 +462,6 @@ export function VideoPlayer({
           {skipNotice}
         </div>
       )}
-      <SegmentProgress open={segmentProgressOn} onClose={() => setSegmentProgressOn(false)} />
     </div>
   );
 }

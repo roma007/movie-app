@@ -29,7 +29,7 @@ export function SegmentProgress({ open, onClose }: SegmentProgressProps) {
 
   return (
     <div
-      className="absolute bottom-16 left-1/2 -translate-x-1/2 z-10 pointer-events-none select-none"
+      className="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 pointer-events-none select-none"
       onPointerDown={(e) => e.stopPropagation()}
       onPointerUp={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}

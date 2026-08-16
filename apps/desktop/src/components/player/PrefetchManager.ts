@@ -37,6 +37,8 @@ interface CachedEntry {
 interface Segment {
   url: string;
   duration: number;
+  /** 精确起始时间（秒），来自 hls.js frag.start；缺失时用累计 EXTINF 时长兜底 */
+  start?: number;
 }
 
 interface SegState {
@@ -107,6 +109,8 @@ class PrefetchManager {
   private manifestUrl = '';
   private frontier = 0;
   private playerIndex = 0;
+  /** 真实播放位置所在分片索引（由 onPlaybackTime 驱动，显示层专用） */
+  private playIndex = 0;
   private activePrefetch = 0;
   private scheduling = false;
   private concurrency = DEFAULT_CONCURRENCY;
@@ -316,10 +320,58 @@ class PrefetchManager {
   }
 
   /** 播放器请求分片（hls.js loader 调用）。命中缓存秒回，未命中走连接池。 */
-  fetchSegment(url: string, start: number, end: number): Promise<FetchResult> {
+  fetchSegment(url: string, start: number, end: number, fragStart?: number, fragDuration?: number): Promise<FetchResult> {
+    if (fragStart !== undefined && fragDuration !== undefined) this.recordFragStart(url, fragStart, fragDuration);
     const res = this.fetchAndCache(url, start, end);
     this.onPlayerSegment(url, start);
     return res;
+  }
+
+  /** 记录 hls.js 提供的分片精确起止时间（显示层播放位置映射用）。 */
+  private recordFragStart(url: string, fragStart: number, fragDuration: number): void {
+    const idx = this.indexOf(url);
+    if (idx === -1) return;
+    const seg = this.segments[idx];
+    if (!seg) return;
+    seg.start = fragStart;
+    seg.duration = fragDuration;
+  }
+
+  /** 为缺少精确 start 的分片补上累计时长兜底起始时间。 */
+  private ensureSegStarts(): void {
+    let acc = 0;
+    for (const seg of this.segments) {
+      if (seg.start === undefined) seg.start = acc;
+      acc = seg.start + seg.duration;
+    }
+  }
+
+  /**
+   * 播放位置推进（video timeupdate 驱动）。据此计算「正在播放的分片」，
+   * 并仅当真实播放越过某分片时才将其标记为 departing（淡出）。
+   * 显示语义与原始需求「预读完成未播放的保持显示，直到播放后消失」一致。
+   */
+  onPlaybackTime(currentTime: number): void {
+    if (this.segments.length === 0) return;
+    let idx = 0;
+    for (let i = 0; i < this.segments.length; i++) {
+      const start = this.segments[i].start ?? 0;
+      if (currentTime >= start) idx = i;
+      else break;
+    }
+    const prev = this.playIndex;
+    if (idx === prev) return;
+    this.playIndex = idx;
+    if (idx < prev) {
+      for (const dIdx of [...this.departing.keys()]) {
+        if (dIdx >= idx) this.departing.delete(dIdx);
+      }
+    } else {
+      for (let i = prev; i < idx; i++) {
+        this.markDeparting(i);
+      }
+    }
+    this.notify();
   }
 
   private onPlayerSegment(url: string, _start: number): void {
@@ -331,18 +383,11 @@ class PrefetchManager {
     if (idx < prev) {
       this.log(`播放器倒退到 seg[${idx}]（上次 ${prev}），重置前沿`);
       this.frontier = idx;
-      for (const dIdx of [...this.departing.keys()]) {
-        if (dIdx >= idx) this.departing.delete(dIdx);
-      }
     } else if (idx > this.frontier) {
       this.log(`播放器跳到前沿之后的 seg[${idx}]（前沿 ${this.frontier}），重置前沿`);
       this.frontier = idx;
     }
-    for (let i = prev; i < idx; i++) {
-      this.markDeparting(i);
-    }
     this.ensurePrefetch();
-    this.notify();
   }
 
   /** 清单解析后的播种与预取推进。 */
@@ -365,10 +410,12 @@ class PrefetchManager {
       this.segments = parsed.segments;
       this.frontier = 0;
       this.playerIndex = 0;
+      this.playIndex = 0;
       this.segStates.clear();
       this.departing.clear();
       this.notify();
     }
+    this.ensureSegStarts();
     const totalDuration = this.segments.reduce((acc, s) => acc + s.duration, 0);
     this.log(`已解析 ${this.segments.length} 个分片（约 ${(totalDuration / 60).toFixed(1)} 分钟）`);
     this.ensurePrefetch();
@@ -488,14 +535,14 @@ class PrefetchManager {
     for (const [index, st] of this.segStates) {
       const seg = this.segments[index];
       if (!seg) continue;
-      if (index >= this.playerIndex) {
+      if (index >= this.playIndex) {
         items.push({
           index,
           duration: seg.duration,
           progress: st.done ? 1 : st.total ? Math.min(1, st.loaded / st.total) : null,
           done: st.done,
           error: st.error,
-          playing: index === this.playerIndex,
+          playing: index === this.playIndex,
           departing: false,
         });
       } else if (this.departing.has(index)) {
@@ -551,6 +598,7 @@ class PrefetchManager {
     this.manifestUrl = '';
     this.frontier = 0;
     this.playerIndex = 0;
+    this.playIndex = 0;
     this.activePrefetch = 0;
     this.scheduling = false;
     this.cache.clear();

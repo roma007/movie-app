@@ -108,8 +108,9 @@ export class TauriLoader {
   private async loadFragment(url: string): Promise<void> {
     const start = this.context.rangeStart || 0;
     const end = this.context.rangeEnd || 0;
+    const frag = this.context.frag;
     try {
-      const res = await prefetchManager.fetchSegment(url, start, end);
+      const res = await prefetchManager.fetchSegment(url, start, end, frag?.start, frag?.duration);
       if (this.cancelled) return;
       if (!res.ok) {
         this.fail(`HTTP ${res.status} ${res.statusText}`, res.status);
