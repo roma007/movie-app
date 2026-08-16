@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import type { Media } from '@movie-app/core';
 import { useAppStore } from '../useAppStore';
 import { getProvider, getStore } from '../init';
@@ -9,8 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
-import { LayoutGrid, List, ChevronLeft, ChevronRight, Search, X, Columns3, ArrowLeft } from 'lucide-react';
-import { markSearchFromDetail, consumeSearchFromDetail, resetSearchFromDetail } from '../lib/searchReturnFlag';
+import { LayoutGrid, List, ChevronLeft, ChevronRight, Search, X, Columns3 } from 'lucide-react';
 
 const pageSize = 30;
 
@@ -135,12 +134,11 @@ const typeNames: Record<string, string> = {
 };
 
 export default function CategoryPage({ type }: CategoryPageProps) {
-  const { mediaList, mediaMeta, isLoading, loadMediaList, searchMedia, getSubTypesByType, getYearsByType, getAreasByType, hasShortDrama } = useAppStore();
+  const { mediaList, mediaMeta, isLoading, loadMediaList, getSubTypesByType, getYearsByType, getAreasByType, hasShortDrama } = useAppStore();
   const setBgImage = useBackgroundStore((s) => s.setBgImage);
   const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
-  const location = useLocation();
   const [activeSubType, setActiveSubType] = useState<string | undefined>(() => searchParams.get('subType') || undefined);
   const [activeYear, setActiveYear] = useState<number | undefined>(() => {
     const year = searchParams.get('year');
@@ -166,27 +164,11 @@ export default function CategoryPage({ type }: CategoryPageProps) {
   const [showColumnsMenu, setShowColumnsMenu] = useState(false);
   const [showShortDramaFilter, setShowShortDramaFilter] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
-  const [isSearchLoading, setIsSearchLoading] = useState(false);
   const hasRestoredScroll = useRef(false);
   const hasTriggeredLoad = useRef(false);
   const columnsMenuRef = useRef<HTMLDivElement>(null);
 
   const scrollKey = `scrollPos_${type}`;
-
-  useEffect(() => {
-    const state = location.state as { searchKeyword?: string } | undefined;
-    if (state?.searchKeyword) {
-      const kw = state.searchKeyword.trim();
-      if (kw) {
-        markSearchFromDetail();
-        setSearchKeyword(kw);
-        setIsSearching(true);
-        searchMedia(kw).catch(() => {});
-        window.history.replaceState({}, document.title);
-      }
-    }
-  }, []);
 
   useEffect(() => {
     if (!showColumnsMenu) return;
@@ -235,9 +217,9 @@ export default function CategoryPage({ type }: CategoryPageProps) {
     loadMediaList({ page: currentPage, pageSize, type, sort, subType: activeSubType, year: activeYear, area: activeArea, isShortDrama: activeEpisodeType === 'short' ? true : activeEpisodeType === 'long' ? false : undefined });
   }, [type, sort, activeSubType, activeYear, activeArea, activeEpisodeType, currentPage]);
 
-  // 「越看越懂你」：浏览模式（非搜索）记录每页展示；到达惩罚边界则触发重算
+  // 「越看越懂你」：记录每页展示；到达惩罚边界则触发重算
   useEffect(() => {
-    if (isSearching || mediaList.length === 0) return;
+    if (mediaList.length === 0) return;
     const shownAt = new Date().toISOString();
     void getProvider()
       .recordImpressions(mediaList.map((m) => ({ mediaId: m.id, shownAt })))
@@ -247,7 +229,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
         }
       })
       .catch((e) => console.error('记录列表展示失败:', e));
-  }, [mediaList, isSearching]);
+  }, [mediaList]);
 
   useEffect(() => {
     if (isLoading) {
@@ -271,26 +253,10 @@ export default function CategoryPage({ type }: CategoryPageProps) {
     fetchShortDramaFlag();
   }, [type]);
 
-  const handleSearch = async () => {
+  const handleSearch = () => {
     const kw = searchKeyword.trim();
     if (!kw) return;
-    setIsSearching(true);
-    setIsSearchLoading(true);
-    try {
-      await getProvider().addSearchHistory(kw);
-      await searchMedia(kw);
-      getStore().getState().scheduleRecommendationRecompute();
-    } finally {
-      setIsSearchLoading(false);
-    }
-  };
-
-  const handleClearSearch = () => {
-    resetSearchFromDetail();
-    setSearchKeyword('');
-    setIsSearching(false);
-    setIsSearchLoading(false);
-    loadMediaList({ page: 1, pageSize, type, sort, subType: activeSubType, year: activeYear, area: activeArea, isShortDrama: activeEpisodeType === 'short' ? true : activeEpisodeType === 'long' ? false : undefined });
+    navigate(`/search?q=${encodeURIComponent(kw)}`);
   };
 
   const fetchFilters = async () => {
@@ -386,21 +352,6 @@ export default function CategoryPage({ type }: CategoryPageProps) {
   return (
     <div className="p-6 space-y-5 max-w-7xl mx-auto">
       <div className="flex gap-2">
-        {isSearching && (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              if (consumeSearchFromDetail()) {
-                navigate(-1);
-              } else {
-                handleClearSearch();
-              }
-            }}
-            className="shrink-0"
-          >
-            <ArrowLeft className="size-4 mr-2" /> 返回
-          </Button>
-        )}
         <div className="relative flex-1">
           <Input
             placeholder="搜索电影、电视剧、综艺..."
@@ -408,13 +359,12 @@ export default function CategoryPage({ type }: CategoryPageProps) {
             onChange={(e) => setSearchKeyword(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleSearch();
-              if (e.key === 'Escape' && isSearching) handleClearSearch();
             }}
             className="flex-1 bg-[var(--color-input-alpha)] pr-8"
           />
           {searchKeyword && (
             <button
-              onClick={handleClearSearch}
+              onClick={() => setSearchKeyword('')}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-text transition-colors"
             >
               <X className="size-4" />
@@ -427,26 +377,8 @@ export default function CategoryPage({ type }: CategoryPageProps) {
         </Button>
       </div>
 
-      {isSearching ? (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-medium">搜索结果："{searchKeyword}"</h2>
-          </div>
-          {isSearchLoading ? (
-            <div className="flex items-center justify-center h-64 text-muted-foreground">
-              搜索中...
-            </div>
-          ) : mediaList.length > 0 ? (
-            <MediaGrid items={mediaList} />
-          ) : (
-            <div className="text-center text-muted-foreground py-8">
-              未找到相关内容
-            </div>
-          )}
-        </div>
-      ) : (
-        <>
-          {(subTypes.length > 0 || years.length > 0 || areas.length > 0) && (
+      <>
+        {(subTypes.length > 0 || years.length > 0 || areas.length > 0) && (
             <Card className="space-y-3 p-4">
               {(activeSubType || activeYear || activeArea || activeEpisodeType) && (
                 <Button
@@ -765,7 +697,6 @@ export default function CategoryPage({ type }: CategoryPageProps) {
             </div>
           )}
         </>
-      )}
     </div>
   );
 }

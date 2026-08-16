@@ -33,19 +33,21 @@ export function PlayerOverlays({
           onPointerUp={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="font-semibold text-text mb-0.5 flex items-center justify-between">
+          <div className="font-semibold text-text flex items-center gap-3 whitespace-nowrap">
             <span>快捷键</span>
+            <span className="font-normal flex items-center gap-3">
+              <span className="flex items-center">置顶 <kbd className="ml-1 text-text-secondary">i</kbd></span>
+              <span className="flex items-center">老板键 <kbd className="ml-1 text-text-secondary">Ctrl + `</kbd></span>
+              <span className="flex items-center">全屏 <kbd className="ml-1 text-text-secondary">f</kbd></span>
+            </span>
             <button
               onClick={() => setShortcutsVisible(false)}
-              className="p-0.5 text-text-secondary hover:text-text transition-colors"
+              className="ml-auto p-0.5 text-text-secondary hover:text-text transition-colors"
               aria-label="关闭快捷键提示"
             >
               <X className="size-3.5" />
             </button>
           </div>
-          <div>置顶 <kbd className="ml-1 text-text-secondary">i</kbd></div>
-          <div>老板键 <kbd className="ml-1 text-text-secondary">Ctrl + `</kbd></div>
-          <div>全屏 <kbd className="ml-1 text-text-secondary">f</kbd></div>
         </div>
       )}
       <SkipForwardOverlay

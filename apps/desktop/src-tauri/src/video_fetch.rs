@@ -6,8 +6,9 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use reqwest::Client;
+use serde::Serialize;
 use serde_json::json;
-use tauri::ipc::{InvokeResponseBody, Response};
+use tauri::ipc::{Channel, InvokeResponseBody, Response};
 use tauri::{AppHandle, Manager};
 
 const USER_AGENT: &str =
@@ -117,9 +118,17 @@ pub(crate) fn http_client() -> &'static Client {
     })
 }
 
+/// 下载进度上报载荷：通过 IPC Channel 逐块推送。
+#[derive(Clone, Serialize)]
+pub struct VideoProgress {
+    loaded: u64,
+    total: Option<u64>,
+}
+
 /// 通过常驻连接池发起视频资源请求。
 /// - `headers`: 附加请求头（如 Referer 反盗链头）。
 /// - `range`: 字节区间（`bytes=a-b`），用于 mp4 / BYTERANGE 分片。
+/// - `on_progress`: 进度通道，body 逐块读取时推送 `{ loaded, total }`。
 ///
 /// 返回原始字节帧（经 IPC 以二进制传输，避免大 base64 字符串在 JSON 序列化中丢字段）：
 ///   [status: u16 LE][headers_json_len: u32 LE][headers_json][body 原始字节]
@@ -129,6 +138,7 @@ pub async fn video_fetch(
     url: String,
     headers: Option<HashMap<String, String>>,
     range: Option<String>,
+    on_progress: Channel<VideoProgress>,
 ) -> Result<Response, String> {
     init_log_path(&app);
     ensure_http_url(&url)?;
@@ -172,10 +182,18 @@ pub async fn video_fetch(
         }
     }
 
-    let bytes = resp.bytes().await.map_err(|e| {
+    let total = resp.content_length();
+    let mut loaded: u64 = 0;
+    let mut bytes: Vec<u8> = Vec::new();
+    let mut resp = resp;
+    while let Some(chunk) = resp.chunk().await.map_err(|e| {
         log_err(&format!("[video_fetch] 响应读取失败 {}", redact_url(&url)), &e);
         e.to_string()
-    })?;
+    })? {
+        loaded += chunk.len() as u64;
+        bytes.extend_from_slice(&chunk);
+        let _ = on_progress.send(VideoProgress { loaded, total });
+    }
 
     log_line_raw(&format!(
         "[video_fetch] {}: status={} body_len={}",

@@ -130,6 +130,93 @@ body.bg-image-active {
   animation: spin 1s linear infinite;
 }
 
+/* 预读分片进度条带 */
+@keyframes seg-progress-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scaleX(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleX(1);
+  }
+}
+
+@keyframes seg-progress-flow {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 12px 0;
+  }
+}
+
+@keyframes seg-progress-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.seg-progress-wrap {
+  height: 14px;
+  position: relative;
+  animation: seg-progress-in 0.25s ease;
+}
+
+.seg-progress-bar {
+  position: absolute;
+  inset: 0;
+  background: rgb(255 255 255 / 0.25);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.seg-progress-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: rgb(255 255 255 / 0.9);
+  border-radius: 3px;
+  transition: width 0.15s linear;
+}
+
+.seg-progress-playing {
+  box-shadow: 0 0 8px rgb(74 158 255 / 0.6);
+  animation: seg-progress-pulse 1.6s ease-in-out infinite;
+}
+
+.seg-progress-playing .seg-progress-fill {
+  background: rgb(74 158 255 / 0.95);
+}
+
+.seg-progress-error {
+  background: rgb(239 68 68 / 0.35);
+}
+
+.seg-progress-error .seg-progress-fill {
+  background: rgb(239 68 68 / 0.8);
+}
+
+.seg-progress-indeterminate {
+  background: repeating-linear-gradient(
+    90deg,
+    rgb(255 255 255 / 0.25) 0 6px,
+    rgb(255 255 255 / 0.45) 6px 12px
+  );
+  background-size: 12px 100%;
+  animation: seg-progress-flow 0.8s linear infinite;
+}
+
+.seg-progress-depart {
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+
 @layer utilities {
   .text-primary {
     color: var(--color-primary);

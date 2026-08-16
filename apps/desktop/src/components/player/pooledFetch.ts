@@ -12,6 +12,12 @@ export interface VideoFetchRawResult {
   body: ArrayBuffer;
 }
 
+/** 下载进度载荷（Rust 侧逐块推送）。 */
+export interface VideoProgressPayload {
+  loaded: number;
+  total: number | null;
+}
+
 function normalizeBytes(data: unknown): ArrayBuffer {
   if (data instanceof ArrayBuffer) return data;
   if (data instanceof Uint8Array) {
@@ -36,17 +42,24 @@ function parseRawFrame(buf: ArrayBuffer): VideoFetchRawResult {
 /**
  * 调用 Rust 的 `video_fetch` 命令。invoke 不可用（如浏览器开发环境）时抛出，
  * 由调用方决定回退策略。
+ *
+ * `onProgress` 存在时，通过 IPC Channel 接收 Rust 侧逐块上报的下载进度。
  */
 export async function invokeVideoFetch(
   url: string,
   headers?: Record<string, string>,
   range?: string,
+  onProgress?: (p: VideoProgressPayload) => void,
 ): Promise<VideoFetchRawResult> {
-  const { invoke } = await import('@tauri-apps/api/core');
+  const { invoke, Channel } = await import('@tauri-apps/api/core');
+  const progressChannel = new Channel<VideoProgressPayload>((payload) => {
+    onProgress?.(payload);
+  });
   const raw = await invoke('video_fetch', {
     url,
     headers: headers ?? null,
     range: range ?? null,
+    onProgress: progressChannel,
   });
   return parseRawFrame(normalizeBytes(raw));
 }

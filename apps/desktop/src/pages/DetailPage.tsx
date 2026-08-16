@@ -12,7 +12,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Heart, ThumbsDown, ChevronRight, ArrowLeft, EyeOff, Star } from 'lucide-react';
 import type { Media, Episode, PlaySource, VideoSource, MediaNavState } from '@movie-app/core';
 import { VideoDurationService, UNCATEGORIZED_GENRE } from '@movie-app/core';
-import { markSearchFromDetail } from '@/lib/searchReturnFlag';
 import { PosterImage } from '@/components/PosterImage';
 
 const typeLabel: Record<string, string> = {
@@ -197,37 +196,35 @@ export default function DetailPage() {
   };
 
   const getBackUrl = () => {
-    if (prevState) {
-      if (prevState.subType && prevState.type) {
-        if (prevState.subtypePage) {
-          const params = new URLSearchParams();
-          if (prevState.page) params.set('page', String(prevState.page));
-          if (prevState.sort) params.set('sort', prevState.sort);
-          const qs = params.toString();
-          return `/subtype/${prevState.type}/${encodeURIComponent(prevState.subType)}${qs ? `?${qs}` : ''}`;
-        }
-        const params = new URLSearchParams();
-        if (prevState.page) params.set('page', String(prevState.page));
-        if (prevState.year) params.set('year', String(prevState.year));
-        if (prevState.area) params.set('area', prevState.area);
-        if (prevState.episodeType) params.set('episodeType', prevState.episodeType);
-        if (prevState.sort) params.set('sort', prevState.sort);
-        params.set('subType', prevState.subType);
-        const base = typeRouteMap[prevState.type] || '/';
-        const qs = params.toString();
-        return qs ? `${base}?${qs}` : base;
+    if (!prevState) return -1 as any;
+    const params = new URLSearchParams();
+    if (prevState.page) params.set('page', String(prevState.page));
+    if (prevState.year) params.set('year', String(prevState.year));
+    if (prevState.area) params.set('area', prevState.area);
+    if (prevState.episodeType) params.set('episodeType', prevState.episodeType);
+    if (prevState.sort) params.set('sort', prevState.sort);
+    if (prevState.searchKeyword) params.set('q', prevState.searchKeyword);
+
+    if (prevState.searchKeyword && !prevState.type && !prevState.subType) {
+      return -1 as any;
+    }
+    if (prevState.subType && prevState.type) {
+      if (prevState.subtypePage) {
+        const p = new URLSearchParams();
+        if (prevState.page) p.set('page', String(prevState.page));
+        if (prevState.sort) p.set('sort', prevState.sort);
+        if (prevState.searchKeyword) p.set('q', prevState.searchKeyword);
+        const qs = p.toString();
+        return `/subtype/${prevState.type}/${encodeURIComponent(prevState.subType)}${qs ? `?${qs}` : ''}`;
       }
-      const params = new URLSearchParams();
-      if (prevState.page) params.set('page', String(prevState.page));
-      if (prevState.year) params.set('year', String(prevState.year));
-      if (prevState.area) params.set('area', prevState.area);
-      if (prevState.episodeType) params.set('episodeType', prevState.episodeType);
-      if (prevState.sort) params.set('sort', prevState.sort);
-      const base = prevState.type ? (typeRouteMap[prevState.type] || '/') : '/';
+      params.set('subType', prevState.subType);
+      const base = typeRouteMap[prevState.type] || '/';
       const qs = params.toString();
       return qs ? `${base}?${qs}` : base;
     }
-    return -1 as any;
+    const base = prevState.type ? (typeRouteMap[prevState.type] || '/') : '/';
+    const qs = params.toString();
+    return qs ? `${base}?${qs}` : base;
   };
 
   if (isLoading && !currentMedia) {
@@ -383,7 +380,7 @@ export default function DetailPage() {
                 <span key={d}>
                   <button
                     type="button"
-                    onClick={() => { markSearchFromDetail(); navigate('/', { state: { searchKeyword: d } }); }}
+                    onClick={() => navigate(`/search?q=${encodeURIComponent(d)}`)}
                     className="hover:text-text transition-colors cursor-pointer"
                   >
                     {d}
@@ -398,7 +395,7 @@ export default function DetailPage() {
                 <span key={a}>
                   <button
                     type="button"
-                    onClick={() => { markSearchFromDetail(); navigate('/', { state: { searchKeyword: a } }); }}
+                    onClick={() => navigate(`/search?q=${encodeURIComponent(a)}`)}
                     className="hover:text-text transition-colors cursor-pointer"
                   >
                     {a}

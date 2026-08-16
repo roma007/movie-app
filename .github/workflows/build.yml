@@ -33,13 +33,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "24"
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
+          cache: pnpm
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -52,7 +53,18 @@ jobs:
           workspaces: "./apps/desktop/src-tauri -> target"
 
       - name: Install frontend dependencies
-        run: pnpm install
+        shell: bash
+        run: |
+          set -e
+          for i in 1 2 3; do
+            if pnpm install --frozen-lockfile; then
+              exit 0
+            fi
+            echo "pnpm install failed (attempt $i/3), cleaning store and retrying..."
+            rm -rf node_modules
+            pnpm store prune || true
+          done
+          exit 1
 
       - name: Build Tauri app
         run: pnpm --filter @movie-app/desktop tauri build --target ${{ matrix.target }}
@@ -72,13 +84,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "24"
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
+          cache: pnpm
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -100,7 +113,18 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install frontend dependencies
-        run: pnpm install
+        shell: bash
+        run: |
+          set -e
+          for i in 1 2 3; do
+            if pnpm install --frozen-lockfile; then
+              exit 0
+            fi
+            echo "pnpm install failed (attempt $i/3), cleaning store and retrying..."
+            rm -rf node_modules
+            pnpm store prune || true
+          done
+          exit 1
 
       - name: Initialize Android project
         run: |

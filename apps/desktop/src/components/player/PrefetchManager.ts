@@ -1,4 +1,4 @@
-import { invokeVideoFetch, invokePrewarm, isTauriRuntime } from './pooledFetch';
+import { invokeVideoFetch, invokePrewarm, isTauriRuntime, type VideoProgressPayload } from './pooledFetch';
 
 export interface FetchResult {
   ok: boolean;
@@ -23,6 +23,8 @@ const FRAG_RETRY_BASE_MS = 1000;
 const DEGRADE_THRESHOLD = 3;
 /** 连续失败计入降级的时间窗（ms） */
 const DEGRADE_WINDOW_MS = 30_000;
+/** 分片离开动画时长（ms）：播放越过该片后淡出再移除 */
+const LEAVE_MS = 400;
 /** A/B 调试开关：localStorage 置 '1' 关闭预取（仍走连接池） */
 const DISABLE_KEY = 'movie-app-prefetch-disabled';
 
@@ -35,6 +37,25 @@ interface CachedEntry {
 interface Segment {
   url: string;
   duration: number;
+}
+
+interface SegState {
+  loaded: number;
+  total: number | null;
+  done: boolean;
+  error: boolean;
+}
+
+/** 供播放页浮窗渲染的分片状态快照。 */
+export interface SegmentProgressState {
+  index: number;
+  duration: number;
+  /** 0..1；null 表示无 Content-Length，进度未知（不确定态） */
+  progress: number | null;
+  done: boolean;
+  error: boolean;
+  playing: boolean;
+  departing: boolean;
 }
 
 function defaultHeaders(url: string): Record<string, string> {
@@ -96,6 +117,16 @@ class PrefetchManager {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   /** 已预热的 host（去重，避免每次清单刷新都重复预热） */
   private prewarmedHosts = new Set<string>();
+  /** 分片读取状态（按 segment 索引） */
+  private segStates = new Map<number, SegState>();
+  /** 已播放、处于离开淡出动画窗口的分片索引 → 开始离开的时间 */
+  private departing = new Map<number, number>();
+  private departureTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 快照订阅者 */
+  private listeners = new Set<() => void>();
+  private snapshotCache: SegmentProgressState[] = [];
+  private dirty = false;
+  private flushTimer: ReturnType<typeof requestAnimationFrame> | null = null;
 
   private isDisabled(): boolean {
     try {
@@ -114,16 +145,46 @@ class PrefetchManager {
     return `${url}#${start}-${end}`;
   }
 
-  private async networkFetch(url: string, headers: Record<string, string>, range?: string): Promise<FetchResult> {
+  private async networkFetch(
+    url: string,
+    headers: Record<string, string>,
+    range?: string,
+    onProgress?: (p: VideoProgressPayload) => void,
+  ): Promise<FetchResult> {
     if (!isTauriRuntime()) {
       const resp = await fetch(url, {
         method: 'GET',
         headers: range ? { Range: range } : undefined,
       });
-      const data = await resp.arrayBuffer();
+      const total = Number(resp.headers.get('Content-Length')) || null;
+      let data: ArrayBuffer;
+      if (resp.body) {
+        const reader = resp.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let loaded = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            chunks.push(value);
+            loaded += value.byteLength;
+            onProgress?.({ loaded, total });
+          }
+        }
+        const merged = new Uint8Array(loaded);
+        let off = 0;
+        for (const c of chunks) {
+          merged.set(c, off);
+          off += c.byteLength;
+        }
+        data = merged.buffer;
+      } else {
+        data = await resp.arrayBuffer();
+        onProgress?.({ loaded: data.byteLength, total });
+      }
       return { ok: resp.ok, status: resp.status, statusText: resp.statusText, data };
     }
-    const res = await invokeVideoFetch(url, headers, range);
+    const res = await invokeVideoFetch(url, headers, range, onProgress);
     return {
       ok: res.status >= 200 && res.status < 300,
       status: res.status,
@@ -164,21 +225,26 @@ class PrefetchManager {
     if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
       cached.at = Date.now();
       this.log('cache-hit', url.slice(0, 80));
+      this.markSegDone(url);
       return Promise.resolve({ ok: true, status: 200, statusText: 'OK', data: cached.data });
     }
     const existing = this.inflight.get(key);
     if (existing) return existing;
 
     const range = start || end ? `bytes=${start}-${end ? end - 1 : ''}` : undefined;
-    const p = this.networkFetch(url, defaultHeaders(url), range)
+    const p = this.networkFetch(url, defaultHeaders(url), range, (progress) => this.onSegProgress(url, progress))
       .then((res) => {
         if (res.ok) {
           this.store(key, res.data);
+          this.markSegDone(url);
           this.onSuccess(url);
+        } else {
+          this.markSegError(url);
         }
         return res;
       })
       .catch((err) => {
+        this.markSegError(url);
         this.onFailure(key, url);
         throw err;
       })
@@ -265,11 +331,18 @@ class PrefetchManager {
     if (idx < prev) {
       this.log(`播放器倒退到 seg[${idx}]（上次 ${prev}），重置前沿`);
       this.frontier = idx;
+      for (const dIdx of [...this.departing.keys()]) {
+        if (dIdx >= idx) this.departing.delete(dIdx);
+      }
     } else if (idx > this.frontier) {
       this.log(`播放器跳到前沿之后的 seg[${idx}]（前沿 ${this.frontier}），重置前沿`);
       this.frontier = idx;
     }
+    for (let i = prev; i < idx; i++) {
+      this.markDeparting(i);
+    }
     this.ensurePrefetch();
+    this.notify();
   }
 
   /** 清单解析后的播种与预取推进。 */
@@ -292,6 +365,9 @@ class PrefetchManager {
       this.segments = parsed.segments;
       this.frontier = 0;
       this.playerIndex = 0;
+      this.segStates.clear();
+      this.departing.clear();
+      this.notify();
     }
     const totalDuration = this.segments.reduce((acc, s) => acc + s.duration, 0);
     this.log(`已解析 ${this.segments.length} 个分片（约 ${(totalDuration / 60).toFixed(1)} 分钟）`);
@@ -365,6 +441,110 @@ class PrefetchManager {
     this.log(`并发数调整为 ${this.concurrency}`);
   }
 
+  private indexOf(url: string): number {
+    return this.segments.findIndex((s) => s.url === url);
+  }
+
+  private setSegState(url: string, patch: Partial<SegState>): void {
+    const idx = this.indexOf(url);
+    if (idx === -1) return;
+    const prev = this.segStates.get(idx);
+    this.segStates.set(idx, { loaded: 0, total: null, done: false, error: false, ...prev, ...patch });
+    this.notify();
+  }
+
+  private onSegProgress(url: string, progress: VideoProgressPayload): void {
+    this.setSegState(url, { loaded: progress.loaded, total: progress.total, error: false });
+  }
+
+  private markSegDone(url: string): void {
+    this.setSegState(url, { done: true, error: false });
+  }
+
+  private markSegError(url: string): void {
+    this.setSegState(url, { error: true });
+  }
+
+  private markDeparting(index: number): void {
+    this.departing.set(index, Date.now());
+    this.scheduleDepartureSweep();
+  }
+
+  private scheduleDepartureSweep(): void {
+    if (this.departureTimer) return;
+    this.departureTimer = setTimeout(() => {
+      this.departureTimer = null;
+      const now = Date.now();
+      for (const [idx, at] of this.departing) {
+        if (now - at >= LEAVE_MS) this.departing.delete(idx);
+      }
+      if (this.departing.size > 0) this.scheduleDepartureSweep();
+      this.notify();
+    }, LEAVE_MS);
+  }
+
+  private rebuildSnapshot(): void {
+    const items: SegmentProgressState[] = [];
+    for (const [index, st] of this.segStates) {
+      const seg = this.segments[index];
+      if (!seg) continue;
+      if (index >= this.playerIndex) {
+        items.push({
+          index,
+          duration: seg.duration,
+          progress: st.done ? 1 : st.total ? Math.min(1, st.loaded / st.total) : null,
+          done: st.done,
+          error: st.error,
+          playing: index === this.playerIndex,
+          departing: false,
+        });
+      } else if (this.departing.has(index)) {
+        items.push({
+          index,
+          duration: seg.duration,
+          progress: 1,
+          done: true,
+          error: false,
+          playing: false,
+          departing: true,
+        });
+      }
+    }
+    items.sort((a, b) => a.index - b.index);
+    this.snapshotCache = items;
+  }
+
+  /** 订阅快照更新，返回取消订阅函数。 */
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    this.dirty = true;
+    this.flush();
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+
+  /** 供 useSyncExternalStore 使用的快照（缓存引用，仅 notify 后重建）。 */
+  getSnapshot = (): SegmentProgressState[] => {
+    return this.snapshotCache;
+  };
+
+  private flush(): void {
+    if (this.flushTimer !== null) return;
+    this.flushTimer = requestAnimationFrame(() => {
+      this.flushTimer = null;
+      if (!this.dirty) return;
+      this.dirty = false;
+      this.rebuildSnapshot();
+      for (const l of this.listeners) l();
+    });
+  }
+
+  private notify(): void {
+    this.dirty = true;
+    this.flush();
+  }
+
   /** 切换剧集/线路/退出播放页时清空会话与缓存。 */
   reset(): void {
     this.segments = [];
@@ -379,10 +559,18 @@ class PrefetchManager {
     this.fragRetries.clear();
     this.sourceHealth.clear();
     this.prewarmedHosts.clear();
+    this.segStates.clear();
+    this.departing.clear();
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);
       this.retryTimer = null;
     }
+    if (this.departureTimer) {
+      clearTimeout(this.departureTimer);
+      this.departureTimer = null;
+    }
+    this.snapshotCache = [];
+    this.notify();
     this.log('已重置');
   }
 }

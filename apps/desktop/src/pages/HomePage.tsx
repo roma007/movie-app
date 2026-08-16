@@ -1,19 +1,18 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import type { Media, Episode, UserUsageType, WatchHistory, HiddenCollectItem } from '@movie-app/core';
-import { useAppStore, getProvider, getStore } from '../useAppStore';
+import { useAppStore, getProvider } from '../useAppStore';
 import { useBackgroundStore } from '../themes/backgroundStore';
 import { useImportDialogStore } from '../themes/importDialogStore';
-import { MediaGrid, MediaCard } from '@/components/MediaCard';
+import { MediaCard } from '@/components/MediaCard';
 import { PosterImage } from '@/components/PosterImage';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
-import { ArrowLeft, Search, X, Heart, Clock, ChevronRight as ChevronRightIcon, Film, Tv, Sparkles, Download, Plus, Database, Loader2, Check } from 'lucide-react';
+import { Search, X, Heart, Clock, ChevronRight as ChevronRightIcon, Film, Tv, Sparkles, Download, Plus, Database, Loader2, Check } from 'lucide-react';
 import { useToast } from '@/components/Layout';
-import { markSearchFromDetail, consumeSearchFromDetail, resetSearchFromDetail } from '@/lib/searchReturnFlag';
 
 const USAGE_LABELS: Record<UserUsageType, string> = {
   SEARCH_FIRST: '搜索优先',
@@ -25,7 +24,7 @@ const MAX_DISPLAY_TITLES = 8;
 
 export default function HomePage() {
   const {
-    mediaList, searchMedia, favorites, watchHistory,
+    favorites, watchHistory,
     watchHistoryCount,
     loadFavorites, loadWatchHistory,
     removeHistoryItem,
@@ -36,7 +35,6 @@ export default function HomePage() {
   } = useAppStore();
   const openAiImport = useImportDialogStore((s) => s.openAiImport);
   const navigate = useNavigate();
-  const location = useLocation();
   const toast = useToast();
   const setBgImage = useBackgroundStore((s) => s.setBgImage);
   const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
@@ -46,8 +44,6 @@ export default function HomePage() {
   const [episodeTotalMap, setEpisodeTotalMap] = useState<Record<string, number>>({});
   const [sourceTotalMap, setSourceTotalMap] = useState<Record<string, Record<string, number>>>({});
   const [searchKeyword, setSearchKeyword] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
-  const [isSearchLoading, setIsSearchLoading] = useState(false);
 
   const [quickKeyword, setQuickKeyword] = useState('');
   const [selectedPreviewIds, setSelectedPreviewIds] = useState<Set<string>>(new Set());
@@ -62,20 +58,6 @@ export default function HomePage() {
 
   useEffect(() => {
     loadUserUsageTypes();
-  }, []);
-
-  useEffect(() => {
-    const state = location.state as { searchKeyword?: string } | undefined;
-    if (state?.searchKeyword) {
-      const kw = state.searchKeyword.trim();
-      if (kw) {
-        markSearchFromDetail();
-        setSearchKeyword(kw);
-        setIsSearching(true);
-        searchMedia(kw).catch(() => {});
-        window.history.replaceState({}, document.title);
-      }
-    }
   }, []);
 
   useEffect(() => {
@@ -134,26 +116,22 @@ export default function HomePage() {
       if (m?.id && m.posterUrl) candidates.push({ id: m.id, posterUrl: m.posterUrl });
     };
 
-    if (isSearching) {
-      push(mediaList[0]);
-    } else {
-      if (userUsageTypes.includes('SEARCH_FIRST') && previewResults.length > 0) {
-        push(previewResults[0]);
-      }
+    if (userUsageTypes.includes('SEARCH_FIRST') && previewResults.length > 0) {
+      push(previewResults[0]);
+    }
 
-      if (userUsageTypes.includes('NEW_MOVIES') && latestMedia.length > 0) {
-        push(latestMedia[0]);
-      }
+    if (userUsageTypes.includes('NEW_MOVIES') && latestMedia.length > 0) {
+      push(latestMedia[0]);
+    }
 
-      for (const h of watchHistory) {
-        const m = mediaMap[h.mediaId];
-        if (m) { push(m); break; }
-      }
+    for (const h of watchHistory) {
+      const m = mediaMap[h.mediaId];
+      if (m) { push(m); break; }
+    }
 
-      for (const f of favorites) {
-        const m = mediaMap[f.mediaId];
-        if (m) { push(m); break; }
-      }
+    for (const f of favorites) {
+      const m = mediaMap[f.mediaId];
+      if (m) { push(m); break; }
     }
 
     const first = candidates[0];
@@ -164,27 +142,12 @@ export default function HomePage() {
 
     setBgImage(first.posterUrl);
     return () => clearBgImage();
-  }, [isSearching, mediaList, latestMedia, watchHistory, favorites, mediaMap, userUsageTypes, previewResults, setBgImage, clearBgImage]);
+  }, [latestMedia, watchHistory, favorites, mediaMap, userUsageTypes, previewResults, setBgImage, clearBgImage]);
 
-  const handleSearch = async () => {
+  const handleSearch = () => {
     const kw = searchKeyword.trim();
     if (!kw) return;
-    setIsSearching(true);
-    setIsSearchLoading(true);
-    try {
-      await getProvider().addSearchHistory(kw);
-      await searchMedia(kw);
-      getStore().getState().scheduleRecommendationRecompute();
-    } finally {
-      setIsSearchLoading(false);
-    }
-  };
-
-  const handleClearSearch = () => {
-    resetSearchFromDetail();
-    setSearchKeyword('');
-    setIsSearching(false);
-    setIsSearchLoading(false);
+    navigate(`/search?q=${encodeURIComponent(kw)}`);
   };
 
   const getOverrides = useCallback(() => {
@@ -294,26 +257,26 @@ export default function HomePage() {
         </div>
       )}
       {hasQuickSearched && !previewLoading && quickCollectCount === 0 && previewResults.length > 0 && (
-        <div className="grid grid-cols-6 gap-4 max-h-[32rem] overflow-y-auto pr-1">
+        <div className="grid grid-cols-[repeat(auto-fill,6rem)] gap-3 max-h-[32rem] overflow-y-auto pr-1">
           {previewResults.map((item) => {
             const checked = selectedPreviewIds.has(item.previewId);
             return (
               <div
                 key={item.previewId}
-                className={`group cursor-pointer overflow-hidden rounded-lg bg-[var(--color-card-alpha)] border transition-all ${checked ? 'border-primary' : 'border-transparent hover:border-muted-foreground/40'}`}
+                className={`group cursor-pointer transition-all ${checked ? 'opacity-100' : ''}`}
                 onClick={() => togglePreviewItem(item.previewId)}
               >
-                <div className="aspect-[2/3] bg-[var(--color-secondary-alpha)] overflow-hidden relative">
+                <div className="aspect-[2/3] bg-[var(--color-secondary-alpha)] overflow-hidden rounded-lg relative">
                   {item.posterUrl && (
                     <PosterImage src={item.posterUrl} alt="" className="size-full object-cover group-hover:scale-105 transition-transform duration-300" />
                   )}
-                  <div className={`absolute top-1.5 left-1.5 z-10 flex items-center justify-center size-5 rounded-md border-2 transition-colors ${checked ? 'bg-primary border-primary text-white' : 'bg-black/40 border-white/70'}`}>
+                  <div className={`absolute top-1 left-1 z-10 flex items-center justify-center size-5 rounded-md border-2 transition-colors ${checked ? 'bg-primary border-primary text-white' : 'bg-black/40 border-white/70'}`}>
                     {checked && <Check className="size-3.5" />}
                   </div>
                 </div>
-                <div className="px-1.5 py-1.5 space-y-0.5">
+                <div className="px-1.5 py-1 space-y-0.5">
                   <div className="text-xs font-medium truncate">{item.title}</div>
-                  <div className="text-[10px] text-muted-foreground truncate">{item.year} · {item.area || item.type} · {item.sourceName}</div>
+                  <div className="text-[10px] text-muted-foreground truncate">{item.year} · {item.sourceName}</div>
                 </div>
               </div>
             );
@@ -480,21 +443,6 @@ export default function HomePage() {
   return (
     <div className="p-6 space-y-5 max-w-7xl mx-auto">
       <div className="flex gap-2 items-center">
-        {isSearching && (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              if (consumeSearchFromDetail()) {
-                navigate(-1);
-              } else {
-                handleClearSearch();
-              }
-            }}
-            className="shrink-0"
-          >
-            <ArrowLeft className="size-4 mr-2" /> 返回
-          </Button>
-        )}
         <div className="relative flex-1">
           <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-1 text-xs text-muted-foreground pointer-events-none">
             <Database className="size-3" />
@@ -506,13 +454,12 @@ export default function HomePage() {
             onChange={(e) => setSearchKeyword(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleSearch();
-              if (e.key === 'Escape' && isSearching) handleClearSearch();
             }}
             className="flex-1 pl-14 pr-8"
           />
           {searchKeyword && (
             <button
-              onClick={handleClearSearch}
+              onClick={() => setSearchKeyword('')}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-text transition-colors"
             >
               <X className="size-4" />
@@ -522,24 +469,10 @@ export default function HomePage() {
         <Button onClick={handleSearch} variant="outline"><Search className="size-4" />本地搜索</Button>
       </div>
 
-      {isSearching ? (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-medium">搜索结果："{searchKeyword}"</h2>
-          </div>
-          {isSearchLoading ? (
-            <div className="flex items-center justify-center h-64 text-muted-foreground">搜索中...</div>
-          ) : mediaList.length > 0 ? (
-            <MediaGrid items={mediaList} />
-          ) : (
-            <div className="text-center text-muted-foreground py-8">未找到相关内容</div>
-          )}
-        </div>
-      ) : (
-        <>
-          {userUsageTypes.includes('SEARCH_FIRST') && renderSearchFirstCard()}
-          {userUsageTypes.includes('NEW_MOVIES') && renderNewMoviesCard()}
-          {userUsageTypes.includes('TV_SERIES') && renderTvSeriesCard()}
+      <>
+        {userUsageTypes.includes('SEARCH_FIRST') && renderSearchFirstCard()}
+        {userUsageTypes.includes('NEW_MOVIES') && renderNewMoviesCard()}
+        {userUsageTypes.includes('TV_SERIES') && renderTvSeriesCard()}
 
           <Card className="p-4">
             <div className="flex items-center justify-between mb-3">
@@ -597,7 +530,6 @@ export default function HomePage() {
             )}
           </Card>
         </>
-      )}
 
       <Dialog open={!!hiddenCollect} onOpenChange={(open) => { if (!open) setHiddenCollect(null); }}>
         <DialogContent className="w-full max-w-md">

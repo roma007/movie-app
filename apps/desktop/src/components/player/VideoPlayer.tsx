@@ -11,11 +11,14 @@ import {
 import {
   DefaultVideoLayout,
   defaultLayoutIcons,
+  DefaultMenuItem,
+  DefaultMenuCheckbox,
 } from '@vidstack/react/player/layouts/default';
 import HLS from 'hls.js';
 import type { PlaySource } from '@movie-app/core';
 import { TauriLoader } from './TauriLoader';
 import { prefetchManager } from './PrefetchManager';
+import { SegmentProgress } from './SegmentProgress';
 import { invokePrewarm } from './pooledFetch';
 import { ZH_TRANSLATIONS } from './zhTranslations';
 import { ColorControls } from './ColorControls';
@@ -90,6 +93,7 @@ export function VideoPlayer({
   const [retryNonce, setRetryNonce] = useState(0);
   const [loading, setLoading] = useState(true);
   const [skipNotice, setSkipNotice] = useState<string | null>(null);
+  const [segmentProgressOn, setSegmentProgressOn] = useState(false);
   const maxBufferSize = useThemeStore((s) => s.maxBufferSize);
 
   useEffect(() => {
@@ -424,13 +428,22 @@ export function VideoPlayer({
           translations={ZH_TRANSLATIONS}
           slots={{
             settingsMenuItemsStart: (
-              <ColorControls
-                brightness={colorValues.brightness}
-                contrast={colorValues.contrast}
-                saturation={colorValues.saturation}
-                hue={colorValues.hue}
-                onChange={setColorValues}
-              />
+              <>
+                <ColorControls
+                  brightness={colorValues.brightness}
+                  contrast={colorValues.contrast}
+                  saturation={colorValues.saturation}
+                  hue={colorValues.hue}
+                  onChange={setColorValues}
+                />
+                <DefaultMenuItem label="显示预读分片进度">
+                  <DefaultMenuCheckbox
+                    label="显示预读分片进度"
+                    checked={segmentProgressOn}
+                    onChange={setSegmentProgressOn}
+                  />
+                </DefaultMenuItem>
+              </>
             ),
           }}
         />
@@ -447,6 +460,7 @@ export function VideoPlayer({
           {skipNotice}
         </div>
       )}
+      <SegmentProgress open={segmentProgressOn} onClose={() => setSegmentProgressOn(false)} />
     </div>
   );
 }

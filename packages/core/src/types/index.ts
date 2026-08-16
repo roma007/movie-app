@@ -155,6 +155,7 @@ export interface MediaNavState {
   episodeType?: string;
   sort?: 'latest' | 'recommend';
   subtypePage?: boolean;
+  searchKeyword?: string;
 }
 
 export type TaskStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
