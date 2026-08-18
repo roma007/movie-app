@@ -283,6 +283,16 @@ const MIGRATIONS: Migration[] = [
     sql: `ALTER TABLE watch_history ADD COLUMN source_id TEXT;
           ALTER TABLE watch_history ADD COLUMN play_source_id TEXT;`,
   },
+  {
+    version: 32,
+    description: 'create_media_change_log_table',
+    sql: `CREATE TABLE IF NOT EXISTS media_change_log (
+      media_id TEXT PRIMARY KEY,
+      change_type TEXT NOT NULL,
+      created_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_media_change_log_created_at ON media_change_log(created_at);`,
+  },
 ];
 
 /**

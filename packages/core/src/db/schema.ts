@@ -253,6 +253,14 @@ export const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_media_type_updated_at ON media(type, updated_at);
   CREATE INDEX IF NOT EXISTS idx_media_hidden ON media(hidden);
   CREATE INDEX IF NOT EXISTS idx_media_personal_score ON media(personal_score, updated_at);
+
+  -- 推荐重算变化跟踪表：记录自上次重算以来变化的媒体ID
+  CREATE TABLE IF NOT EXISTS media_change_log (
+    media_id TEXT PRIMARY KEY,
+    change_type TEXT NOT NULL,
+    created_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_media_change_log_created_at ON media_change_log(created_at);
 `;
 
 /**

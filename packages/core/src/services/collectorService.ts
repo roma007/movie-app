@@ -9,6 +9,7 @@ import type { CMSMediaItem, Media, Episode, PlaySource, VideoSource, CollectTask
 import { SystemConfigService } from './systemConfigService';
 import type { ShortDramaConfig } from './systemConfigService';
 import { VideoDurationService } from './videoDurationService';
+import { RecommendationService } from './recommendationService';
 
 function generateId(): string {
   return `id_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
@@ -101,8 +102,11 @@ function parsePlayInfo(
 export class CollectorService {
   private activeAbortControllers = new Map<string, AbortController>();
   private onLogCallback?: (log: CollectionLog) => void;
+  private recommendationService: RecommendationService;
 
-  constructor(private db: DatabaseProvider) {}
+  constructor(private db: DatabaseProvider) {
+    this.recommendationService = new RecommendationService(db);
+  }
 
   setOnLogCallback(callback: (log: CollectionLog) => void): void {
     this.onLogCallback = callback;
@@ -306,12 +310,14 @@ export class CollectorService {
 
         if (bestStatus !== existing.status || bestEpisodes !== existing.currentEpisodes || bestTotal !== existing.totalEpisodes) {
           await this.db.updateMediaStatusAndEpisodes(mediaId, bestStatus, bestEpisodes, bestTotal, new Date().toISOString());
+          await this.recommendationService.recordMediaChange(mediaId, 'STATUS_UPDATE');
         }
         if (posterReplaced && effectivePoster !== existing.posterUrl) {
           await this.db.updateMediaPoster(mediaId, effectivePoster, new Date().toISOString());
         }
       } else {
         await this.db.upsertMedia(media);
+        await this.recommendationService.recordMediaChange(mediaId, 'UPSERT');
       }
       // 防止并发竞态：upsertMedia 的 ON CONFLICT(fingerprint) 可能保留了已存在的 id，
       // 而非当前调用者生成的 mediaId，需重新查询实际 id

@@ -208,6 +208,52 @@ function parseStringArray(raw: string | null | undefined): string[] {
 export class RecommendationService {
   constructor(private db: DatabaseProvider) {}
 
+  // 用户兴趣画像缓存
+  private interestCache: {
+    data: Map<string, InterestTag>;
+    timestamp: number;
+    hash: string;
+  } | null = null;
+
+  // 缓存有效期：5分钟
+  private static readonly CACHE_TTL_MS = 5 * 60 * 1000;
+
+  // 生成缓存键（基于输入数据的哈希）
+  private generateCacheHash(params: {
+    watchedMediaSize: number;
+    completedMediaSize: number;
+    favoritesSize: number;
+    impressionsSize: number;
+    searchRowsSize: number;
+    dislikedSize: number;
+    tagBlacklistSize: number;
+    now: number;
+  }): string {
+    return `${params.watchedMediaSize}-${params.completedMediaSize}-${params.favoritesSize}-${params.impressionsSize}-${params.searchRowsSize}-${params.dislikedSize}-${params.tagBlacklistSize}-${Math.floor(params.now / 1000)}`;
+  }
+
+  // 检查缓存是否有效
+  private isCacheValid(hash: string): boolean {
+    if (!this.interestCache) return false;
+    if (this.interestCache.hash !== hash) return false;
+    if (Date.now() - this.interestCache.timestamp > RecommendationService.CACHE_TTL_MS) return false;
+    return true;
+  }
+
+  // 设置缓存
+  private setCache(data: Map<string, InterestTag>, hash: string): void {
+    this.interestCache = {
+      data,
+      timestamp: Date.now(),
+      hash,
+    };
+  }
+
+  // 清空缓存
+  private clearCache(): void {
+    this.interestCache = null;
+  }
+
   private async getLearnResetAt(): Promise<string | null> {
     const row = await this.db.selectOne<{ value: string }>(
       'SELECT value FROM system_config WHERE key = ?',
@@ -237,10 +283,10 @@ export class RecommendationService {
   private recomputeChain: Promise<number> = Promise.resolve(0);
 
   /**
-   * 事件触发重算入口：合并 10 秒内的多次事件为一次全量重算，
+   * 事件触发重算入口：合并 30 秒内的多次事件为一次全量重算，
    * 且与已执行中的重算串行，避免并发写冲突。空闲兜底按 60 秒执行。
    */
-  scheduleRecompute(delayMs = 10000): void {
+  scheduleRecompute(delayMs = 30000): void {
     if (this.scheduleTimer) clearTimeout(this.scheduleTimer);
     this.scheduleTimer = setTimeout(() => {
       this.scheduleTimer = null;
@@ -290,6 +336,48 @@ export class RecommendationService {
     SELECT wh.media_id, wh.episode_id, wh.progress AS progress, wh.duration AS duration, wh.updated_at,
            e.source_id, e.season_number, e.episode_number, e.title AS ep_title, e.duration AS ep_duration
     FROM watch_history wh LEFT JOIN episode e ON e.id = wh.episode_id`;
+
+  /**
+   * 检查是否有自上次重算以来的变化记录
+   */
+  private async hasChangesSinceLastRecompute(): Promise<boolean> {
+    try {
+      const row = await this.db.selectOne<{ count: number }>(
+        'SELECT COUNT(*) as count FROM media_change_log'
+      );
+      return (row?.count || 0) > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * 清空变化日志（重算完成后）
+   */
+  private async clearChangeLog(): Promise<void> {
+    try {
+      await this.db.execute('DELETE FROM media_change_log', []);
+      // 重算完成后清空兴趣画像缓存，确保下次重算使用新数据
+      this.clearCache();
+    } catch {
+      // 表可能尚不存在（旧版数据库），忽略
+    }
+  }
+
+  /**
+   * 记录媒体变化（供外部调用）
+   */
+  async recordMediaChange(mediaId: string, changeType: string): Promise<void> {
+    try {
+      await this.db.execute(
+        `INSERT OR REPLACE INTO media_change_log (media_id, change_type, created_at)
+         VALUES (?, ?, ?)`,
+        [mediaId, changeType, new Date().toISOString()]
+      );
+    } catch {
+      // 表可能尚不存在（旧版数据库），忽略
+    }
+  }
 
   /**
    * 全量重算：构建兴趣画像 → 全量打分 → 重排 → 落库快照/画像。
@@ -454,24 +542,41 @@ export class RecommendationService {
       if (season > cur) watchedSeriesMaxSeason.set(row.series_group, season);
     }
 
-    // —— 构建用户兴趣画像 ——
-    const interest = this.buildUserInterestTags({
-      tagsOf,
-      watchedMedia,
-      completedMedia,
-      completedDuration: signals.completedDuration,
-      bingeCount,
-      giveUpMedia,
-      favorites,
-      impressions,
-      latest,
-      favoriteAt,
-      impressionAt,
-      searchRows,
-      disliked,
-      tagBlacklist,
+    // —— 构建用户兴趣画像（带缓存） ——
+    const cacheHash = this.generateCacheHash({
+      watchedMediaSize: watchedMedia.size,
+      completedMediaSize: completedMedia.size,
+      favoritesSize: favorites.size,
+      impressionsSize: impressions.size,
+      searchRowsSize: searchRows.length,
+      dislikedSize: disliked.size,
+      tagBlacklistSize: tagBlacklist.size,
       now,
     });
+
+    let interest: Map<string, InterestTag>;
+    if (this.isCacheValid(cacheHash)) {
+      interest = this.interestCache!.data;
+    } else {
+      interest = this.buildUserInterestTags({
+        tagsOf,
+        watchedMedia,
+        completedMedia,
+        completedDuration: signals.completedDuration,
+        bingeCount,
+        giveUpMedia,
+        favorites,
+        impressions,
+        latest,
+        favoriteAt,
+        impressionAt,
+        searchRows,
+        disliked,
+        tagBlacklist,
+        now,
+      });
+      this.setCache(interest, cacheHash);
+    }
 
     // —— 全量打分 ——
     const keywordStrengths = new Map<string, number>();
@@ -546,6 +651,9 @@ export class RecommendationService {
     } else {
       await this.db.replaceRecommendationSnapshot([]);
     }
+
+    // 重算完成后清空变化日志
+    await this.clearChangeLog();
 
     return updates.length;
   }
