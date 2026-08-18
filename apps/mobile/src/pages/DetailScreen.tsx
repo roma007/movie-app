@@ -40,7 +40,7 @@ export default function DetailScreen({ route, navigation }: Props) {
   // 功能: 不感兴趣
   const [isDisliked, setIsDisliked] = useState(false);
 
-  // 功能6: 隐藏此类视频
+  // 功能6: 隐藏
   const [hideModalVisible, setHideModalVisible] = useState(false);
   const [selectedHideGenres, setSelectedHideGenres] = useState<string[]>([]);
   const [hiding, setHiding] = useState(false);
@@ -333,7 +333,7 @@ export default function DetailScreen({ route, navigation }: Props) {
               leftIcon={<EyeOff size={16} color={colors.textSecondary} />}
               onPress={openHideModal}
             >
-              隐藏此类视频
+              隐藏
             </Button>
             <Button
               variant="secondary"
@@ -564,7 +564,7 @@ export default function DetailScreen({ route, navigation }: Props) {
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, { backgroundColor: colors.surface }]}>
-            <Text style={styles.modalTitle}>隐藏此类视频</Text>
+            <Text style={styles.modalTitle}>隐藏</Text>
             <Text style={styles.modalDesc}>选择要隐藏的子类型，隐藏后此类视频将不再显示。</Text>
             <View style={styles.modalGenres}>
               {(currentMedia.genres.length === 0 ? [UNCATEGORIZED_GENRE] : currentMedia.genres).map((g: string) => {

@@ -307,7 +307,7 @@ export default function DetailPage() {
                       title="将此类子类型视频加入隐藏列表"
                     >
                       <EyeOff className="size-4" />
-                      隐藏此类视频
+                      隐藏
                     </Button>
                     <Button 
                       variant="outline" 
@@ -546,7 +546,7 @@ export default function DetailPage() {
       <Dialog open={hideDialogOpen} onOpenChange={(open) => { if (!open) setHideDialogOpen(false); }}>
         <DialogContent className="w-full max-w-sm">
           <DialogHeader>
-            <DialogTitle>隐藏此类视频</DialogTitle>
+            <DialogTitle>隐藏</DialogTitle>
             <DialogDescription>
               选择要隐藏的子类型，隐藏后此类视频将不再显示。
             </DialogDescription>
