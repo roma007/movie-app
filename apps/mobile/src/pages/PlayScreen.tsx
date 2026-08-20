@@ -1,16 +1,21 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { getProvider } from '../init';
 import { useAppStore, getStore } from '../useAppStore';
-import { ArrowLeft, RotateCcw } from 'lucide-react-native';
-import { SystemConfigService } from '@movie-app/core';
+import { ArrowLeft, RotateCcw, Mic } from 'lucide-react-native';
+import { SystemConfigService, getVoiceControlSystem } from '@movie-app/core';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
 import { useScaledFontSize } from '../themes/useScaledFontSize';
 import { hexToRgba } from '../themes/colorUtils';
 import { NextEpisodeOverlay } from '../components/NextEpisodeOverlay';
 import { SkipForwardOverlay } from '../components/SkipForwardOverlay';
+import { VoiceControlOverlay } from '../components/VoiceControlOverlay';
+import { CastButton } from '../components/cast/CastButton';
+import { CastRemoteControl } from '../components/cast/CastRemoteControl';
+import { useCastManager } from '../hooks/useCastManager';
+import { useCastStore } from '../stores/castStore';
 import BlurredBackground from '../components/BlurredBackground';
 import { Button } from '../components/ui/Button';
 import type { PlaySource, VideoSource, Episode, Media } from '@movie-app/core';
@@ -60,6 +65,49 @@ export default function PlayScreen({ route, navigation }: Props) {
   const skipDismissedRef = useRef(false);
   const skipEligibleRef = useRef(false);
 
+  // 功能8: 语音控制
+  const [voiceControlVisible, setVoiceControlVisible] = useState(false);
+  const voiceControl = getVoiceControlSystem();
+
+  // 功能9: 投屏
+  const getVideoUrlRef = useRef(() => videoUrl);
+  getVideoUrlRef.current = () => videoUrl;
+  const getTitleRef = useRef(() => currentTitle);
+  getTitleRef.current = () => currentTitle;
+  const getDurationRef = useRef(() => player?.duration || 0);
+  getDurationRef.current = () => player?.duration || 0;
+
+  const handleResumeLocal = useCallback((position: number) => {
+    setVideoUrl(getVideoUrlRef.current());
+    setIsLoading(true);
+    setError(null);
+    if (position > 0) {
+      setInitialCurrentTime(position);
+    }
+  }, []);
+
+  const castManager = useCastManager(
+    () => getVideoUrlRef.current(),
+    () => getTitleRef.current(),
+    () => getDurationRef.current(),
+    handleResumeLocal,
+  );
+
+  const handleCastDeviceSelect = async (device: { id: string; name: string; protocol: string }) => {
+    try {
+      await castManager.connectToDevice(
+        { ...device, protocol: device.protocol as any, isConnected: false },
+        videoUrl,
+        currentTitle,
+        player?.duration || 0,
+      );
+    } catch {
+      // error handled by castManager
+    }
+  };
+
+  const { isCasting } = useCastStore();
+
   // 功能6: 进度保存节流
   const [lastSaveTime, setLastSaveTime] = useState(0);
 
@@ -94,7 +142,7 @@ export default function PlayScreen({ route, navigation }: Props) {
     video: { width: '100%', height: '100%' },
     rotateButton: {
       position: 'absolute',
-      right: 48,
+      right: 84,
       bottom: 10,
       zIndex: 40,
       width: 36,
@@ -382,6 +430,202 @@ export default function PlayScreen({ route, navigation }: Props) {
     skipDismissedRef.current = true;
   };
 
+  // 功能8: 语音控制
+  const voiceButtonStyle = useMemo(() => ({
+    position: 'absolute' as const,
+    right: 48,
+    bottom: 10,
+    zIndex: 40,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
+  }), []);
+
+  // 功能9: 投屏按钮
+  const castButtonStyle = useMemo(() => ({
+    position: 'absolute' as const,
+    right: 12,
+    bottom: 10,
+    zIndex: 40,
+  }), []);
+
+  const handleVoiceControl = () => {
+    setVoiceControlVisible(true);
+  };
+
+  const handleVoiceControlClose = () => {
+    setVoiceControlVisible(false);
+  };
+
+  // 注册语音命令处理器
+  useEffect(() => {
+    if (!voiceControl) return;
+
+    const voiceControlConfig = voiceControl.getConfig();
+    if (!voiceControlConfig.enabled) return;
+
+    // 注册播放控制命令
+    voiceControl.registerCommands([
+      {
+        id: 'pause',
+        name: '暂停',
+        description: '暂停播放',
+        aliases: ['暂停', '停一下', '停止播放', '停'],
+        category: 'playback',
+        execute: async () => {
+          if (playerRef.current) {
+            playerRef.current.pause();
+          }
+        },
+      },
+      {
+        id: 'play',
+        name: '播放',
+        description: '继续播放',
+        aliases: ['播放', '继续', '开始播放', '继续播放'],
+        category: 'playback',
+        execute: async () => {
+          if (playerRef.current) {
+            playerRef.current.play();
+          }
+        },
+      },
+      {
+        id: 'fast_forward',
+        name: '快进',
+        description: '快进指定时间',
+        aliases: ['快进', '前进', '往前'],
+        category: 'playback',
+        parameters: [
+          {
+            name: 'seconds',
+            type: 'number',
+            required: false,
+            defaultValue: 30,
+            description: '快进秒数',
+          },
+        ],
+        execute: async (params) => {
+          const seconds = params?.seconds || 30;
+          handleSkipForward(seconds);
+        },
+      },
+      {
+        id: 'rewind',
+        name: '快退',
+        description: '快退指定时间',
+        aliases: ['快退', '后退', '往回'],
+        category: 'playback',
+        parameters: [
+          {
+            name: 'seconds',
+            type: 'number',
+            required: false,
+            defaultValue: 30,
+            description: '快退秒数',
+          },
+        ],
+        execute: async (params) => {
+          const seconds = params?.seconds || 30;
+          if (playerRef.current) {
+            const p = playerRef.current;
+            p.currentTime = Math.max(p.currentTime - seconds, 0);
+          }
+        },
+      },
+      {
+        id: 'volume_up',
+        name: '音量增加',
+        description: '增加音量',
+        aliases: ['音量增加', '大声点', '提高音量', '大声'],
+        category: 'playback',
+        execute: async () => {
+          if (playerRef.current) {
+            const p = playerRef.current;
+            p.volume = Math.min(p.volume + 0.1, 1.0);
+          }
+        },
+      },
+      {
+        id: 'volume_down',
+        name: '音量减少',
+        description: '减少音量',
+        aliases: ['音量减少', '小声点', '降低音量', '小声'],
+        category: 'playback',
+        execute: async () => {
+          if (playerRef.current) {
+            const p = playerRef.current;
+            p.volume = Math.max(p.volume - 0.1, 0);
+          }
+        },
+      },
+      {
+        id: 'mute',
+        name: '静音',
+        description: '静音',
+        aliases: ['静音', '关闭声音', '取消静音'],
+        category: 'playback',
+        execute: async () => {
+          if (playerRef.current) {
+            const p = playerRef.current;
+            p.muted = !p.muted;
+          }
+        },
+      },
+      {
+        id: 'fullscreen',
+        name: '全屏',
+        description: '切换全屏',
+        aliases: ['全屏', '全屏幕', '切换全屏'],
+        category: 'playback',
+        execute: async () => {
+          handleRotate();
+        },
+      },
+      {
+        id: 'next_episode',
+        name: '下一集',
+        description: '播放下一集',
+        aliases: ['下一集', '下一个', '下一集播放'],
+        category: 'playback',
+        execute: async () => {
+          if (nextEpisode) {
+            handleNextEpisode();
+          }
+        },
+      },
+      {
+        id: 'previous_episode',
+        name: '上一集',
+        description: '播放上一集',
+        aliases: ['上一集', '上一个', '上一集播放'],
+        category: 'playback',
+        execute: async () => {
+          const idx = filteredEpisodes.findIndex((ep: Episode) => ep.id === currentEpisodeId);
+          if (idx > 0) {
+            handleEpisodePress(filteredEpisodes[idx - 1]);
+          }
+        },
+      },
+    ]);
+
+    return () => {
+      // 清理命令
+    };
+  }, [voiceControl, playerRef, nextEpisode, filteredEpisodes, currentEpisodeId]);
+
+  // 功能9: 退出播放页时断开投屏
+  useEffect(() => {
+    return () => {
+      if (useCastStore.getState().isCasting) {
+        castManager.disconnect();
+      }
+    };
+  }, []);
+
   const seasonToMediaMap = new Map<number, string>();
   seriesMedia.forEach(m => {
     if (m.seriesSeason) seasonToMediaMap.set(m.seriesSeason, m.id);
@@ -404,7 +648,26 @@ export default function PlayScreen({ route, navigation }: Props) {
     setEpisodeListSwitching(true);
   };
 
-  const handleEpisodePress = (ep: Episode) => {
+  const handleEpisodePress = async (ep: Episode) => {
+    if (isCasting && castManager.castDevice) {
+      const currentTime = player?.currentTime || 0;
+      const duration = player?.duration || 0;
+      if (duration > 0) {
+        getStore().getState().saveWatchProgress(
+          mediaId!,
+          currentEpisodeId,
+          currentTime,
+          duration,
+          selectedSourceId || null,
+          playSources[activePlayIdx]?.id ?? null,
+        );
+      }
+      try {
+        await castManager.disconnect();
+      } catch {
+        // ignore
+      }
+    }
     setCurrentEpisodeId(ep.id);
     setCurrentTitle(
       (media?.title || paramTitle?.replace(/·.*$/, '').trim() || '') + (ep.title ? ` · ${ep.title}` : ` · 第${ep.episodeNumber}集`)
@@ -416,10 +679,16 @@ export default function PlayScreen({ route, navigation }: Props) {
     : '';
 
   return (
+    <>
     <BlurredBackground imageUrl={bgImageUrl}>
     <View style={styles.container}>
       <View style={styles.header}>
-        <Button variant="icon" size="sm" style={styles.backButton} onPress={() => navigation.goBack()}>
+        <Button variant="icon" size="sm" style={styles.backButton} onPress={() => {
+          if (isCasting) {
+            castManager.disconnect();
+          }
+          navigation.goBack();
+        }}>
           <ArrowLeft size={20} color="#fff" />
         </Button>
         <Text style={styles.headerTitle} numberOfLines={1}>{currentTitle || '正在播放'}</Text>
@@ -463,6 +732,22 @@ export default function PlayScreen({ route, navigation }: Props) {
             <RotateCcw size={18} color="#fff" />
           </TouchableOpacity>
         )}
+        {videoUrl && !error && voiceControl?.getConfig().enabled && (
+          <TouchableOpacity
+            style={voiceButtonStyle}
+            activeOpacity={0.7}
+            onPress={handleVoiceControl}
+          >
+            <Mic size={18} color="#fff" />
+          </TouchableOpacity>
+        )}
+        {videoUrl && !error && (
+          <CastButton
+            onDeviceSelect={handleCastDeviceSelect}
+            onSearch={castManager.searchDevices}
+            style={castButtonStyle}
+          />
+        )}
         <NextEpisodeOverlay
           show={overlayVisible}
           nextEpisodeTitle={nextEpisodeTitle}
@@ -475,6 +760,16 @@ export default function PlayScreen({ route, navigation }: Props) {
           onClose={handleSkipForwardClose}
         />
       </View>
+
+      {isCasting && (
+        <CastRemoteControl
+          onPause={castManager.pause}
+          onResume={castManager.play}
+          onStop={castManager.stop}
+          onSeek={castManager.seek}
+          onVolume={castManager.setVolume}
+        />
+      )}
 
       <ScrollView style={styles.body}>
         {/* 影片信息 */}
@@ -611,5 +906,10 @@ export default function PlayScreen({ route, navigation }: Props) {
       </ScrollView>
     </View>
     </BlurredBackground>
+    <VoiceControlOverlay
+      visible={voiceControlVisible}
+      onClose={handleVoiceControlClose}
+    />
+    </>
   );
 }

@@ -10,7 +10,8 @@ import BlurredBackground from '../components/BlurredBackground';
 import PosterImage from '../components/PosterImage';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { ArrowLeft } from 'lucide-react-native';
+import { ArrowLeft, Mic } from 'lucide-react-native';
+import { getVoiceControlSystem } from '@movie-app/core';
 
 interface Props {
   navigation: any;
@@ -29,6 +30,8 @@ export default function SearchScreen({ navigation, route }: Props) {
   const [hotSearches, setHotSearches] = useState<{ keyword: string; count: number }[]>([]);
   const { mediaList, searchMedia } = useAppStore();
   const searchIdRef = useRef(0);
+  const voiceControl = getVoiceControlSystem();
+  const [isVoiceSearching, setIsVoiceSearching] = useState(false);
 
   const refreshHistory = () => {
     const provider = getProvider();
@@ -64,6 +67,98 @@ export default function SearchScreen({ navigation, route }: Props) {
       runSearch(kw);
     }
   }, [route?.params?.keyword]);
+
+  // 语音搜索功能
+  useEffect(() => {
+    if (!voiceControl) return;
+
+    const voiceControlConfig = voiceControl.getConfig();
+    if (!voiceControlConfig.enabled) return;
+
+    // 注册搜索命令
+    voiceControl.registerCommands([
+      {
+        id: 'search',
+        name: '搜索',
+        description: '搜索内容',
+        aliases: ['搜索', '找', '查找'],
+        category: 'search',
+        parameters: [
+          {
+            name: 'keyword',
+            type: 'string',
+            required: true,
+            description: '搜索关键词',
+          },
+        ],
+        execute: async (params) => {
+          const searchKeyword = params?.keyword;
+          if (searchKeyword) {
+            setKeyword(searchKeyword);
+            runSearch(searchKeyword);
+          }
+        },
+      },
+      {
+        id: 'search_movie',
+        name: '搜索电影',
+        description: '搜索电影',
+        aliases: ['搜索电影', '找电影', '查找电影'],
+        category: 'search',
+        parameters: [
+          {
+            name: 'keyword',
+            type: 'string',
+            required: true,
+            description: '电影名称',
+          },
+        ],
+        execute: async (params) => {
+          const searchKeyword = params?.keyword;
+          if (searchKeyword) {
+            setKeyword(searchKeyword);
+            runSearch(searchKeyword);
+          }
+        },
+      },
+      {
+        id: 'search_tv',
+        name: '搜索电视剧',
+        description: '搜索电视剧',
+        aliases: ['搜索电视剧', '找电视剧', '查找电视剧', '搜索剧'],
+        category: 'search',
+        parameters: [
+          {
+            name: 'keyword',
+            type: 'string',
+            required: true,
+            description: '电视剧名称',
+          },
+        ],
+        execute: async (params) => {
+          const searchKeyword = params?.keyword;
+          if (searchKeyword) {
+            setKeyword(searchKeyword);
+            runSearch(searchKeyword);
+          }
+        },
+      },
+    ]);
+
+    return () => {
+      // 清理命令
+    };
+  }, [voiceControl]);
+
+  const handleVoiceSearch = () => {
+    if (isVoiceSearching) {
+      voiceControl?.stop();
+      setIsVoiceSearching(false);
+    } else {
+      setIsVoiceSearching(true);
+      voiceControl?.triggerVoiceRecognition();
+    }
+  };
 
   const handleSearch = () => {
     const kw = keyword.trim();
@@ -162,6 +257,15 @@ export default function SearchScreen({ navigation, route }: Props) {
           onSubmitEditing={handleSearch}
           returnKeyType="search"
         />
+        {voiceControl?.getConfig().enabled && (
+          <Button 
+            variant="icon" 
+            size="sm" 
+            onPress={handleVoiceSearch}
+          >
+            <Mic size={20} color={colors.text} />
+          </Button>
+        )}
         <Button variant="primary" size="md" onPress={handleSearch}>
           搜索
         </Button>

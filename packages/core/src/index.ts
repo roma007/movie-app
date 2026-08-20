@@ -45,6 +45,20 @@ export { VideoDurationService, setVideoFetchFn, getVideoFetchFn } from './servic
 export { SourceImportService } from './services/sourceImportService';
 export { RecommendationService, type RecommendationOverview, type DislikedMediaItem, type TagBlacklistItem } from './services/recommendationService';
 
+// 语音控制服务
+export { 
+  VoiceControlSystem, 
+  createVoiceControlSystem, 
+  getVoiceControlSystem,
+  setGlobalVoiceControlSystem,
+  initializeVoiceControl,
+  type VoiceControlDependencies
+} from './services/voiceControlSystem';
+export { VoiceCommandParser, createDefaultParser } from './services/voiceCommandParser';
+export { InMemoryWakeWordService, type IWakeWordService } from './services/wakeWordService';
+export { InMemorySpeechRecognitionService, type ISpeechRecognitionService } from './services/speechRecognitionService';
+export { InMemoryTTSService, VOICE_FEEDBACK_MESSAGES, type ITTSService } from './services/ttsService';
+
 // 数据库抽象层
 export { PRAGMA_SQL, SCHEMA_SQL, INSERT_DEFAULT_SOURCE_SQL, COUNT_VIDEO_SOURCE_SQL, splitSqlStatements } from './db/schema';
 export { type DatabaseProvider, UNCATEGORIZED_GENRE } from './db/provider';

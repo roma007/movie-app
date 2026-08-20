@@ -2,7 +2,7 @@
   "expo": {
     "name": "Movie App",
     "slug": "movie-app",
-    "version": "1.0.72",
+    "version": "1.0.74",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -16,14 +16,24 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.movie.app"
+      "bundleIdentifier": "com.movie.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "语音控制需要使用麦克风来识别您的语音指令",
+        "NSSpeechRecognitionUsageDescription": "语音控制需要使用语音识别来理解您的指令",
+        "NSLocalNetworkUsageDescription": "需要访问本地网络以发现和连接投屏设备",
+        "NSBonjourServices": ["_googlecast._tcp", "_raop._tcp", "_upnp._tcp", "_airplay._tcp"]
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0f0f0f"
       },
-      "package": "com.movie.app"
+      "package": "com.movie.app",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -32,7 +42,9 @@
       "expo-sqlite",
       "expo-image",
       "expo-video",
-      "expo-status-bar"
+      "expo-status-bar",
+      "expo-speech-transcriber",
+      "react-native-google-cast"
     ]
   }
 }

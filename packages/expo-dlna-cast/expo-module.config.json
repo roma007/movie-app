@@ -1,0 +1,9 @@
+{
+  "platforms": ["ios", "android"],
+  "ios": {
+    "modules": ["ExpoDlnaCastModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.dlnacast.ExpoDlnaCastModule"]
+  }
+}
