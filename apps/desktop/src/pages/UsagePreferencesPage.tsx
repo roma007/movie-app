@@ -193,18 +193,17 @@ export default function UsagePreferencesPage() {
             </div>
             <p className="text-sm text-muted-foreground mt-1">播放时单视频并发缓冲的数量。越大卡顿越少，但越可能引起片源方反爬</p>
           </div>
-          <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap justify-end">
-            {[1, 2, 3, 4, 5, 6].map((n) => (
-              <Button
-                key={n}
-                variant="outline"
-                size="sm"
-                onClick={() => handleConcurrencyChange(n)}
-                className={prefetchConcurrency === n ? 'bg-muted-foreground/20 text-text' : ''}
-              >
-                {n}
-              </Button>
-            ))}
+          <div className="flex items-center gap-3 flex-1 min-w-0 flex-wrap justify-end">
+            <input
+              type="range"
+              min={1}
+              max={20}
+              step={1}
+              value={prefetchConcurrency}
+              onChange={(e) => handleConcurrencyChange(Number(e.target.value))}
+              className={sliderClasses + ' w-56'}
+            />
+            <span className="text-sm text-muted-foreground w-6 text-right shrink-0">{prefetchConcurrency}</span>
           </div>
         </div>
       </Card>

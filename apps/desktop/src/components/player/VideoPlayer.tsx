@@ -28,6 +28,8 @@ import { useThemeStore } from '../../themes/store';
 const SKIP_SECONDS = 30;
 /** 「已跳过」提示展示时长（ms）。 */
 const SKIP_NOTICE_MS = 4000;
+/** macOS 系统 PiP 窗口尺寸受系统硬限制，改用原生子窗口方案时隐藏引擎自带画中画入口。 */
+const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent);
 
 interface VideoPlayerProps {
   sources: PlaySource[];
@@ -428,6 +430,7 @@ export function VideoPlayer({
           smallLayoutWhen={false}
           translations={ZH_TRANSLATIONS}
           slots={{
+            ...(IS_MAC ? { pipButton: null } : {}),
             settingsMenuItemsStart: (
               <>
                 <ColorControls

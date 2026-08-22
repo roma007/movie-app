@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { initApp, testCollect } from './init';
 import { Layout } from './components/Layout';
+import { PipWindow } from './pip/PipWindow';
 
 import { ContextMenu } from './components/ContextMenu';
 import { ThemeProvider } from './themes/ThemeProvider';
@@ -32,6 +33,14 @@ import TestCollectPage from './pages/TestCollectPage';
 import HelpCenterPage from './pages/HelpCenterPage';
 
 export default function App() {
+  const isPip =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('view') === 'pip';
+  if (isPip) return <PipWindow />;
+  return <MainApp />;
+}
+
+function MainApp() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingStep, setLoadingStep] = useState('开始初始化...');

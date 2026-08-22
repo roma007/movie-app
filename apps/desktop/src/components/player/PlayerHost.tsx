@@ -3,6 +3,9 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import type { MediaPlayerInstance } from '@vidstack/react';
 import { register as registerGlobalShortcut, unregister as unregisterGlobalShortcut } from '@tauri-apps/plugin-global-shortcut';
+import { getCurrentWebviewWindow, WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { currentMonitor } from '@tauri-apps/api/window';
+import { emit, listen } from '@tauri-apps/api/event';
 import { PictureInPicture2, Maximize2, ChevronsUpDown, ChevronsDownUp, X, ExternalLink } from 'lucide-react';
 import { VideoPlayer } from './VideoPlayer';
 import { PlayerOverlays } from './PlayerOverlays';
@@ -12,6 +15,51 @@ const HEADER_H = 36;
 const COLLAPSED_W = 240;
 const RESIZE_MIN_W = 240;
 const RESIZE_MIN_H = 160;
+const PIP_GEO_KEY = 'movie_app_pip_geo';
+const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent);
+
+interface PipGeometry {
+  x?: number;
+  y?: number;
+  w: number;
+  h: number;
+}
+
+function buildPipPayload(
+  session: NonNullable<ReturnType<typeof usePlayerStore.getState>['session']>,
+  currentTime: number,
+): Record<string, unknown> {
+  return {
+    episodeId: session.episodeId,
+    title: session.media?.title ?? '',
+    episodeLabel: session.episode ? session.episode.title || `第${session.episode.episodeNumber}集` : '',
+    sources: session.sources,
+    playSourceId: session.playSourceId,
+    currentTime,
+    volume: usePlayerStore.getState().volume,
+    muted: usePlayerStore.getState().muted,
+    nextEpisode: session.nextEpisode,
+    outroThresholdMinutes: session.outroThresholdMinutes,
+    showNextEpisodeOverlay: session.showNextEpisodeOverlay,
+  };
+}
+
+function readPipGeometry(): PipGeometry {
+  let geo: PipGeometry = { w: 400, h: Math.round((400 * 9) / 16) + 36 };
+  try {
+    const raw = localStorage.getItem(PIP_GEO_KEY);
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (Number.isFinite(p?.w) && p.w >= 200) geo.w = Math.round(p.w);
+      if (Number.isFinite(p?.h) && p.h >= 150) geo.h = Math.round(p.h);
+      if (Number.isFinite(p?.x) && Number.isFinite(p?.y)) {
+        geo.x = Math.round(p.x);
+        geo.y = Math.round(p.y);
+      }
+    }
+  } catch {}
+  return geo;
+}
 
 type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
@@ -45,6 +93,8 @@ export function PlayerHost() {
   const volume = usePlayerStore((s) => s.volume);
   const muted = usePlayerStore((s) => s.muted);
   const setVolume = usePlayerStore((s) => s.setVolume);
+  const pipActive = usePlayerStore((s) => s.pipActive);
+  const setPipActive = usePlayerStore((s) => s.setPipActive);
 
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -75,6 +125,11 @@ export function PlayerHost() {
       if (document.pictureInPictureElement) {
         await document.exitPictureInPicture();
       }
+    } catch {}
+    try {
+      const pipWin = await WebviewWindow.getByLabel('pip');
+      if (pipWin) await pipWin.close();
+      void emit('pip://close', null);
     } catch {}
     const video = playerRef.current?.el?.querySelector('video');
     if (video) {
@@ -123,6 +178,72 @@ export function PlayerHost() {
     void loadMiniPlayerPref();
   }, [loadMiniPlayerPref]);
 
+  // mac 原生画中画窗口：双向事件同步（进度/音量/切集/返回/关闭）
+  useEffect(() => {
+    const unsubs: (() => void)[] = [];
+    const on = <T,>(name: string, handler: (payload: T) => void) => {
+      listen<T>(name, (e) => handler(e.payload)).then((f) => unsubs.push(f));
+    };
+
+    on<{ t: number; d: number }>('pip://time', ({ t, d }) => {
+      usePlayerStore.getState().applyPipTime(t, d);
+    });
+    on<{ v: number; m: boolean }>('pip://volume', ({ v, m }) => {
+      usePlayerStore.getState().setVolume(v, m);
+    });
+    on<{ id: string; sourceId: string | null }>('pip://source', ({ id, sourceId }) => {
+      const s = usePlayerStore.getState().session;
+      if (s) usePlayerStore.setState({ session: { ...s, playSourceId: id, selectedSourceId: sourceId } });
+    });
+    on<{ x: number; y: number; w: number; h: number }>('pip://geometry', (geo) => {
+      try {
+        localStorage.setItem(PIP_GEO_KEY, JSON.stringify(geo));
+      } catch {}
+    });
+    on<{ episodeId: string }>('pip://next', async ({ episodeId }) => {
+      const st = usePlayerStore.getState();
+      await st.switchEpisode(episodeId);
+      const s2 = usePlayerStore.getState().session;
+      if (!s2 || s2.episodeId !== episodeId) return;
+      void emit('pip://episode', buildPipPayload(s2, s2.currentTime));
+    });
+    on<{ t: number; d: number }>('pip://back', ({ t, d }) => {
+      const st = usePlayerStore.getState();
+      st.applyPipTime(t, d);
+      st.setPipActive(false, { resumePlay: true });
+      if (st.session?.episodeId) navigate(`/play/${st.session.episodeId}`);
+    });
+    on<{ t: number; d: number }>('pip://closing', ({ t, d }) => {
+      const st = usePlayerStore.getState();
+      st.applyPipTime(t, d);
+      st.setPipActive(false);
+    });
+    on<unknown>('tauri://destroyed', (payload) => {
+      const label = (payload as { label?: string } | null)?.label;
+      if (label && label !== 'pip') return;
+      const st = usePlayerStore.getState();
+      if (st.pipActive) st.setPipActive(false);
+    });
+
+    return () => {
+      unsubs.forEach((u) => u());
+    };
+  }, [navigate]);
+
+  // 画中画关闭后：主窗口视频回到最新进度；「返回播放页」路径自动续播
+  useEffect(() => {
+    if (pipActive) return;
+    const video = playerRef.current?.el?.querySelector('video');
+    if (!video) return;
+    const st = usePlayerStore.getState();
+    const t = st.session?.currentTime ?? 0;
+    if (t > 0 && Math.abs(video.currentTime - t) > 0.5) {
+      video.currentTime = Math.min(t, (video.duration || Infinity) - 0.5);
+    }
+    if (st.pipResumePlay) void video.play().catch(() => {});
+    setPipActive(false);
+  }, [pipActive, setPipActive]);
+
   useEffect(() => {
     if (miniPos) {
       try {
@@ -144,16 +265,16 @@ export function PlayerHost() {
   }, [isPlayRoute, collapsed, setCollapsed]);
 
   useEffect(() => {
-    if (session && !isPlayRoute && (!miniPlayerEnabled || reachedOutroRef.current)) {
+    if (session && !isPlayRoute && !pipActive && (!miniPlayerEnabled || reachedOutroRef.current)) {
       void closePlayback();
     }
-  }, [session, isPlayRoute, miniPlayerEnabled, closePlayback]);
+  }, [session, isPlayRoute, pipActive, miniPlayerEnabled, closePlayback]);
 
   if (!session) return null;
 
   const mode: 'full' | 'mini' = isPlayRoute ? 'full' : 'mini';
 
-  if (mode === 'mini' && (!miniPlayerEnabled || reachedOutroRef.current)) return null;
+  if (mode === 'mini' && (!miniPlayerEnabled || reachedOutroRef.current || pipActive)) return null;
 
   const activeSources = session.sources;
   const showPlayer = activeSources.length > 0 || !session.loading;
@@ -200,14 +321,67 @@ export function PlayerHost() {
     }
   };
 
-  const handlePiP = () => {
-    const p = playerRef.current;
-    if (!p) return;
-    if (document.pictureInPictureElement) {
-      p.exitPictureInPicture().catch(() => {});
-    } else {
-      p.enterPictureInPicture().catch(() => {});
+  const openNativePipWindow = async () => {
+    if (!session || pipActive) return;
+    const existing = await WebviewWindow.getByLabel('pip');
+    if (existing) {
+      existing.setFocus().catch(() => {});
+      return;
     }
+    const video = playerRef.current?.el?.querySelector('video');
+    const currentTime = video ? video.currentTime : session.currentTime;
+    if (video && !video.paused) video.pause();
+
+    let maxWidth: number | undefined;
+    let maxHeight: number | undefined;
+    try {
+      const mon = await currentMonitor();
+      if (mon) {
+        const dpr = window.devicePixelRatio || 1;
+        maxWidth = Math.round(mon.size.width / dpr);
+        maxHeight = Math.round(mon.size.height / dpr);
+      }
+    } catch {}
+    const geo = readPipGeometry();
+    if (maxWidth) geo.w = Math.min(geo.w, maxWidth);
+    if (maxHeight) geo.h = Math.min(geo.h, maxHeight);
+
+    setPipActive(true);
+    const win = new WebviewWindow('pip', {
+      url: `/?view=pip&d=${encodeURIComponent(JSON.stringify(buildPipPayload(session, currentTime)))}`,
+      title: '画中画',
+      decorations: false,
+      alwaysOnTop: true,
+      resizable: true,
+      maximizable: false,
+      minimizable: false,
+      skipTaskbar: true,
+      hiddenTitle: true,
+      width: geo.w,
+      height: geo.h,
+      minWidth: 200,
+      minHeight: 150,
+      ...(maxWidth ? { maxWidth, maxHeight } : {}),
+      ...(geo.x !== undefined && geo.y !== undefined ? { x: geo.x, y: geo.y } : {}),
+    });
+    win.once('tauri://error', (e) => {
+      console.error('[PlayerHost] 打开画中画窗口失败:', e);
+      setPipActive(false);
+    });
+  };
+
+  const handlePiP = async () => {
+    if (!IS_MAC) {
+      const p = playerRef.current;
+      if (!p) return;
+      if (document.pictureInPictureElement) {
+        p.exitPictureInPicture().catch(() => {});
+      } else {
+        p.enterPictureInPicture().catch(() => {});
+      }
+      return;
+    }
+    await openNativePipWindow();
   };
 
   const onHeaderPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -459,6 +633,11 @@ export function PlayerHost() {
             height: mode === 'full' ? '100%' : miniSize.height - HEADER_H,
           }}
         >
+          {mode === 'full' && pipActive && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black text-white/70 text-sm pointer-events-none">
+              正在画中画窗口播放，关闭画中画后恢复此处控制
+            </div>
+          )}
           <VideoPlayer
             playerRef={playerRef}
             keyTarget={mode === 'full' ? 'document' : 'player'}

@@ -51,6 +51,11 @@ interface PlayerState {
   miniPlayerEnabled: boolean;
   setMiniPlayerEnabled: (enabled: boolean) => void;
   loadMiniPlayerPref: () => Promise<void>;
+
+  pipActive: boolean;
+  pipResumePlay: boolean;
+  setPipActive: (active: boolean, opts?: { resumePlay?: boolean }) => void;
+  applyPipTime: (currentTime: number, duration: number) => void;
 }
 
 const MINI_POS_KEY = 'movie_app_mini_pos';
@@ -377,6 +382,23 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     durationRef.value = 0;
     lastSaveRef.value = 0;
     set({ session: null, slotRect: null, collapsed: false });
+  },
+
+  pipActive: false,
+  pipResumePlay: false,
+
+  setPipActive: (active, opts) => {
+    set({ pipActive: active, pipResumePlay: !active && opts?.resumePlay === true });
+  },
+
+  applyPipTime: (currentTime, duration) => {
+    currentTimeRef.value = currentTime;
+    durationRef.value = duration;
+    const s = get().session;
+    if (!s || s.loading) return;
+    const cur = s.currentTime;
+    if (Math.abs(cur - currentTime) > 0.499) set({ session: { ...s, currentTime } });
+    get().handleTimeUpdate(currentTime, duration);
   },
   };
 });

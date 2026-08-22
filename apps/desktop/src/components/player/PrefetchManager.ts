@@ -482,9 +482,9 @@ class PrefetchManager {
     }
   }
 
-  /** 设置预取并发数（1-6），由使用偏好配置驱动。 */
+  /** 设置预取并发数（1-20），由使用偏好配置驱动。 */
   setConcurrency(n: number): void {
-    this.concurrency = Math.min(6, Math.max(1, Math.round(n) || DEFAULT_CONCURRENCY));
+    this.concurrency = Math.min(20, Math.max(1, Math.round(n) || DEFAULT_CONCURRENCY));
     this.log(`并发数调整为 ${this.concurrency}`);
   }
 
