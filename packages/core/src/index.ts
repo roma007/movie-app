@@ -58,6 +58,12 @@ export { VoiceCommandParser, createDefaultParser } from './services/voiceCommand
 export { InMemoryWakeWordService, type IWakeWordService } from './services/wakeWordService';
 export { InMemorySpeechRecognitionService, type ISpeechRecognitionService } from './services/speechRecognitionService';
 export { InMemoryTTSService, VOICE_FEEDBACK_MESSAGES, type ITTSService } from './services/ttsService';
+export { 
+  VoicePowerOptimizer, 
+  createPowerOptimizer, 
+  getPowerOptimizer,
+  type UsageScene 
+} from './services/voicePowerOptimizer';
 
 // 数据库抽象层
 export { PRAGMA_SQL, SCHEMA_SQL, INSERT_DEFAULT_SOURCE_SQL, COUNT_VIDEO_SOURCE_SQL, splitSqlStatements } from './db/schema';

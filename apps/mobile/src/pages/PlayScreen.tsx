@@ -3,8 +3,9 @@ import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { getProvider } from '../init';
 import { useAppStore, getStore } from '../useAppStore';
-import { ArrowLeft, RotateCcw, Mic } from 'lucide-react-native';
+import { ArrowLeft, Mic } from 'lucide-react-native';
 import { SystemConfigService, getVoiceControlSystem } from '@movie-app/core';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
 import { useScaledFontSize } from '../themes/useScaledFontSize';
@@ -114,7 +115,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   const [bgImageUrl, setBgImageUrl] = useState<string | null>(null);
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [episodeListSwitching, setEpisodeListSwitching] = useState(false);
-  const [isLandscape, setIsLandscape] = useState(false);
+  const isLandscapeRef = useRef(false);
 
   useEffect(() => {
     if (!media?.posterUrl) {
@@ -140,17 +141,22 @@ export default function PlayScreen({ route, navigation }: Props) {
     placeholder: { width: 40 },
     videoContainer: { width: '100%', aspectRatio: 16 / 9, backgroundColor: colors.playerBg },
     video: { width: '100%', height: '100%' },
-    rotateButton: {
-      position: 'absolute',
-      right: 84,
-      bottom: 10,
-      zIndex: 40,
+    toolbar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'flex-end',
+      gap: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      backgroundColor: colors.playerBg,
+    },
+    toolbarButton: {
       width: 36,
       height: 36,
       borderRadius: 18,
-      backgroundColor: 'rgba(0,0,0,0.5)',
-      justifyContent: 'center',
-      alignItems: 'center',
+      backgroundColor: 'rgba(255,255,255,0.1)',
+      justifyContent: 'center' as const,
+      alignItems: 'center' as const,
     },
     loadingOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1 },
     loadingText: { color: colors.textSecondary, fontSize: sf(14), marginTop: 8 },
@@ -383,16 +389,6 @@ export default function PlayScreen({ route, navigation }: Props) {
     }
   };
 
-  const handleRotate = () => {
-    if (isLandscape) {
-      setIsLandscape(false);
-      videoRef.current?.exitFullscreen();
-    } else {
-      setIsLandscape(true);
-      videoRef.current?.enterFullscreen();
-    }
-  };
-
   // 功能2: 下一集
   const filteredEpisodes = episodes;
 
@@ -429,28 +425,6 @@ export default function PlayScreen({ route, navigation }: Props) {
     skipForwardVisibleRef.current = false;
     skipDismissedRef.current = true;
   };
-
-  // 功能8: 语音控制
-  const voiceButtonStyle = useMemo(() => ({
-    position: 'absolute' as const,
-    right: 48,
-    bottom: 10,
-    zIndex: 40,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center' as const,
-    alignItems: 'center' as const,
-  }), []);
-
-  // 功能9: 投屏按钮
-  const castButtonStyle = useMemo(() => ({
-    position: 'absolute' as const,
-    right: 12,
-    bottom: 10,
-    zIndex: 40,
-  }), []);
 
   const handleVoiceControl = () => {
     setVoiceControlVisible(true);
@@ -582,7 +556,11 @@ export default function PlayScreen({ route, navigation }: Props) {
         aliases: ['全屏', '全屏幕', '切换全屏'],
         category: 'playback',
         execute: async () => {
-          handleRotate();
+          if (isLandscapeRef.current) {
+            videoRef.current?.exitFullscreen();
+          } else {
+            videoRef.current?.enterFullscreen();
+          }
         },
       },
       {
@@ -675,7 +653,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   };
 
   const nextEpisodeTitle = nextEpisode
-    ? `第${nextEpisode.episodeNumber}集${nextEpisode.title ? ` · ${nextEpisode.title}` : ''}`
+    ? `下一集${nextEpisode.title ? ` · ${nextEpisode.title}` : ''}`
     : '';
 
   return (
@@ -718,34 +696,15 @@ export default function PlayScreen({ route, navigation }: Props) {
             style={styles.video}
             player={player}
             contentFit="contain"
-            fullscreenOptions={{ enable: true, orientation: isLandscape ? 'landscape' : 'default' }}
-            onFullscreenEnter={() => setIsLandscape(true)}
-            onFullscreenExit={() => setIsLandscape(false)}
-          />
-        )}
-        {videoUrl && !error && (
-          <TouchableOpacity
-            style={styles.rotateButton}
-            activeOpacity={0.7}
-            onPress={handleRotate}
-          >
-            <RotateCcw size={18} color="#fff" />
-          </TouchableOpacity>
-        )}
-        {videoUrl && !error && voiceControl?.getConfig().enabled && (
-          <TouchableOpacity
-            style={voiceButtonStyle}
-            activeOpacity={0.7}
-            onPress={handleVoiceControl}
-          >
-            <Mic size={18} color="#fff" />
-          </TouchableOpacity>
-        )}
-        {videoUrl && !error && (
-          <CastButton
-            onDeviceSelect={handleCastDeviceSelect}
-            onSearch={castManager.searchDevices}
-            style={castButtonStyle}
+            fullscreenOptions={{ enable: true, orientation: 'landscape' }}
+            onFullscreenEnter={async () => {
+              isLandscapeRef.current = true;
+              try { await ScreenOrientation.unlockAsync(); } catch {}
+            }}
+            onFullscreenExit={async () => {
+              isLandscapeRef.current = false;
+              try { await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT); } catch {}
+            }}
           />
         )}
         <NextEpisodeOverlay
@@ -760,6 +719,25 @@ export default function PlayScreen({ route, navigation }: Props) {
           onClose={handleSkipForwardClose}
         />
       </View>
+
+      {videoUrl && !error && (
+        <View style={styles.toolbar}>
+          {voiceControl?.getConfig().enabled && (
+            <TouchableOpacity
+              style={styles.toolbarButton}
+              activeOpacity={0.7}
+              onPress={handleVoiceControl}
+            >
+              <Mic size={18} color="#fff" />
+            </TouchableOpacity>
+          )}
+          <CastButton
+            onDeviceSelect={handleCastDeviceSelect}
+            onSearch={castManager.searchDevices}
+            style={styles.toolbarButton}
+          />
+        </View>
+      )}
 
       {isCasting && (
         <CastRemoteControl

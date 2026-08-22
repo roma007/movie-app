@@ -69,7 +69,6 @@ export class VoiceControlSystem {
   private eventCallbacks: VoiceControlEventCallback[] = [];
   private stateChangeCallbacks: Array<(state: VoiceControlSystemState) => void> = [];
   
-  private listenTimeout: ReturnType<typeof setTimeout> | null = null;
   private currentTranscript: string = '';
 
   constructor(config?: Partial<VoiceControlConfig>, dependencies?: VoiceControlDependencies) {
@@ -88,7 +87,6 @@ export class VoiceControlSystem {
       wakeWordTimeout: 5000,
       feedbackEnabled: true,
       offlineEnabled: true,
-      onlineApiEnabled: false,
       audioConfig: {
         sampleRate: 16000,
         channels: 1,
@@ -112,28 +110,29 @@ export class VoiceControlSystem {
    * 初始化语音控制系统
    */
   async initialize(): Promise<boolean> {
-    try {
-      console.log('Initializing Voice Control System...');
+    console.log('Initializing Voice Control System...');
 
-      // 初始化各服务
-      await this.wakeWordService.initialize({
+    // 各服务独立初始化，互不阻塞
+    const results = await Promise.allSettled([
+      this.wakeWordService.initialize({
         melspectrogram: '',
         embedding: '',
         wakeWord: this.config.wakeWord,
-      });
-      await this.speechRecognitionService.initialize();
-      await this.ttsService.initialize();
+      }).then(ok => { if (!ok) console.warn('Wake word service init returned false'); }),
+      this.speechRecognitionService.initialize().then(ok => { if (!ok) console.warn('Speech recognition service init returned false'); }),
+      this.ttsService.initialize().then(ok => { if (!ok) console.warn('TTS service init returned false'); }),
+    ]);
 
-      // 应用配置
-      this.applyConfig();
-
-      console.log('Voice Control System initialized successfully');
-      return true;
-    } catch (error) {
-      console.error('Failed to initialize Voice Control System:', error);
-      this.emitEvent('error', { error: 'Failed to initialize voice control' });
-      return false;
+    const anyFailed = results.some(r => r.status === 'rejected');
+    if (anyFailed) {
+      console.warn('Some voice control services failed to initialize');
     }
+
+    // 应用配置
+    this.applyConfig();
+
+    console.log('Voice Control System initialized successfully');
+    return true;
   }
 
   /**
@@ -223,11 +222,9 @@ export class VoiceControlSystem {
    * 停止语音控制
    */
   async stop(): Promise<void> {
-    this.clearListenTimeout();
-    
+    console.log('[VoiceCS] stop');
     await this.wakeWordService.stopListening();
     await this.speechRecognitionService.stopListening();
-    
     this.setState('idle');
     this.currentTranscript = '';
   }
@@ -237,6 +234,13 @@ export class VoiceControlSystem {
    */
   getState(): VoiceControlSystemState {
     return this.state;
+  }
+
+  /**
+   * 语音识别服务是否正在监听
+   */
+  isListening(): boolean {
+    return this.speechRecognitionService.isListening();
   }
 
   /**
@@ -303,6 +307,7 @@ export class VoiceControlSystem {
       return;
     }
 
+    console.log('[VoiceCS] triggerVoiceRecognition');
     await this.startVoiceListening();
   }
 
@@ -310,8 +315,6 @@ export class VoiceControlSystem {
    * 释放资源
    */
   dispose(): void {
-    this.clearListenTimeout();
-    
     this.wakeWordService.dispose();
     this.speechRecognitionService.dispose();
     this.ttsService.dispose();
@@ -340,16 +343,28 @@ export class VoiceControlSystem {
    * 设置回调
    */
   private setupCallbacks(): void {
-    // 唤醒词检测回调
     this.wakeWordService.onWakeWordDetected((result) => {
       if (result.detected) {
         this.handleWakeWordDetected();
       }
     });
 
-    // 语音识别回调
+    // 识别结果回调（partial + final，只更新 UI 文本）
     this.speechRecognitionService.onRecognitionResult((result) => {
-      this.handleRecognitionResult(result.text, result.confidence);
+      console.log(`[VoiceCS] onRecognitionResult: "${result.text}"`);
+      this.currentTranscript = result.text;
+      this.emitEvent('recognition_result', { text: result.text, confidence: result.confidence });
+    });
+
+    // 最终识别结果回调（仅 final，用于命令解析）
+    this.speechRecognitionService.onFinalResult((result) => {
+      console.log(`[VoiceCS] onFinalResult: "${result.text}"`);
+      this.handleFinalResult(result.text, result.confidence);
+    });
+
+    this.speechRecognitionService.onListeningTimeout(() => {
+      console.log('[VoiceCS] onListeningTimeout');
+      this.handleListenTimeout();
     });
   }
 
@@ -373,40 +388,27 @@ export class VoiceControlSystem {
    * 开始语音监听
    */
   private async startVoiceListening(): Promise<void> {
+    console.log('[VoiceCS] startVoiceListening');
     this.setState('listening');
     this.currentTranscript = '';
-
     await this.speechRecognitionService.startListening();
-
-    // 设置超时
-    this.clearListenTimeout();
-    this.listenTimeout = setTimeout(() => {
-      this.handleListenTimeout();
-    }, this.config.recognitionTimeout);
   }
 
   /**
-   * 处理语音识别结果
+   * 处理最终识别结果
+   * Vosk onResult 后 SpeechService 仍在运行，不需要重启
    */
-  private handleRecognitionResult(text: string, confidence: number): void {
-    this.currentTranscript = text;
-    this.emitEvent('recognition_result', { text, confidence });
-
-    // 解析命令
+  private handleFinalResult(text: string, confidence: number): void {
+    console.log(`[VoiceCS] handleFinalResult: "${text}", confidence=${confidence}`);
     const parsedCommand = this.commandParser.parse(text);
     
     if (parsedCommand) {
+      console.log(`[VoiceCS] 命令匹配: ${parsedCommand.command.name}`);
       this.setState('command_recognized');
       this.emitEvent('command_parsed', parsedCommand);
-
-      // 执行命令
       this.executeCommand(parsedCommand);
     } else {
-      // 未识别的命令
-      if (this.config.ttsEnabled) {
-        this.ttsService.speak(VOICE_FEEDBACK_MESSAGES.COMMAND_NOT_RECOGNIZED);
-      }
-      this.setState('error');
+      console.log(`[VoiceCS] 命令未匹配，Vosk 继续听`);
       this.emitEvent('error', { message: 'Command not recognized', text });
     }
   }
@@ -416,6 +418,7 @@ export class VoiceControlSystem {
    */
   private async executeCommand(parsedCommand: ParsedVoiceCommand): Promise<void> {
     try {
+      console.log(`[VoiceCS] executeCommand: ${parsedCommand.command.name}`);
       this.setState('executing_command');
 
       await parsedCommand.command.execute(parsedCommand.params);
@@ -431,12 +434,8 @@ export class VoiceControlSystem {
         this.ttsService.speak(parsedCommand.command.name);
       }
 
-      // 重新开始监听（如果配置了持续监听）
-      if (this.config.enabled) {
-        setTimeout(() => {
-          this.start();
-        }, 1000);
-      }
+      // 命令执行完毕，自动关闭
+      this.stop();
     } catch (error) {
       console.error('Failed to execute command:', error);
       this.setState('error');
@@ -445,32 +444,14 @@ export class VoiceControlSystem {
   }
 
   /**
-   * 处理监听超时
+   * 处理监听超时 — Vosk 停止，不自动重启
+   * 用户需重新点击麦克风按钮
    */
   private handleListenTimeout(): void {
-    this.setState('error');
-    
-    if (this.config.ttsEnabled) {
-      this.ttsService.speak(VOICE_FEEDBACK_MESSAGES.WAKE_WORD_TIMEOUT);
-    }
-
-    this.emitEvent('error', { message: 'Listening timeout' });
-
-    // 重新开始监听
-    if (this.config.enabled) {
-      setTimeout(() => {
-        this.start();
-      }, 1000);
-    }
-  }
-
-  /**
-   * 清除监听超时
-   */
-  private clearListenTimeout(): void {
-    if (this.listenTimeout) {
-      clearTimeout(this.listenTimeout);
-      this.listenTimeout = null;
+    if (this.state === 'listening') {
+      console.log('[VoiceCS] 识别超时，停止监听');
+      this.setState('idle');
+      this.emitEvent('error', { message: 'Listening timed out' });
     }
   }
 

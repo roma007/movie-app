@@ -6,8 +6,10 @@ const monorepoRoot = path.resolve(projectRoot, '../..');
 
 const config = getDefaultConfig(projectRoot);
 
-// monorepo: 让 Metro 监听整个仓库（包括 packages/core）
-config.watchFolders = [monorepoRoot];
+// serverRoot keeps default (monorepo root) so entry resolves as ./apps/mobile/index correctly
+
+// monorepo: 保留默认 watchFolders 并追加 monorepoRoot
+config.watchFolders = [...(config.watchFolders || []), monorepoRoot];
 
 // 让 Metro 能解析根 node_modules（pnpm hoisted 后共享依赖）
 config.resolver.nodeModulesPaths = [

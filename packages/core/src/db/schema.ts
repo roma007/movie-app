@@ -261,6 +261,15 @@ export const SCHEMA_SQL = `
     created_at TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_media_change_log_created_at ON media_change_log(created_at);
+
+  -- 语音控制配置表
+  CREATE TABLE IF NOT EXISTS voice_config (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    value_type TEXT DEFAULT 'string',
+    created_at TEXT,
+    updated_at TEXT
+  );
 `;
 
 /**

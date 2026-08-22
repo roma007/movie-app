@@ -245,6 +245,16 @@ hasShortDrama: (type?: string) => Promise<boolean>;
   setUserUsageTypes: (types: UserUsageType[]) => Promise<void>;
   checkGuideShown: () => Promise<boolean>;
   markGuideShown: () => Promise<void>;
+
+  // 语音控制状态
+  voiceControlEnabled: boolean;
+  voiceControlState: 'idle' | 'listening' | 'command_recognized' | 'executing_command' | 'error';
+  lastVoiceCommand: string | null;
+  lastVoiceError: string | null;
+  setVoiceControlEnabled: (enabled: boolean) => void;
+  setVoiceControlState: (state: 'idle' | 'listening' | 'command_recognized' | 'executing_command' | 'error') => void;
+  setLastVoiceCommand: (command: string | null) => void;
+  setLastVoiceError: (error: string | null) => void;
 }
 
 import { SystemConfigService } from '../services/systemConfigService';
@@ -298,9 +308,17 @@ export function createAppStore(db: DatabaseProvider) {
     previewResults: [],
     previewLoading: false,
     userUsageTypes: ['SEARCH_FIRST'],
+    voiceControlEnabled: false,
+    voiceControlState: 'idle',
+    lastVoiceCommand: null,
+    lastVoiceError: null,
 
     setVideoManageDeleteType: (type) => set({ videoManageDeleteType: type }),
     setVideoManageHideType: (type) => set({ videoManageHideType: type }),
+    setVoiceControlEnabled: (enabled) => set({ voiceControlEnabled: enabled }),
+    setVoiceControlState: (state) => set({ voiceControlState: state }),
+    setLastVoiceCommand: (command) => set({ lastVoiceCommand: command }),
+    setLastVoiceError: (error) => set({ lastVoiceError: error }),
 
     loadMediaList: async (params = {}) => {
       console.log(`[STORE] loadMediaList called with params:`, params);

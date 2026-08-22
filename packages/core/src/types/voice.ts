@@ -72,7 +72,6 @@ export interface VoiceControlState {
   sensitivity: number;  // 0.0 - 1.0
   feedbackEnabled: boolean;
   offlineEnabled: boolean;
-  onlineApiEnabled: boolean;
   lastCommand?: string;
   lastError?: string;
 }
@@ -116,7 +115,6 @@ export interface VoiceControlConfig {
   wakeWordTimeout?: number;
   feedbackEnabled: boolean;
   offlineEnabled: boolean;
-  onlineApiEnabled: boolean;
   audioConfig: AudioConfig;
 }
 
@@ -136,7 +134,6 @@ export const DEFAULT_VOICE_CONTROL_CONFIG: VoiceControlConfig = {
   wakeWordTimeout: 5000,
   feedbackEnabled: true,
   offlineEnabled: true,
-  onlineApiEnabled: false,
   audioConfig: DEFAULT_AUDIO_CONFIG,
 };
 

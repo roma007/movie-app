@@ -23,7 +23,7 @@ export function NextEpisodeOverlay({ show, nextEpisodeTitle, onNext, onClose }: 
   const styles = useMemo(() => StyleSheet.create({
     container: {
       position: 'absolute',
-      bottom: 16,
+      top: 8,
       right: 8,
       zIndex: 30,
       backgroundColor: hexToRgba(colors.card, cardOpacity / 100),

@@ -212,6 +212,12 @@ export interface DatabaseProvider {
   getCollectionLogs(filter?: { taskId?: string; sourceCode?: string; level?: string; limit?: number; offset?: number }): Promise<CollectionLog[]>;
   clearCollectionLogs(beforeDays?: number): Promise<void>;
 
+  // —— VoiceConfig DAO ——
+  getVoiceConfig(key: string): Promise<string | null>;
+  setVoiceConfig(key: string, value: string, valueType?: string): Promise<void>;
+  deleteVoiceConfig(key: string): Promise<void>;
+  getAllVoiceConfig(): Promise<Record<string, string>>;
+
   // —— 通用 SQL ——
   select<T>(sql: string, params?: any[]): Promise<T[]>;
   selectOne<T>(sql: string, params?: any[]): Promise<T | null>;

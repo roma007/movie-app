@@ -12,6 +12,7 @@ import {
 import { MobileWakeWordService } from './mobileWakeWordService';
 import { MobileSpeechRecognitionService } from './mobileSpeechRecognitionService';
 import { MobileTTSService } from './mobileTTSService';
+import { getGlobalWakeWordListener } from './globalWakeWordListener';
 
 /**
  * 创建移动端语音控制系统
@@ -39,6 +40,12 @@ export async function initializeMobileVoiceControl(config?: Partial<VoiceControl
   
   // 设置为全局系统
   setGlobalVoiceControlSystem(system);
+  
+  // 启动全局唤醒词监听
+  const globalListener = getGlobalWakeWordListener();
+  globalListener.start();
+  
+  console.log('[MobileVoiceControl] Initialized with global wake word listener');
   
   return system;
 }

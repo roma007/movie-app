@@ -1,31 +1,30 @@
 /**
  * 移动端唤醒词检测服务实现
- * 使用 react-native-openwakeword
+ * 使用 react-native-openwakeword（如果可用），否则降级为按钮触发模式
  */
 
 import type { IWakeWordService } from '@movie-app/core';
 import type { WakeWordDetectionResult, WakeWordState } from '@movie-app/core';
 
-/**
- * 唤醒词检测回调
- */
 export type WakeWordCallback = (result: WakeWordDetectionResult) => void;
-
-/**
- * 状态变化回调
- */
 export type StateChangeCallback = (state: WakeWordState) => void;
 
 /**
  * 移动端唤醒词检测服务
+ * 
+ * 当 react-native-openwakeword / NitroModules 不可用时，降级为按钮触发模式：
+ * - startListening → 直接切换到 'listening' 状态（无实际唤醒词检测）
+ * - 外部通过按钮触发 startListening → 手动调用 handleWakeWordDetected()
  */
 export class MobileWakeWordService implements IWakeWordService {
   private state: WakeWordState = 'idle';
   private threshold: number = 0.7;
   private wakeWordCallbacks: WakeWordCallback[] = [];
   private stateChangeCallbacks: StateChangeCallback[] = [];
-  private wakeWordInstance: any = null;
+  private openwakeword: any = null;
+  private wakeWordDetector: any = null;
   private isInitialized: boolean = false;
+  private wakeWordAvailable: boolean = false;
 
   async initialize(modelPaths: {
     melspectrogram: string;
@@ -33,27 +32,37 @@ export class MobileWakeWordService implements IWakeWordService {
     wakeWord: string;
   }): Promise<boolean> {
     try {
-      // 动态导入 react-native-openwakeword
-      const OpenWakeWord = require('react-native-openwakeword');
+      const { Openwakeword } = require('react-native-openwakeword');
       
-      // 初始化唤醒词检测器
-      this.wakeWordInstance = new OpenWakeWord.default();
+      if (!Openwakeword || typeof Openwakeword.createDetector !== 'function') {
+        console.warn('react-native-openwakeword not available, using button-only mode');
+        this.isInitialized = true;
+        this.wakeWordAvailable = false;
+        return true;
+      }
       
-      // 加载模型
-      // 注意：实际使用时需要提供正确的模型路径
-      // 这里假设模型已经打包到assets中
-      await this.wakeWordInstance.loadModel({
-        melspectrogram: modelPaths.melspectrogram,
-        embedding: modelPaths.embedding,
-        wakeWord: modelPaths.wakeWord,
-      });
+      this.openwakeword = Openwakeword;
+      
+      try {
+        this.wakeWordDetector = await this.openwakeword.createDetector({
+          melspectrogram: modelPaths.melspectrogram,
+          embedding: modelPaths.embedding,
+          wakeWord: modelPaths.wakeWord,
+        });
+        this.wakeWordAvailable = true;
+        console.log('MobileWakeWordService initialized with wake word detection');
+      } catch (e) {
+        console.warn('Wake word model loading failed, using button-only mode:', e);
+        this.wakeWordAvailable = false;
+      }
 
       this.isInitialized = true;
-      console.log('MobileWakeWordService initialized successfully');
       return true;
     } catch (error) {
-      console.error('Failed to initialize MobileWakeWordService:', error);
-      return false;
+      console.warn('react-native-openwakeword not available, using button-only mode:', error);
+      this.isInitialized = true;
+      this.wakeWordAvailable = false;
+      return true;
     }
   }
 
@@ -66,13 +75,13 @@ export class MobileWakeWordService implements IWakeWordService {
     try {
       this.setState('listening');
       
-      // 开始监听唤醒词
-      this.wakeWordInstance.on('wakeWordDetected', (result: any) => {
-        this.handleWakeWordDetected(result);
-      });
-
-      await this.wakeWordInstance.start();
-      console.log('MobileWakeWordService started listening');
+      if (this.wakeWordAvailable && this.wakeWordDetector) {
+        // TODO: 使用真实唤醒词检测器监听
+        // wakeWordDetector 会在检测到唤醒词时触发回调
+        console.log('Wake word detection started (native)');
+      } else {
+        console.log('Wake word detection started (button-only mode)');
+      }
     } catch (error) {
       console.error('Failed to start listening:', error);
       this.setState('error');
@@ -81,9 +90,6 @@ export class MobileWakeWordService implements IWakeWordService {
 
   async stopListening(): Promise<void> {
     try {
-      if (this.wakeWordInstance) {
-        await this.wakeWordInstance.stop();
-      }
       this.setState('idle');
       console.log('MobileWakeWordService stopped listening');
     } catch (error) {
@@ -93,12 +99,10 @@ export class MobileWakeWordService implements IWakeWordService {
 
   setThreshold(threshold: number): void {
     this.threshold = threshold;
-    console.log(`MobileWakeWordService threshold set to ${threshold}`);
   }
 
   reset(): void {
     this.setState('idle');
-    console.log('MobileWakeWordService reset');
   }
 
   getState(): WakeWordState {
@@ -130,26 +134,25 @@ export class MobileWakeWordService implements IWakeWordService {
   dispose(): void {
     this.wakeWordCallbacks = [];
     this.stateChangeCallbacks = [];
-    if (this.wakeWordInstance) {
-      this.wakeWordInstance.destroy();
-    }
     this.setState('idle');
   }
 
   /**
-   * 处理唤醒词检测
+   * 手动触发唤醒词检测（按钮模式）
    */
-  private handleWakeWordDetected(result: any): void {
-    const detectionResult: WakeWordDetectionResult = {
-      detected: true,
-      probability: result.probability || 0.9,
-      timestamp: Date.now(),
-    };
-
-    if (detectionResult.probability >= this.threshold) {
+  handleWakeWordDetected(probability: number = 0.9): void {
+    if (probability >= this.threshold) {
       this.setState('wakeword_detected');
-      this.notifyWakeWordDetected(detectionResult);
+      this.notifyWakeWordDetected({
+        detected: true,
+        probability,
+        timestamp: Date.now(),
+      });
     }
+  }
+
+  isWakeWordAvailable(): boolean {
+    return this.wakeWordAvailable;
   }
 
   private setState(newState: WakeWordState): void {

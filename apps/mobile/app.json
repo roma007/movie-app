@@ -2,7 +2,7 @@
   "expo": {
     "name": "Movie App",
     "slug": "movie-app",
-    "version": "1.0.74",
+    "version": "1.0.75",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -42,9 +42,16 @@
       "expo-sqlite",
       "expo-image",
       "expo-video",
+      "expo-screen-orientation",
       "expo-status-bar",
       "expo-speech-transcriber",
-      "react-native-google-cast"
+      "react-native-google-cast",
+      [
+        "react-native-vosk",
+        {
+          "models": ["assets/model-cn"]
+        }
+      ]
     ]
   }
 }

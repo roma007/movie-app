@@ -18,22 +18,39 @@ export class MobileTTSService implements ITTSService {
 
   async initialize(): Promise<boolean> {
     try {
-      // 动态导入 react-native-tts
-      const Tts = require('react-native-tts');
+      const TtsModule = require('react-native-tts');
+      const Tts = TtsModule.default || TtsModule;
+      
+      if (!Tts) {
+        console.warn('react-native-tts module not available');
+        return false;
+      }
       
       this.tts = Tts;
       
-      // 初始化TTS
-      await this.tts.init();
+      try {
+        await this.tts.getInitStatus();
+      } catch (e) {
+        console.warn('TTS getInitStatus failed, trying to continue:', e);
+      }
       
-      // 设置默认语言
-      await this.tts.setDefaultLanguage(this.language);
+      try {
+        await this.tts.setDefaultLanguage(this.language);
+      } catch (e) {
+        console.warn('TTS setDefaultLanguage failed:', e);
+      }
       
-      // 设置默认语速
-      await this.tts.setDefaultRate(this.rate);
+      try {
+        await this.tts.setDefaultRate(this.rate);
+      } catch (e) {
+        console.warn('TTS setDefaultRate failed:', e);
+      }
       
-      // 设置默认音调
-      await this.tts.setDefaultPitch(this.pitch);
+      try {
+        await this.tts.setDefaultPitch(this.pitch);
+      } catch (e) {
+        console.warn('TTS setDefaultPitch failed:', e);
+      }
 
       this.isInitialized = true;
       console.log('MobileTTSService initialized successfully');
@@ -50,17 +67,20 @@ export class MobileTTSService implements ITTSService {
     rate?: number;
     volume?: number;
   }): Promise<void> {
-    if (!this.isInitialized) {
+    if (!this.isInitialized || !this.tts) {
       console.warn('TTS Service not initialized');
       return;
     }
 
     try {
       await this.tts.speak(text, {
-        language: options?.language || this.language,
-        pitch: options?.pitch || this.pitch,
+        iosVoiceId: '',
         rate: options?.rate || this.rate,
-        volume: options?.volume || this.volume,
+        androidParams: {
+          KEY_PARAM_STREAM: 'STREAM_MUSIC',
+          KEY_PARAM_VOLUME: options?.volume || this.volume,
+          KEY_PARAM_PAN: 0,
+        },
       });
     } catch (error) {
       console.error('Failed to speak:', error);
@@ -69,69 +89,60 @@ export class MobileTTSService implements ITTSService {
 
   stop(): void {
     if (this.tts) {
-      this.tts.stop();
+      try { this.tts.stop(); } catch (e) { /* ignore */ }
     }
   }
 
   pause(): void {
     if (this.tts) {
-      this.tts.pause();
+      try { this.tts.pause(); } catch (e) { /* ignore */ }
     }
   }
 
   resume(): void {
     if (this.tts) {
-      this.tts.resume();
+      try { this.tts.resume(); } catch (e) { /* ignore */ }
     }
   }
 
   setLanguage(language: string): void {
     this.language = language;
     if (this.tts) {
-      this.tts.setDefaultLanguage(language);
+      try { this.tts.setDefaultLanguage(language); } catch (e) { /* ignore */ }
     }
-    console.log(`MobileTTSService language set to ${language}`);
   }
 
   setRate(rate: number): void {
     this.rate = Math.max(0.1, Math.min(2.0, rate));
     if (this.tts) {
-      this.tts.setDefaultRate(this.rate);
+      try { this.tts.setDefaultRate(this.rate); } catch (e) { /* ignore */ }
     }
-    console.log(`MobileTTSService rate set to ${this.rate}`);
   }
 
   setPitch(pitch: number): void {
     this.pitch = Math.max(0.5, Math.min(2.0, pitch));
     if (this.tts) {
-      this.tts.setDefaultPitch(this.pitch);
+      try { this.tts.setDefaultPitch(this.pitch); } catch (e) { /* ignore */ }
     }
-    console.log(`MobileTTSService pitch set to ${this.pitch}`);
   }
 
   setVolume(volume: number): void {
     this.volume = Math.max(0, Math.min(1.0, volume));
-    // react-native-tts 可能不支持直接设置音量
-    console.log(`MobileTTSService volume set to ${this.volume}`);
   }
 
   async isAvailable(): Promise<boolean> {
-    if (!this.tts) {
-      return false;
-    }
-
+    if (!this.tts) return false;
     try {
       const voices = await this.tts.voices();
-      return voices.length > 0;
+      return voices && voices.length > 0;
     } catch (error) {
-      console.error('Failed to check TTS availability:', error);
       return false;
     }
   }
 
   dispose(): void {
     if (this.tts) {
-      this.tts.stop();
+      try { this.tts.stop(); } catch (e) { /* ignore */ }
     }
     this.isInitialized = false;
   }

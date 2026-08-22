@@ -1744,6 +1744,32 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     }
   }
 
+  async getVoiceConfig(key: string): Promise<string | null> {
+    const row = await this.db!.getFirstAsync<any>('SELECT value FROM voice_config WHERE key = ?', [key]);
+    return row ? row.value : null;
+  }
+
+  async setVoiceConfig(key: string, value: string, valueType: string = 'string'): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db!.runAsync(
+      'INSERT OR REPLACE INTO voice_config (key, value, value_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      [key, value, valueType, now, now]
+    );
+  }
+
+  async deleteVoiceConfig(key: string): Promise<void> {
+    await this.db!.runAsync('DELETE FROM voice_config WHERE key = ?', [key]);
+  }
+
+  async getAllVoiceConfig(): Promise<Record<string, string>> {
+    const rows = await this.db!.getAllAsync<any>('SELECT key, value FROM voice_config');
+    const config: Record<string, string> = {};
+    for (const row of rows) {
+      config[row.key] = row.value;
+    }
+    return config;
+  }
+
   async select<T>(sql: string, params?: any[]): Promise<T[]> {
     return this.db!.getAllAsync<T>(sql, params || []);
   }

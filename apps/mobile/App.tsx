@@ -31,6 +31,7 @@ import AnimeScreen from './src/pages/AnimeScreen';
 import DocumentaryScreen from './src/pages/DocumentaryScreen';
 import Sidebar from './src/components/Sidebar';
 import CollectProgressDialog from './src/components/CollectProgressDialog';
+import { GlobalVoiceControl } from './src/components/GlobalVoiceControl';
 
 const Stack = createNativeStackNavigator();
 
@@ -71,6 +72,7 @@ function RootNavigator() {
       </Stack.Navigator>
       <Sidebar />
       <CollectProgressDialog />
+      <GlobalVoiceControl />
     </>
   );
 }
