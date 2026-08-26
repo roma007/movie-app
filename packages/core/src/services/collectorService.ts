@@ -959,6 +959,9 @@ export class CollectorService {
     }));
 
     console.log(`[Collector] collectLatest completed`);
+    // 采集完成后统一触发一次"越看越懂你"重算：新元数据入库后，推荐库需刷新。
+    // scheduleRecompute 自带去重：多次连续信号只会起一个窗口，到点执行一次。
+    this.recommendationService.scheduleRecompute();
   }
 
   async collectAll(pageSize: number = 20): Promise<{ totalCollected: number; totalPages: number }> {

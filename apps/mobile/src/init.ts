@@ -86,15 +86,19 @@ export async function initApp(): Promise<void> {
       console.error('[INIT] 启动自动增量采集调度器失败:', err);
     }
 
-    // 「越看越懂你」：启动时重建一次推荐分（后台执行，不阻塞首屏）
+    // 「越看越懂你」：仅当有变化或尚无推荐快照时才在后台重建一次，
+    // 避免每次启动都跑全量重算（其打分循环在大数据量下会占满主线程导致卡顿）
     try {
-      setTimeout(() => {
-        store.getState().flushRecommendationRecompute().then((changed) => {
-          if (changed > 0) console.log(`[INIT] 推荐分重建完成（${changed} 条变化）`);
-        }).catch((err) => {
-          console.error('[INIT] 推荐分重建失败:', err);
-        });
-      }, 3000);
+      const need = await store.getState().recommendationNeedsStartupRecompute();
+      if (need) {
+        setTimeout(() => {
+          store.getState().flushRecommendationRecompute().then((changed) => {
+            if (changed > 0) console.log(`[INIT] 推荐分重建完成（${changed} 条变化）`);
+          }).catch((err) => {
+            console.error('[INIT] 推荐分重建失败:', err);
+          });
+        }, 3000);
+      }
     } catch (err) {
       console.error('[INIT] 启动推荐分重建调度失败:', err);
     }

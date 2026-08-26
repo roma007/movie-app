@@ -79,8 +79,6 @@ export const RECOMMEND_PARAMS = {
   subtypeMinSamples: 5,
   subtypeMinGiveUps: 2,
   subtypeGiveUpRate: 0.6,
-  /** 坏源豁免窗口：last_fail_at 在窗口内即视为坏源，弃看样本豁免。 */
-  badSourceWindowMs: 24 * 60 * 60 * 1000,
   /** 参与搜索命中匹配的关键词数量上限。 */
   maxSearchKeywords: 50,
   /** 兴趣标签衰减半衰期。 */
@@ -208,50 +206,39 @@ function parseStringArray(raw: string | null | undefined): string[] {
 export class RecommendationService {
   constructor(private db: DatabaseProvider) {}
 
-  // 用户兴趣画像缓存
-  private interestCache: {
-    data: Map<string, InterestTag>;
-    timestamp: number;
-    hash: string;
-  } | null = null;
+  // —— 增量重算状态（仅内存，不持久化；进程重启退化为全量一次，无正确性风险） ——
+  private lastWrittenInterest?: Map<string, InterestTag>;
+  private lastPenalized?: Set<string>;
+  private lastResetAt?: string | null;
+  // 上次成功重算时的「行为涉及 media 并集」，用于覆盖收藏/不喜欢「移除类」操作导致的分数变化
+  private lastBehaviorMediaIds?: Set<string>;
 
-  // 缓存有效期：5分钟
-  private static readonly CACHE_TTL_MS = 5 * 60 * 1000;
-
-  // 生成缓存键（基于输入数据的哈希）
-  private generateCacheHash(params: {
-    watchedMediaSize: number;
-    completedMediaSize: number;
-    favoritesSize: number;
-    impressionsSize: number;
-    searchRowsSize: number;
-    dislikedSize: number;
-    tagBlacklistSize: number;
-    now: number;
-  }): string {
-    return `${params.watchedMediaSize}-${params.completedMediaSize}-${params.favoritesSize}-${params.impressionsSize}-${params.searchRowsSize}-${params.dislikedSize}-${params.tagBlacklistSize}-${Math.floor(params.now / 1000)}`;
-  }
-
-  // 检查缓存是否有效
-  private isCacheValid(hash: string): boolean {
-    if (!this.interestCache) return false;
-    if (this.interestCache.hash !== hash) return false;
-    if (Date.now() - this.interestCache.timestamp > RecommendationService.CACHE_TTL_MS) return false;
-    return true;
-  }
-
-  // 设置缓存
-  private setCache(data: Map<string, InterestTag>, hash: string): void {
-    this.interestCache = {
-      data,
-      timestamp: Date.now(),
-      hash,
-    };
-  }
-
-  // 清空缓存
-  private clearCache(): void {
-    this.interestCache = null;
+  /**
+   * 对比新旧兴趣画像，返回发生变化的 tag。
+   * - exact：genre/director/actor 类，复合 key（`type\u0000tag`），供 tagToMedia 倒排定位 media。
+   * - keyword：搜索词类，匹配是 mediaText 子串语义（见 computeMediaScore），无法用倒排，需全量扫描。
+   */
+  private diffInterest(
+    next: Map<string, InterestTag>,
+    prev?: Map<string, InterestTag>
+  ): { exact: Set<string>; keyword: Set<string> } {
+    const exact = new Set<string>();
+    const keyword = new Set<string>();
+    if (!prev) return { exact, keyword }; // 调用方据此走全量 A
+    const eps = 1e-4;
+    const allKeys = new Set<string>([...next.keys(), ...prev.keys()]);
+    for (const k of allKeys) {
+      const a = next.get(k);
+      const b = prev.get(k);
+      const aS = a ? a.strength : 0;
+      const bS = b ? b.strength : 0;
+      if (Math.abs(aS - bS) > eps) {
+        const type = (a || b)!.type;
+        if (type === 'keyword') keyword.add((a || b)!.tag);
+        else exact.add(k);
+      }
+    }
+    return { exact, keyword };
   }
 
   private async getLearnResetAt(): Promise<string | null> {
@@ -287,7 +274,9 @@ export class RecommendationService {
    * 且与已执行中的重算串行，避免并发写冲突。空闲兜底按 60 秒执行。
    */
   scheduleRecompute(delayMs = 30000): void {
-    if (this.scheduleTimer) clearTimeout(this.scheduleTimer);
+    // 已有窗口在跑则直接合并，避免高频信号（如持续翻页产生的曝光）不断重置
+    // 计时导致重算永远不执行（饿死）。首触发起一个窗口，到点执行后清空，再有信号再起窗口。
+    if (this.scheduleTimer) return;
     this.scheduleTimer = setTimeout(() => {
       this.scheduleTimer = null;
       this.recomputeChain = this.recomputeChain
@@ -311,6 +300,17 @@ export class RecommendationService {
         console.error('[RecommendationService] recompute failed', e);
         return 0;
       }));
+  }
+
+  /** 启动期是否需要全量重算：存在变化日志，或推荐快照尚不存在（冷启动需构建一次）。 */
+  async needsStartupRecompute(): Promise<boolean> {
+    if (await this.hasChangesSinceLastRecompute()) return true;
+    try {
+      const row = await this.db.selectOne<{ c: number }>('SELECT COUNT(*) as c FROM recommend_snapshot');
+      return (row?.c ?? 0) === 0;
+    } catch {
+      return true;
+    }
   }
 
   /** 半衰期指数衰减：事件距今越远权重越低。 */
@@ -357,8 +357,6 @@ export class RecommendationService {
   private async clearChangeLog(): Promise<void> {
     try {
       await this.db.execute('DELETE FROM media_change_log', []);
-      // 重算完成后清空兴趣画像缓存，确保下次重算使用新数据
-      this.clearCache();
     } catch {
       // 表可能尚不存在（旧版数据库），忽略
     }
@@ -385,6 +383,13 @@ export class RecommendationService {
    */
   async recomputeAll(): Promise<number> {
     const resetAt = await this.getLearnResetAt();
+    // 增量重算：清学/重置后强制全量，并清空内存状态（避免旧画像残留）
+    let forceFull = false;
+    if (resetAt !== this.lastResetAt) {
+      forceFull = true;
+      this.lastWrittenInterest = undefined;
+      this.lastPenalized = undefined;
+    }
     const historyResetSql = resetAt ? ' WHERE wh.updated_at >= ?' : '';
     const searchResetSql = resetAt ? ' WHERE updated_at >= ?' : '';
     const resetParams = resetAt ? [resetAt] : [];
@@ -426,13 +431,9 @@ export class RecommendationService {
     }
 
     const now = Date.now();
+    // 坏源失败记录一律豁免「弃剧」判定（数据质量纠正，不依赖时间窗口 → personal_score 与 now 解耦）
     const exemptMedia = new Set<string>();
-    for (const row of badSourceRows) {
-      const t = new Date(row.last_fail_at).getTime();
-      if (!isNaN(t) && now - t <= RECOMMEND_PARAMS.badSourceWindowMs) {
-        exemptMedia.add(row.media_id);
-      }
-    }
+    for (const row of badSourceRows) exemptMedia.add(row.media_id);
 
     const favorites = new Set(favoriteRows.map((r) => r.media_id));
     const favoriteAt = new Map<string, string>();
@@ -542,43 +543,91 @@ export class RecommendationService {
       if (season > cur) watchedSeriesMaxSeason.set(row.series_group, season);
     }
 
-    // —— 构建用户兴趣画像（带缓存） ——
-    const cacheHash = this.generateCacheHash({
-      watchedMediaSize: watchedMedia.size,
-      completedMediaSize: completedMedia.size,
-      favoritesSize: favorites.size,
-      impressionsSize: impressions.size,
-      searchRowsSize: searchRows.length,
-      dislikedSize: disliked.size,
-      tagBlacklistSize: tagBlacklist.size,
+    // —— 构建用户兴趣画像（每次重建：interest 依赖行为数据，须与全量重算一致，不缓存） ——
+    const interest = this.buildUserInterestTags({
+      tagsOf,
+      watchedMedia,
+      completedMedia,
+      completedDuration: signals.completedDuration,
+      bingeCount,
+      giveUpMedia,
+      favorites,
+      impressions,
+      latest,
+      favoriteAt,
+      impressionAt,
+      searchRows,
+      disliked,
+      tagBlacklist,
       now,
     });
 
-    let interest: Map<string, InterestTag>;
-    if (this.isCacheValid(cacheHash)) {
-      interest = this.interestCache!.data;
-    } else {
-      interest = this.buildUserInterestTags({
-        tagsOf,
-        watchedMedia,
-        completedMedia,
-        completedDuration: signals.completedDuration,
-        bingeCount,
-        giveUpMedia,
-        favorites,
-        impressions,
-        latest,
-        favoriteAt,
-        impressionAt,
-        searchRows,
-        disliked,
-        tagBlacklist,
-        now,
-      });
-      this.setCache(interest, cacheHash);
+    // —— 增量判定：变化集与受影响 media 计算 ——
+    const changed = this.diffInterest(interest, this.lastWrittenInterest);
+    const changedExact = changed.exact;
+    const changedKeyword = changed.keyword;
+    const deltaRows = await this.db.select<{ id: string }>(
+      `SELECT id FROM media WHERE (hidden IS NULL OR hidden = 0) AND id NOT IN (SELECT media_id FROM recommend_snapshot)`
+    );
+    const hasDelta = deltaRows.length > 0;
+    // 零成本短路：画像无变化 且 无新增 media 且 非强制全量 → 直接返回
+    if (!forceFull && changedExact.size === 0 && changedKeyword.size === 0 && !hasDelta) {
+      return 0;
     }
 
-    // —— 全量打分 ——
+    // —— 计算受影响 media 集 A ——
+    const mediaRowById = new Map<string, any>();
+    for (const r of mediaRows) mediaRowById.set(r.id, r);
+    const currentB = new Set<string>([
+      ...watchedMedia, ...completedMedia, ...giveUpMedia, ...favorites,
+      ...impressions.keys(), ...disliked,
+    ]);
+    const prevB = this.lastBehaviorMediaIds || new Set<string>();
+    const behaviorUnion = new Set<string>([...currentB, ...prevB]);
+    const A = new Set<string>();
+    if (forceFull || this.lastWrittenInterest === undefined) {
+      for (const r of mediaRows) A.add(r.id);
+    } else {
+      // 新增 media（采集）必须重算打分，否则会沿用默认 personal_score(0) 与全量结果不等价
+      for (const d of deltaRows) A.add(d.id);
+      // 行为直接涉及的 media（当前 + 上次，覆盖收藏/不喜欢「移除类」操作导致的分数变化）
+      for (const id of behaviorUnion) A.add(id);
+      const tagToMedia = new Map<string, Set<string>>();
+      const addIdx = (key: string, id: string) => {
+        let s = tagToMedia.get(key);
+        if (!s) { s = new Set(); tagToMedia.set(key, s); }
+        s.add(id);
+      };
+      for (const r of mediaRows) {
+        const t = tagsOf.get(r.id)!;
+        for (const g of t.genres) addIdx(`genre\u0000${g}`, r.id);
+        for (const d of t.directors) addIdx(`director\u0000${d}`, r.id);
+        for (const a of t.actors) addIdx(`actor\u0000${a}`, r.id);
+      }
+      const bSeries = new Set<string>();
+      for (const id of behaviorUnion) {
+        const r = mediaRowById.get(id);
+        if (r && r.series_group) bSeries.add(r.series_group);
+      }
+      const penalizedGenres = new Set<string>([...penalized, ...(this.lastPenalized || [])]);
+      for (const r of mediaRows) {
+        if (r.series_group && bSeries.has(r.series_group)) A.add(r.id);
+        const tg = tagsOf.get(r.id)?.genres || [];
+        if (tg.some((g) => penalizedGenres.has(g))) A.add(r.id);
+      }
+      for (const key of changedExact) {
+        const ids = tagToMedia.get(key);
+        if (ids) for (const id of ids) A.add(id);
+      }
+      for (const kw of changedKeyword) {
+        const lower = kw.toLowerCase();
+        for (const r of mediaRows) {
+          if (this.mediaText(r).toLowerCase().includes(lower)) A.add(r.id);
+        }
+      }
+    }
+
+    // —— 全量打分（仅 A 调 computeMediaScore，其余复用 personal_score） ——
     const keywordStrengths = new Map<string, number>();
     for (const it of interest.values()) {
       if (it.type === 'keyword' && it.strength !== 0) keywordStrengths.set(it.tag, it.strength);
@@ -586,25 +635,33 @@ export class RecommendationService {
 
     const scores = new Map<string, ScoreEntry>();
     const updates: { id: string; score: number }[] = [];
+    // 分批打分并周期性让出主线程：大数据量下避免一次性同步循环占满 JS 线程导致界面卡死
+    const YIELD_EVERY = 500;
+    let processed = 0;
     for (const row of mediaRows) {
       const tags = tagsOf.get(row.id)!;
-      const total = this.computeMediaScore({
-        row,
-        tags,
-        interest,
-        keywordStrengths,
-        penalized,
-        watchedMedia,
-        completedMedia,
-        completedDuration: signals.completedDuration,
-        bingeCount,
-        giveUpMedia,
-        favorites,
-        impressions,
-        recentWatched,
-        watchedSeriesMaxSeason,
-        disliked,
-      });
+      const inA = A.has(row.id);
+      let total: number;
+      if (inA) {
+        total = this.computeMediaScore({
+          row,
+          tags,
+          interest,
+          keywordStrengths,
+          penalized,
+          watchedMedia,
+          completedMedia,
+          completedDuration: signals.completedDuration,
+          bingeCount,
+          giveUpMedia,
+          favorites,
+          impressions,
+          watchedSeriesMaxSeason,
+          disliked,
+        });
+      } else {
+        total = row.personal_score ?? 0;
+      }
       scores.set(row.id, {
         total,
         updatedAt: row.updated_at || '',
@@ -612,8 +669,14 @@ export class RecommendationService {
         directorGroup: tags.directors[0] || '',
         seriesGroup: row.series_group || '',
       });
-      const old = row.personal_score ?? 0;
-      if (old !== total) updates.push({ id: row.id, score: total });
+      // 仅对受影响 media 写回 personal_score（分数变化才更新）
+      if (inA) {
+        const old = row.personal_score ?? 0;
+        if (old !== total) updates.push({ id: row.id, score: total });
+      }
+      if (++processed % YIELD_EVERY === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
     }
 
     // 批量回写 personal_score：每 200 条拼一条 UPDATE（内联值，避免逐条 IPC 与参数上限）
@@ -646,7 +709,7 @@ export class RecommendationService {
       Array.from(interest.values()).some((it) => Math.abs(it.strength) > 0.0001) ||
       Array.from(scores.values()).some((s) => s.total !== 0);
     if (hasSignal) {
-      const snapshotRows = this.reorder(scores, mediaRows, watchedMedia, favorites, excludedCompleted, disliked);
+      const snapshotRows = this.reorder(scores, mediaRows, watchedMedia, favorites, recentWatched, excludedCompleted, disliked);
       await this.db.replaceRecommendationSnapshot(snapshotRows);
     } else {
       await this.db.replaceRecommendationSnapshot([]);
@@ -654,6 +717,12 @@ export class RecommendationService {
 
     // 重算完成后清空变化日志
     await this.clearChangeLog();
+
+    // 记录本次成功重算的状态，供下次增量 diff
+    this.lastWrittenInterest = interest;
+    this.lastPenalized = penalized;
+    this.lastResetAt = resetAt;
+    this.lastBehaviorMediaIds = currentB;
 
     return updates.length;
   }
@@ -897,14 +966,13 @@ export class RecommendationService {
     giveUpMedia: Set<string>;
     favorites: Set<string>;
     impressions: Map<string, number>;
-    recentWatched: Set<string>;
     watchedSeriesMaxSeason: Map<string, number>;
     disliked: Set<string>;
   }): number {
     const {
       row, tags, interest, keywordStrengths, penalized, watchedMedia,
       completedMedia, completedDuration, bingeCount, giveUpMedia, favorites, impressions,
-      recentWatched, watchedSeriesMaxSeason, disliked,
+      watchedSeriesMaxSeason, disliked,
     } = params;
 
     // —— 直接信号 ——
@@ -950,7 +1018,7 @@ export class RecommendationService {
 
     // —— 合成：已看抑制（只压正分）→ 子分类降权 → 续季关联 ——
     let base = direct + match;
-    if (base > 0 && recentWatched.has(row.id)) base *= RECOMMEND_PARAMS.recentFactor;
+    // 已看抑制（recentFactor）已移至展示层 reorder，避免 personal_score 依赖当前时间
     let total = Math.round(base);
     if (tags.genres.some((g) => penalized.has(g))) total += RECOMMEND_PARAMS.subtypePenalty;
     if (row.series_group && watchedSeriesMaxSeason.has(row.series_group)) {
@@ -978,6 +1046,7 @@ export class RecommendationService {
     mediaRows: any[],
     watchedMedia: Set<string>,
     favorites: Set<string>,
+    recentWatched: Set<string>,
     excludedCompleted: Set<string>,
     disliked: Set<string>
   ): { mediaId: string; position: number; score: number; genreGroup: string }[] {
@@ -1016,10 +1085,13 @@ export class RecommendationService {
     const list: Item[] = dedupRows.map((r) => {
       const s = scores.get(r.id)!;
       const group = r.series_group || '';
+      // 已看抑制：最近看过的正分 × recentFactor（展示层实时抑制，避免 personal_score 依赖当前时间）
+      const raw = s.total;
+      const score = raw > 0 && recentWatched.has(r.id) ? raw * RECOMMEND_PARAMS.recentFactor : raw;
       // 无系列 media 的 seriesKey 用 id 唯一化，避免「无系列」作品互相构成打散维度
       return {
         id: r.id,
-        score: s.total,
+        score,
         updatedAt: s.updatedAt,
         genreGroup: s.genreGroup || UNKNOWN,
         directorGroup: s.directorGroup || '',

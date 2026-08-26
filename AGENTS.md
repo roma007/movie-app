@@ -118,3 +118,59 @@
 - 提交后同时推送两端：`git push origin master`（gitee）与 `git push github master`。
 - 提交/推送一律走 `pnpm push "提交信息"`（含版本 tag 全流程）。GitHub 端由 `.github/workflows/release-check.yml` 兜底：push 到 master 时自动补打 `v<版本号>` 标签（版本号以 `package.json` 的 version 为准），随后用 `workflow_dispatch` 显式触发 `build.yml` 在 tag 上构建并生成 GitHub Release 安装包。**注意：GITHUB_TOKEN 推送的 tag 不会自动触发 `build.yml`（GitHub 限制），必须显式 dispatch，否则只有构建产物没有 Release。** **默认不需要手动打标签**；仅当 CI 不可用需手动发布时，才执行 `git tag v<版本号>` 与 `git push github v<版本号>`（手动 push tag 会按 `tags: v*` 正常触发 `build.yml`）。
 - 工具文档（`.trae/`、`BUTTON_COLORS.md`、`MOBILE_DESKTOP_DIFF.md`、`主题字色*.md`）永不提交，`.gitignore` 已兜底。
+
+## 推荐分数增量重算规则（铁律）
+
+> 任何改动涉及 `packages/core/src/services/recommendationService.ts` 的 `personal_score` / 增量重算 / `recomputePersonalScores` 时，必须遵守。违反视为未完成。
+
+### 正确性判据
+增量重算结果必须等于「从零全量重算」结果（同一 `now` 下逐 media 分数一致）。任何增量 / 缓存 / 短路优化都不得破坏此判据。
+
+### 影响集 A 必须覆盖的输入
+`A` 为需重算的 media 集合，必须包含以下任一变更会改分数的 media：
+- **行为变更（含移除类）**：watched/completed/giveUp/favorites/impressions/disliked 变化。「取消收藏 / 取消不喜欢」会使 media 离开当前行为集，必须用 `lastBehaviorMediaIds` 记录上次并集，`A` 取 `currentB ∪ prevB`，否则移除类操作（含同系列 `seriesContinueBoost` 回落）不重算。
+- **兴趣画像变化**：`diffInterest` 标记的 `changedExact`（genre/director/actor/keyword 复合 key）→ 经 `tagToMedia` 倒排定位；`changedKeyword` 全量扫描 `mediaText`。
+- **penalized 变化（含缩小）**：用 `penalized ∪ lastPenalized`。
+- **新增 media**：`deltaRows`。
+
+### personal_score 不得依赖当前时间 now
+`recentFactor`（已看抑制）、坏源豁免等基于 `Date.now()` 的时间窗口会让分数随时间自然变化，而增量只在行为 / 库 / 偏好变更时触发，导致长时间无行为时增量偏离全量。
+- `recentFactor` 已移至展示层 `reorder`（实时基于 `now` 抑制），**不得**放回 `computeMediaScore` / `personal_score`。
+- 坏源豁免 `exemptMedia` 已改为「所有坏源失败 media 永久豁免」，不依赖时间窗口。
+
+### series / genre 同伴扩展
+- series 同伴：依赖 `behaviorUnion`（含 `prevB`），因 `series_group` 不是 interest key，无法靠 `changedExact` 倒排。
+- genre 同伴：靠 `changedExact` 倒排（genre 是 interest key）。无需在 A 中单独按 genre 扩展（原 `bGenres` 为死代码，已删）。
+
+### 兴趣画像必须每次重建，禁止陈旧缓存
+`buildUserInterestTags` 须每次重算时基于当前行为数据重建，**不得**缓存复用旧 interest（否则增量复用陈旧值，与全量不一致）。
+历史教训：`interestCache` 曾因 `cacheHash` 含 `Math.floor(now/1000)` 而实质永不命中；若「修复缓存」把 `now` 移出 hash 使其命中，会引入「增量复用陈旧 interest」的真实 bug。该缓存已整体删除——若未来要加缓存，必须以行为数据指纹（非时间）保证 interest 与全量重建一致。
+
+## 移动端「热更新」机制（事实，避免误判）
+
+- 项目**无 OTA 热更新能力**：`apps/mobile/app.json` 无 `expo.updates`，全仓无 `expo-updates` 依赖，无 `eas.json`。生产 / TestFlight / App Store 包**无法**热更新，只能重新构建安装包分发。
+- 开发期「热更新」= **Metro 开发热重载**：手机（Expo Go 或 dev build）通过 `expo start` / `expo run:ios --device` 连开发机；`expo run:ios --device` 可直接连真机（如设备名 MfiPhone）。
+- 改 `packages/core` 源码**无需 build core、无需提交、无需发布**：`@movie-app/core` 的 `package.json` 的 `main` 指向 `src/index.ts`（源码），且 `apps/mobile/metro.config.js` 的 `watchFolders` 含 `monorepoRoot`，Metro 自动重新 transpile 并推到手机。
+- 验证 core 逻辑改动在手机上的效果：**只需确保 Metro dev server 在跑且手机连着**（真机用 `expo run:ios --device`），手机刷新 / 重开 App 即见最新代码。**不要**走提交 / 构建 / 发布流程去「让手机看到」——那是生产分发，与开发验证无关。
+- 未登录 Expo 账号时 `expo start --tunnel`（公网穿透）不可用，仅 LAN 模式（手机与电脑同 WiFi）可用。
+
+## 移动端真机部署（Xcode 26.6 + iOS 18 设备）
+
+> 本机真机：iPhone XS Max（设备名 `MfiPhone`，UDID `00008020-0008053001E9002E`），iOS 18.7.10。**XS Max 最高仅支持 iOS 18，无法升级 iOS 26**。
+
+### 铁律（版本死结）
+- 项目所有 expo 预编译库（ExpoModulesCore、ExpoModulesJSI 等）均为 **Swift 6.2 / Xcode 26** 产物；Xcode 16.4（Swift 6.1）编译器无法消费其模块接口（报 `this SDK is not supported` / `unknown attribute '_Concurrency.MainActor'`）。
+- 结论：**必须用 Xcode 26.6 编译**；但 Xcode 26.6 默认不带 iOS 18 支持，需额外步骤才能部署到 iOS 18 真机。Xcode 16.4 能部署 iOS 18 却编不了 6.2 库——二者不可兼得，故统一走 Xcode 26.6。
+
+### 正确部署步骤（一次性环境准备 + 后续复用）
+1. `sudo xcode-select -s /Applications/Xcode.app`（Xcode 26.6 路径），`xcodebuild -version` 应为 26.6。
+2. 安装 iOS 26.5 platform（Xcode 26.6 把真机也当作需 iOS 26.5 platform 的 destination，否则报 `iOS 26.5 is not installed`）：`xcodebuild -downloadPlatform iOS`（下载 iOS 26.5，无需 sudo，Xcode.app 归用户所有）。
+3. 在 **Xcode 26.6** 的 Settings › Accounts 登录 Apple ID（16.4 的账号不共享），否则报 `No Accounts` / `No profiles`。登录后 Xcode 自动关联本机证书并生成 `com.mengfeng.movieapp` 的 development profile。
+4. 运行：`cd apps/mobile && npx expo run:ios --device MfiPhone`。手机与 Mac 同 WiFi，dev build 自动连 Metro（LAN）验证。
+
+### 已知临时 workaround（node_modules 内，不提交，必要时可删）
+- `node_modules/expo-modules-jsi/apple/scripts/build-xcframework.sh` 被改为 no-op（`exit 0`），复用 8/24 预编译的 Swift 6.2 xcframework，避免重建。若 `pod install` 重置该脚本，Xcode 26.6 下原始脚本也能正常重建 6.2 xcframework，无需该 hack。
+- **切勿用 Xcode 16.4 编此项目**（必失败于 ExpoModulesCore / ExpoModulesJSI 的 Swift 6.2 接口）。
+
+### 为什么 Xcode 26.6 能部署 iOS 18
+Xcode 26 用 CoreDevice 机制连真机，不依赖传统 DeviceSupport 目录；`xcrun devicectl list devices` 已显示 MfiPhone `available (paired)`。构建用 iOS 26.5 SDK、deployment target 设为 ≤ iOS 18 即可装到 iOS 18.7.10。

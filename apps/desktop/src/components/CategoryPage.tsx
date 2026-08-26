@@ -223,10 +223,8 @@ export default function CategoryPage({ type }: CategoryPageProps) {
     const shownAt = new Date().toISOString();
     void getProvider()
       .recordImpressions(mediaList.map((m) => ({ mediaId: m.id, shownAt })))
-      .then((boundaryIds) => {
-        if (boundaryIds.length > 0) {
-          getStore().getState().scheduleRecommendationRecompute();
-        }
+      .then(() => {
+        getStore().getState().scheduleRecommendationRecompute();
       })
       .catch((e) => console.error('记录列表展示失败:', e));
   }, [mediaList]);

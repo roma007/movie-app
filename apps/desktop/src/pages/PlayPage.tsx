@@ -3,6 +3,8 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '../useAppStore';
 import { useBackgroundStore } from '../themes/backgroundStore';
 import { usePlayerStore } from '../stores/playerStore';
+import { getProvider } from '../init';
+import type { PlaySource } from '@movie-app/core';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, ChevronRight, Loader2 } from 'lucide-react';
@@ -45,16 +47,49 @@ export default function PlayPage() {
   const [slotReady, setSlotReady] = useState(false);
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [episodeListSwitching, setEpisodeListSwitching] = useState(false);
+  const [movieLines, setMovieLines] = useState<{ episodeId: string; source: PlaySource }[]>([]);
   const playerSlotRef = useRef<HTMLDivElement | null>(null);
 
   const urlSourceIdRef = useRef<string | null>(null);
-  if (!urlSourceIdRef.current) {
-    urlSourceIdRef.current = new URLSearchParams(location.search).get('sourceId');
-  }
   const urlSourceAppliedRef = useRef(false);
+  const urlEpisodeIdRef = useRef<string | undefined>(undefined);
+  if (urlEpisodeIdRef.current !== episodeId) {
+    urlEpisodeIdRef.current = episodeId;
+    urlSourceIdRef.current = new URLSearchParams(location.search).get('sourceId');
+    urlSourceAppliedRef.current = false;
+  }
 
   const openingRef = useRef<string | null>(null);
   const prevMediaIdRef = useRef<string | null>(null);
+  const pendingLineRef = useRef<{ episodeId: string; playSourceId: string } | null>(null);
+
+  useEffect(() => {
+    if (!ready || !media?.id || media.type !== 'MOVIE') {
+      setMovieLines([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const provider = getProvider();
+        const eps = await provider.getEpisodesByMediaId(media.id);
+        if (cancelled) return;
+        const lists = await Promise.all(
+          eps.map(async (ep) => {
+            const ps = await provider.getPlaySourcesByEpisodeId(ep.id);
+            return ps.map((s) => ({ episodeId: ep.id, source: s }));
+          }),
+        );
+        if (cancelled) return;
+        setMovieLines(lists.flat().filter((l) => !!l.source.url));
+      } catch {
+        if (!cancelled) setMovieLines([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, media?.id, media?.type]);
 
   useEffect(() => {
     if (!media?.posterUrl) {
@@ -156,6 +191,24 @@ export default function PlayPage() {
 
   const watchedEpisodes = useMemo(() => new Set(activeSession?.watchedEpisodes ?? []), [activeSession?.watchedEpisodes]);
 
+  const lineEntries = useMemo(() => {
+    if (media?.type === 'MOVIE') {
+      if (movieLines.length > 0) return movieLines;
+      return activeSession ? sources.map((s) => ({ episodeId: activeSession.episodeId, source: s })) : [];
+    }
+    return activeSession ? sources.map((s) => ({ episodeId: activeSession.episodeId, source: s })) : [];
+  }, [media?.type, movieLines, sources, activeSession]);
+
+  useEffect(() => {
+    const pending = pendingLineRef.current;
+    if (!pending || !ready || activeSession?.episodeId !== pending.episodeId) return;
+    pendingLineRef.current = null;
+    const target = sources.find((s) => s.id === pending.playSourceId);
+    if (target && target.id !== activeSession?.playSourceId) {
+      handleSourceChange(target);
+    }
+  }, [ready, activeSession?.episodeId, activeSession?.playSourceId, sources, handleSourceChange]);
+
   const seasonToMediaMap = useMemo(() => {
     const map = new Map<number, string>();
     seriesMedia.forEach((m) => {
@@ -177,6 +230,16 @@ export default function PlayPage() {
     } else {
       setCurrentSeason(s);
     }
+  };
+
+  const handleLineClick = (entry: { episodeId: string; source: PlaySource }) => {
+    if (!activeSession) return;
+    if (entry.episodeId === activeSession.episodeId) {
+      handleSourceChange(entry.source);
+      return;
+    }
+    pendingLineRef.current = { episodeId: entry.episodeId, playSourceId: entry.source.id };
+    navigate(`/play/${entry.episodeId}?sourceId=${entry.source.sourceId}`, { replace: true });
   };
 
   if (isLoading) {
@@ -249,31 +312,32 @@ export default function PlayPage() {
 
             <div className="space-y-2">
               <div className="text-sm text-muted-foreground">
-                {sources.length > 0 ? '播放线路' : '暂无播放线路'}
+                {lineEntries.length > 0 ? '播放线路' : '暂无播放线路'}
               </div>
               <div className="flex gap-2 flex-wrap">
                 {(() => {
                   const sourceKeyMap = new Map<string, number>();
-                  sources.forEach((s) => {
-                    const key = `${s.sourceName || ''}_${s.quality || ''}`;
+                  lineEntries.forEach(({ source }) => {
+                    const key = `${source.sourceName || ''}_${source.quality || ''}`;
                     sourceKeyMap.set(key, (sourceKeyMap.get(key) || 0) + 1);
                   });
                   const keyIndexMap = new Map<string, number>();
-                  return sources.map((s, i) => {
-                    const key = `${s.sourceName || ''}_${s.quality || ''}`;
+                  return lineEntries.map(({ episodeId, source }, i) => {
+                    const key = `${source.sourceName || ''}_${source.quality || ''}`;
                     const count = sourceKeyMap.get(key) || 1;
                     const idx = (keyIndexMap.get(key) || 0) + 1;
                     keyIndexMap.set(key, idx);
-                    const baseName = s.sourceName || `线路${i + 1}`;
-                    const qualityStr = s.quality ? ` · ${s.quality}` : '';
+                    const baseName = source.sourceName || `线路${i + 1}`;
+                    const qualityStr = source.quality ? ` · ${source.quality}` : '';
                     const suffix = count > 1 ? ` (${idx})` : '';
+                    const isActive = episodeId === activeSession?.episodeId && source.id === activeSource?.id;
                     return (
                       <Button
-                        key={s.id}
+                        key={`${episodeId}-${source.id}`}
                         variant="outline"
                         size="sm"
-                        className={`${s.id === activeSource?.id ? 'bg-muted-foreground/20 text-text' : ''}`}
-                        onClick={() => handleSourceChange(s)}
+                        className={`${isActive ? 'bg-muted-foreground/20 text-text' : ''}`}
+                        onClick={() => handleLineClick({ episodeId, source })}
                       >
                         {baseName}{qualityStr}{suffix}
                       </Button>

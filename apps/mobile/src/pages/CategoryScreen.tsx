@@ -82,10 +82,8 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
       if (result.items.length > 0) {
         const shownAt = new Date().toISOString();
         provider.recordImpressions(result.items.map((m: Media) => ({ mediaId: m.id, shownAt })))
-          .then((boundaryIds) => {
-            if (boundaryIds.length > 0) {
-              getStore().getState().scheduleRecommendationRecompute();
-            }
+          .then(() => {
+            getStore().getState().scheduleRecommendationRecompute();
           })
           .catch((e: any) => console.error('记录列表展示失败:', e));
       }

@@ -139,6 +139,9 @@ export class TauriSqlProvider implements DatabaseProvider {
 
     // 5. 插入默认视频源
     await this.insertDefaultSources();
+
+    // 6. 将历史内置 HTTP 源升级为 HTTPS（iOS ATS 会拦截明文 http）
+    await this.upgradeSourceUrlsToHttps();
   }
 
   /**
@@ -424,6 +427,25 @@ export class TauriSqlProvider implements DatabaseProvider {
           now,
         ]);
       }
+    }
+  }
+
+  /**
+   * 将历史内置的 HTTP 视频源地址升级为 HTTPS。
+   * 仅当 code 命中且 base_url 恰好等于旧的 http:// 值时才更新，避免误改用户自定义地址。
+   * iOS 端 ATS（NSAllowsArbitraryLoads=false）会拦截明文 http 请求，导致连接检查失败。
+   */
+  private async upgradeSourceUrlsToHttps(): Promise<void> {
+    const upgrades: Array<[string, string]> = [
+      ['dianyingtiantang', 'https://caiji.dyttzyapi.com/api.php/provide/vod'],
+      ['liangziziyuan', 'https://cj.lziapi.com/api.php/provide/vod'],
+    ];
+    for (const [code, httpsUrl] of upgrades) {
+      const httpUrl = 'http://' + httpsUrl.slice('https://'.length);
+      await this.db!.execute(
+        'UPDATE video_source SET base_url = ? WHERE code = ? AND base_url = ?',
+        [httpsUrl, code, httpUrl]
+      );
     }
   }
 

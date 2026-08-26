@@ -32,3 +32,6 @@ MOBILE_DESKTOP_DIFF.md
 主题字色对齐方案.md
 主题字色差异清单.md
 .opencode/
+
+# 离线 vendored 框架 tar 包（由 withLocalVendored 插件在 prebuild 时拷入 ios/）
+apps/mobile/plugins/local_vendored/

@@ -9,6 +9,7 @@ import { useScaledFontSize } from '../themes/useScaledFontSize';
 import { hexToRgba } from '../themes/colorUtils';
 import { radius } from '../themes/radiusTokens';
 import BlurredBackground from '../components/BlurredBackground';
+import Spinner from '../components/Spinner';
 import { Button } from '../components/ui/Button';
 import type { CollectTask } from '@movie-app/core';
 
@@ -210,7 +211,7 @@ export default function TaskListScreen({ navigation }: Props) {
                   ) : null}
                     <View style={styles.taskRight}>
                       <View style={[styles.statusBadge, { borderColor: statusStyle.color }]}>
-                        {task.status === 'RUNNING' && <ActivityIndicator size={10} color={statusStyle.color} style={{ marginRight: 4 }} />}
+                        {task.status === 'RUNNING' && <Spinner size={10} color={statusStyle.color} strokeWidth={2} style={{ marginRight: 4 }} />}
                         <Text style={[styles.statusText, { color: statusStyle.color }]}>{statusStyle.label}</Text>
                       </View>
                       {task.status === 'FAILED' && (task.type === 'INCREMENTAL' || task.type === 'FULL') && (
@@ -221,7 +222,7 @@ export default function TaskListScreen({ navigation }: Props) {
                           disabled={resumingId === task.taskId}
                         >
                           {resumingId === task.taskId ? (
-                            <ActivityIndicator size={12} color={colors.text} style={{ marginRight: 4 }} />
+                            <Spinner size={12} color={colors.text} strokeWidth={2} style={{ marginRight: 4 }} />
                           ) : null}
                           {resumingId === task.taskId ? '续采中...' : '继续'}
                         </Button>

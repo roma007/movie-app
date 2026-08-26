@@ -94,6 +94,7 @@ export function PlayerHost() {
   const muted = usePlayerStore((s) => s.muted);
   const setVolume = usePlayerStore((s) => s.setVolume);
   const pipActive = usePlayerStore((s) => s.pipActive);
+  const pipStartPaused = usePlayerStore((s) => s.pipStartPaused);
   const setPipActive = usePlayerStore((s) => s.setPipActive);
 
   const { pathname } = useLocation();
@@ -147,11 +148,27 @@ export function PlayerHost() {
       if (e.ctrlKey && e.key === '`') {
         e.preventDefault();
         void handleBossKey();
+        return;
       }
+      if (e.key !== ' ' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        !target ||
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable
+      )
+        return;
+      const p = playerRef.current;
+      if (!p || pipActive) return;
+      e.preventDefault();
+      if (p.paused) void p.play().catch(() => {});
+      else p.pause();
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [handleBossKey]);
+  }, [handleBossKey, pipActive]);
 
   useEffect(() => {
     let cancelled = false;
@@ -200,13 +217,35 @@ export function PlayerHost() {
         localStorage.setItem(PIP_GEO_KEY, JSON.stringify(geo));
       } catch {}
     });
+    // pip 内点「下一集」：经主窗口解析新集后回传，期间保持 pipActive
+    let pipSwitching = false;
     on<{ episodeId: string }>('pip://next', async ({ episodeId }) => {
       const st = usePlayerStore.getState();
-      await st.switchEpisode(episodeId);
-      const s2 = usePlayerStore.getState().session;
-      if (!s2 || s2.episodeId !== episodeId) return;
-      void emit('pip://episode', buildPipPayload(s2, s2.currentTime));
+      pipSwitching = true;
+      try {
+        await st.switchEpisode(episodeId, { keepPipActive: true });
+        const s2 = usePlayerStore.getState().session;
+        if (s2 && s2.episodeId === episodeId) {
+          void emit('pip://episode', buildPipPayload(s2, s2.currentTime));
+        }
+      } finally {
+        pipSwitching = false;
+      }
     });
+    // 主窗口侧发起新播放（非 pip 流程）时关闭 pip，避免双流
+    unsubs.push(
+      usePlayerStore.subscribe((s, prev) => {
+        if (
+          !pipSwitching &&
+          prev.pipActive &&
+          s.session &&
+          prev.session &&
+          s.session.episodeId !== prev.session.episodeId
+        ) {
+          void WebviewWindow.getByLabel('pip').then((w) => w?.close().catch(() => {}));
+        }
+      }),
+    );
     on<{ t: number; d: number }>('pip://back', ({ t, d }) => {
       const st = usePlayerStore.getState();
       st.applyPipTime(t, d);
@@ -641,6 +680,8 @@ export function PlayerHost() {
           <VideoPlayer
             playerRef={playerRef}
             keyTarget={mode === 'full' ? 'document' : 'player'}
+            autoPlay={mode === 'full' || !pipStartPaused}
+            onPipOpen={IS_MAC && mode === 'full' ? () => void openNativePipWindow() : undefined}
             sources={session.sources}
             initialSourceId={session.playSourceId ?? undefined}
             initialCurrentTime={session.currentTime}

@@ -72,9 +72,19 @@ function PipRoot() {
 
   useEffect(() => {
     let un: (() => void) | undefined;
-    listen<PipPayload>('pip://episode', (e) => setData(e.payload)).then((f) => (un = f));
+    listen<PipPayload>('pip://episode', (e) => {
+      setData(e.payload);
+      setPlaySourceId(e.payload.playSourceId ?? null);
+    }).then((f) => (un = f));
+    listen('pip://close', () => void win.close()).then((f) => {
+      const prev = un;
+      un = () => {
+        f();
+        prev?.();
+      };
+    });
     return () => un?.();
-  }, []);
+  }, [win]);
 
   useEffect(() => {
     setOverlayVisible(false);
@@ -161,6 +171,17 @@ function PipRoot() {
     };
   }, [win]);
 
+  // mac 元素全屏会创建原生全屏空间；pip 窗口若保持置顶，旧尺寸窗口会浮在全屏画面之上。
+  // 进入元素全屏时临时取消置顶让窗口沉到全屏后面，退出时恢复。
+  useEffect(() => {
+    const onFsChange = () => {
+      const fs = !!document.fullscreenElement;
+      win.setAlwaysOnTop(!fs).catch((err) => console.error('[PipWindow] setAlwaysOnTop 失败:', err));
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, [win]);
+
   const closePip = useCallback(async () => {
     const { t, d } = readVideoTime();
     await emit('pip://closing', { t, d });
@@ -190,13 +211,15 @@ function PipRoot() {
 
   const onHeaderPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest('button, select')) return;
-    void win.startDragging();
+    win.startDragging().catch((err) => console.error('[PipWindow] startDragging 失败:', err));
   };
 
   const onResizePointerDown =
     (dir: ResizeDir) => (e: ReactPointerEvent<HTMLDivElement>) => {
       e.stopPropagation();
-      void win.startResizeDragging(dir);
+      win
+        .startResizeDragging(dir)
+        .catch((err) => console.error('[PipWindow] startResizeDragging 失败:', err));
     };
 
   const handleSourceSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -286,6 +309,7 @@ function PipRoot() {
         >
           <VideoPlayer
             playerRef={playerRef}
+            key={data.episodeId}
             keyTarget="document"
             sources={data.sources}
             initialSourceId={playSourceId ?? undefined}

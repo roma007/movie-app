@@ -31,12 +31,30 @@ const SKIP_NOTICE_MS = 4000;
 /** macOS 系统 PiP 窗口尺寸受系统硬限制，改用原生子窗口方案时隐藏引擎自带画中画入口。 */
 const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent);
 
+/** 键盘快捷键：与引擎默认一致，但播放/暂停仅保留 k，空格由 PlayerHost 统一接管。 */
+const KEY_SHORTCUTS = {
+  togglePaused: 'k',
+  toggleMuted: 'm',
+  toggleFullscreen: 'f',
+  togglePictureInPicture: 'i',
+  toggleCaptions: 'c',
+  seekBackward: 'j J ArrowLeft',
+  seekForward: 'l L ArrowRight',
+  volumeUp: 'ArrowUp',
+  volumeDown: 'ArrowDown',
+  speedUp: '>',
+  slowDown: '<',
+};
+
 interface VideoPlayerProps {
   sources: PlaySource[];
   initialSourceId?: string;
   initialCurrentTime?: number;
   volume?: number;
   muted?: boolean;
+  autoPlay?: boolean;
+  /** macOS 下引擎内置画中画被禁用，此回调提供替代入口（原生子窗口）；未传则不显示按钮 */
+  onPipOpen?: () => void;
   playerRef?: React.Ref<MediaPlayerInstance>;
   keyTarget?: 'document' | 'player';
   overlays?: ReactNode;
@@ -52,6 +70,8 @@ export function VideoPlayer({
   initialCurrentTime,
   volume,
   muted,
+  autoPlay = true,
+  onPipOpen,
   playerRef,
   keyTarget = 'document',
   overlays,
@@ -353,10 +373,11 @@ export function VideoPlayer({
         key={`${currentIndex}:${retryNonce}`}
         ref={playerRef}
         src={src}
-        autoPlay
+        autoPlay={autoPlay}
         volume={volume}
         muted={muted}
         keyTarget={keyTarget}
+        keyShortcuts={KEY_SHORTCUTS}
         className="w-full h-full"
         onProviderChange={handleProviderChange}
         onVolumeChange={(event) => {
@@ -430,7 +451,24 @@ export function VideoPlayer({
           smallLayoutWhen={false}
           translations={ZH_TRANSLATIONS}
           slots={{
-            ...(IS_MAC ? { pipButton: null } : {}),
+            ...(IS_MAC
+              ? {
+                  pipButton: onPipOpen ? (
+                    <button
+                      type="button"
+                      className="vds-button"
+                      aria-label="画中画"
+                      title="画中画"
+                      onClick={() => onPipOpen()}
+                    >
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="2" y="4" width="20" height="16" rx="2" />
+                        <rect x="12" y="12" width="8" height="6" rx="1" fill="currentColor" stroke="none" />
+                      </svg>
+                    </button>
+                  ) : null,
+                }
+              : {}),
             settingsMenuItemsStart: (
               <>
                 <ColorControls

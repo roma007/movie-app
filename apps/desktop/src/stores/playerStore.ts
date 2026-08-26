@@ -36,8 +36,8 @@ interface PlayerState {
   muted: boolean;
 
   setVolume: (volume: number, muted: boolean) => void;
-  openPlayback: (episodeId: string, opts?: { sourceId?: string | null }) => Promise<void>;
-  switchEpisode: (episodeId: string) => Promise<void>;
+  openPlayback: (episodeId: string, opts?: { sourceId?: string | null; keepPipActive?: boolean }) => Promise<void>;
+  switchEpisode: (episodeId: string, opts?: { keepPipActive?: boolean }) => Promise<void>;
   closePlayback: () => Promise<void>;
   switchCmsSource: (sourceId: string) => void;
   handleSourceChange: (source: PlaySource) => void;
@@ -54,6 +54,7 @@ interface PlayerState {
 
   pipActive: boolean;
   pipResumePlay: boolean;
+  pipStartPaused: boolean;
   setPipActive: (active: boolean, opts?: { resumePlay?: boolean }) => void;
   applyPipTime: (currentTime: number, duration: number) => void;
 }
@@ -193,6 +194,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     const prev = get().session;
     await finalSave(prev);
     set({
+      ...(opts?.keepPipActive ? {} : { pipActive: false, pipResumePlay: false, pipStartPaused: false }),
       session: {
         episodeId,
         media: prev?.media ?? null,
@@ -308,10 +310,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     }
   },
 
-  switchEpisode: async (episodeId) => {
+  switchEpisode: async (episodeId, opts) => {
     const s = get().session;
     if (s?.episodeId === episodeId) return;
-    await get().openPlayback(episodeId);
+    await get().openPlayback(episodeId, opts);
   },
 
   switchCmsSource: (sourceId) => {
@@ -386,9 +388,18 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
 
   pipActive: false,
   pipResumePlay: false,
+  pipStartPaused: false,
 
   setPipActive: (active, opts) => {
-    set({ pipActive: active, pipResumePlay: !active && opts?.resumePlay === true });
+    if (active) {
+      set({ pipActive: true, pipResumePlay: false, pipStartPaused: false });
+    } else {
+      set((s) => ({
+        pipActive: false,
+        pipResumePlay: opts?.resumePlay === true,
+        pipStartPaused: s.pipActive ? opts?.resumePlay !== true : s.pipStartPaused,
+      }));
+    }
   },
 
   applyPipTime: (currentTime, duration) => {

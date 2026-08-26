@@ -156,6 +156,7 @@ export interface AppState {
   scheduleRecommendationRecompute: () => void;
   /** 立即全量重算并等待完成（启动/清空重学后使用）。 */
   flushRecommendationRecompute: () => Promise<number>;
+  recommendationNeedsStartupRecompute: () => Promise<boolean>;
   /** 清空重学：清 impression + score 置 0 + 刷新学习起始时间。 */
   resetRecommendationLearning: () => Promise<void>;
   /** 获取设置页「推荐偏好」概览。 */
@@ -645,6 +646,10 @@ export function createAppStore(db: DatabaseProvider) {
 
     flushRecommendationRecompute: async () => {
       return recommendationService.flushRecompute();
+    },
+
+    recommendationNeedsStartupRecompute: async () => {
+      return recommendationService.needsStartupRecompute();
     },
 
     resetRecommendationLearning: async () => {

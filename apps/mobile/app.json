@@ -2,7 +2,7 @@
   "expo": {
     "name": "Movie App",
     "slug": "movie-app",
-    "version": "1.0.76",
+    "version": "1.0.77",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -16,7 +16,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.movie.app",
+      "bundleIdentifier": "com.mengfeng.movieapp",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "语音控制需要使用麦克风来识别您的语音指令",
         "NSSpeechRecognitionUsageDescription": "语音控制需要使用语音识别来理解您的指令",
@@ -46,12 +46,9 @@
       "expo-status-bar",
       "expo-speech-transcriber",
       "react-native-google-cast",
-      [
-        "react-native-vosk",
-        {
-          "models": ["assets/model-cn"]
-        }
-      ]
+      "react-native-vosk",
+      "./plugins/withVoskModel.js",
+      "./plugins/withLocalVendored.js"
     ]
   }
 }

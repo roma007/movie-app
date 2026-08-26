@@ -67,7 +67,10 @@ export class SourceImportService {
       errors.push('API 地址(baseUrl)不能为空');
     } else {
       try {
-        new URL(item.baseUrl);
+        const parsed = new URL(item.baseUrl);
+        if (parsed.protocol !== 'https:') {
+          errors.push('API 地址(baseUrl)必须使用 HTTPS 协议（以 https:// 开头），http:// 明文地址在 iOS 端会被系统拦截');
+        }
       } catch {
         errors.push('API 地址(baseUrl)不是合法的 URL 格式');
       }

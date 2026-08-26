@@ -21,7 +21,7 @@ export const defaultSources: DefaultSourceConfig[] = [
   {
     name: '量子资源',
     code: 'liangziziyuan',
-    baseUrl: 'http://cj.lziapi.com/api.php/provide/vod',
+    baseUrl: 'https://cj.lziapi.com/api.php/provide/vod',
     rateLimit: 2,
   },
   {
@@ -39,7 +39,7 @@ export const defaultSources: DefaultSourceConfig[] = [
   {
     name: '电影天堂',
     code: 'dianyingtiantang',
-    baseUrl: 'http://caiji.dyttzyapi.com/api.php/provide/vod',
+    baseUrl: 'https://caiji.dyttzyapi.com/api.php/provide/vod',
     rateLimit: 2,
   },
 ];
@@ -94,9 +94,10 @@ export const AI_SOURCE_PROMPT = `你是一个视频源推荐专家。请提供 3
 
 ## 要求
 1. 每个源必须提供完整的 API 地址（如 https://xxx.com/api.php/provide/vod）
-2. API 地址必须真实可用，支持标准的苹果CMS接口（ac=list, ac=detail, ac=videolist）
-3. 优先推荐国内可直接访问的源，无需科学上网
-4. 源应多样化覆盖电影、电视剧、综艺、动漫等内容
+2. API 地址必须使用 HTTPS 协议（以 https:// 开头），禁止提供 http:// 明文地址（iOS 端会被系统 App Transport Security 拦截，导致连接失败）
+3. API 地址必须真实可用，支持标准的苹果CMS接口（ac=list, ac=detail, ac=videolist）
+4. 优先推荐国内可直接访问的源，无需科学上网
+5. 源应多样化覆盖电影、电视剧、综艺、动漫等内容
 
 ## 输出格式
 请严格按以下 JSON 数组格式输出，不要加任何额外文字和 markdown 代码块标记：
@@ -113,7 +114,7 @@ export const AI_SOURCE_PROMPT = `你是一个视频源推荐专家。请提供 3
 ## 参数说明
 - name: 中文名称，如 "极速资源"
 - code: 唯一英文标识，如 "jisuziyuan"
-- baseUrl: API 地址，必须以 /api.php/provide/vod 结尾
+- baseUrl: API 地址，必须以 https:// 开头且以 /api.php/provide/vod 结尾
 - rateLimit: 并发数，1-5 之间的整数，建议 2
 
 ## 示例
