@@ -44,6 +44,7 @@ export { AutoCollectScheduler } from './services/autoCollectScheduler';
 export { VideoDurationService, setVideoFetchFn, getVideoFetchFn } from './services/videoDurationService';
 export { SourceImportService } from './services/sourceImportService';
 export { RecommendationService, type RecommendationOverview, type DislikedMediaItem, type TagBlacklistItem } from './services/recommendationService';
+export { resolveDefaultPlayTarget, type DefaultPlayTarget } from './services/playbackTarget';
 
 // 语音控制服务
 export { 

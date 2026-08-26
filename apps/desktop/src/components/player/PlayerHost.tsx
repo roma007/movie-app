@@ -316,7 +316,7 @@ export function PlayerHost() {
   if (mode === 'mini' && (!miniPlayerEnabled || reachedOutroRef.current || pipActive)) return null;
 
   const activeSources = session.sources;
-  const showPlayer = activeSources.length > 0 || !session.loading;
+  const showPlayer = !session.loading && activeSources.length > 0;
   const canPiP = typeof document !== 'undefined' && !!document.pictureInPictureEnabled;
 
   const title = session.media?.title ?? '';

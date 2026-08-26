@@ -274,6 +274,12 @@ export default function PlayPage() {
           </Button>
 
           {media && (
+            <Button variant="ghost" onClick={() => navigate(`/media/${media.id}`)} className="hover:text-text shrink-0">
+              详情
+            </Button>
+          )}
+
+          {media && (
             <div className="flex items-center gap-1 text-xs text-muted-foreground min-w-0 overflow-hidden flex-1">
               <button type="button" onClick={() => navigate(media.type === 'MOVIE' ? '/movie' : media.type === 'TV' ? '/tv' : media.type === 'VARIETY' ? '/variety' : media.type === 'ANIME' ? '/anime' : '/documentary')} className="hover:text-text transition-colors shrink-0">{typeLabel[media.type] || media.type}</button>
               <ChevronRight className="size-3 shrink-0" />

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Media, Episode, UserUsageType, WatchHistory, HiddenCollectItem } from '@movie-app/core';
+import { resolveDefaultPlayTarget } from '@movie-app/core';
 import { useAppStore, getProvider } from '../useAppStore';
 import { useBackgroundStore } from '../themes/backgroundStore';
 import { useImportDialogStore } from '../themes/importDialogStore';
@@ -348,6 +349,16 @@ export default function HomePage() {
     </Card>
   );
 
+  const playMedia = useCallback(async (m: Media) => {
+    const provider = getProvider();
+    const target = await resolveDefaultPlayTarget(provider, m);
+    if (target) {
+      navigate(`/play/${target.episodeId}?sourceId=${encodeURIComponent(target.sourceId)}`);
+    } else {
+      navigate(`/media/${m.id}`);
+    }
+  }, [navigate]);
+
   const renderTvSeriesCard = () => {
     const tvWatchHistory = watchHistory.filter((h) => {
       const media = mediaMap[h.mediaId];
@@ -398,7 +409,7 @@ export default function HomePage() {
                 <div
                   key={h.id}
                   className="group w-24 shrink-0 cursor-pointer"
-                  onClick={() => navigate(`/media/${media.id}`)}
+                  onClick={() => playMedia(media)}
                 >
                   <div className="aspect-[2/3] bg-[var(--color-secondary-alpha)] overflow-hidden rounded-lg relative">
                     <PosterImage

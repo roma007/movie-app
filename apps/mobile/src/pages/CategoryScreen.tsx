@@ -5,6 +5,7 @@ import { getProvider, getStore } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useScaledFontSize } from '../themes/useScaledFontSize';
 import MediaCard from '../components/MediaCard';
+import { openMediaPlay } from '../utils/openMediaPlay';
 import CategoryHeader from '../components/CategoryHeader';
 import FilterDropdown from '../components/FilterDropdown';
 import BlurredBackground from '../components/BlurredBackground';
@@ -383,7 +384,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
         renderItem={({ item }) => (
           <MediaCard
             media={item}
-            onPress={() => navigation.navigate('Detail', { id: item.id, sort })}
+            onPress={() => openMediaPlay(navigation, item)}
           />
         )}
         keyExtractor={item => item.id}

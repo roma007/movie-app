@@ -12,6 +12,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { ArrowLeft, Mic } from 'lucide-react-native';
 import { getVoiceControlSystem } from '@movie-app/core';
+import { openMediaPlay } from '../utils/openMediaPlay';
 
 interface Props {
   navigation: any;
@@ -186,7 +187,7 @@ export default function SearchScreen({ navigation, route }: Props) {
   const renderItem = ({ item }: { item: any }) => (
     <TouchableOpacity
       style={styles.item}
-      onPress={() => navigation.navigate('Detail', { id: item.id })}
+      onPress={() => openMediaPlay(navigation, item)}
     >
       {item.posterUrl && (
         <PosterImage uri={item.posterUrl} style={styles.poster} />

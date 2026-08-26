@@ -1,5 +1,8 @@
+import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Media, MediaNavState } from '@movie-app/core';
+import { resolveDefaultPlayTarget } from '@movie-app/core';
+import { getProvider } from '../init';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PosterImage } from '@/components/PosterImage';
@@ -19,15 +22,32 @@ export function MediaCard({
   onDelete?: (media: Media) => void;
 }) {
   const navigate = useNavigate();
-  
+
+  const [resolving, setResolving] = useState(false);
+  const handleOpen = useCallback(async () => {
+    if (resolving) return;
+    onBeforeNavigate?.();
+    setResolving(true);
+    try {
+      const provider = getProvider();
+      const target = await resolveDefaultPlayTarget(provider, media);
+      if (target) {
+        navigate(`/play/${target.episodeId}?sourceId=${encodeURIComponent(target.sourceId)}`);
+        return;
+      }
+    } catch {
+      // 解析失败则回退到详情页
+    } finally {
+      setResolving(false);
+    }
+    navigate(`/media/${media.id}`, { state: navigateState });
+  }, [resolving, media, navigateState, navigate, onBeforeNavigate]);
+
   if (size === 'small') {
     return (
       <div
         className="group cursor-pointer overflow-hidden rounded-lg bg-[var(--color-card-alpha)] backdrop-blur-sm transition-all duration-300"
-        onClick={() => {
-          onBeforeNavigate?.();
-          navigate(`/media/${media.id}`, { state: navigateState });
-        }}
+        onClick={handleOpen}
       >
         <div className="aspect-[2/3] bg-[var(--color-secondary-alpha)] overflow-hidden relative">
           <PosterImage
@@ -67,10 +87,7 @@ export function MediaCard({
   return (
     <Card
       className="group cursor-pointer overflow-hidden p-0 gap-0 transition-all duration-300 hover:shadow-card"
-      onClick={() => {
-        onBeforeNavigate?.();
-        navigate(`/media/${media.id}`, { state: navigateState });
-      }}
+      onClick={handleOpen}
     >
       <div className="aspect-[2/3] bg-[var(--color-secondary-alpha)] overflow-hidden relative">
         <PosterImage

@@ -227,6 +227,9 @@ export default function PlayScreen({ route, navigation }: Props) {
   useEffect(() => {
     if (!currentEpisodeId) return;
     let cancelled = false;
+    setVideoUrl('');
+    setPlaySources([]);
+    setActivePlayIdx(0);
     (async () => {
       setIsLoading(true);
       setError(null);
@@ -280,8 +283,14 @@ export default function PlayScreen({ route, navigation }: Props) {
         skipDismissedRef.current = false;
         setPlaySources(sources);
         if (sources.length > 0) {
-          setVideoUrl(sources[0].url);
-          setActivePlayIdx(0);
+          let pickIdx = 0;
+          if (paramSourceId) {
+            const idx = sources.findIndex((s) => s.sourceId === paramSourceId);
+            if (idx >= 0) pickIdx = idx;
+          }
+          setVideoUrl(sources[pickIdx].url);
+          setActivePlayIdx(pickIdx);
+          setSelectedSourceId(sources[pickIdx].sourceId ?? null);
         } else {
           setError('无可播放的线路');
         }
@@ -670,6 +679,14 @@ export default function PlayScreen({ route, navigation }: Props) {
           <ArrowLeft size={20} color="#fff" />
         </Button>
         <Text style={styles.headerTitle} numberOfLines={1}>{currentTitle || '正在播放'}</Text>
+        {mediaId && (
+          <TouchableOpacity
+            style={{ paddingHorizontal: 10, justifyContent: 'center' }}
+            onPress={() => navigation.navigate('Detail', { id: mediaId })}
+          >
+            <Text style={{ color: '#fff', fontSize: 15 }}>详情</Text>
+          </TouchableOpacity>
+        )}
         <View style={styles.placeholder} />
       </View>
 

@@ -15,6 +15,7 @@ import CategoryHeader from '../components/CategoryHeader';
 import BlurredBackground from '../components/BlurredBackground';
 import type { Media, Episode, UserUsageType, WatchHistory } from '@movie-app/core';
 import { radius } from '../themes/radiusTokens';
+import { openMediaPlay } from '../utils/openMediaPlay';
 import { Sparkles, Film, Tv, Clock, Heart, CheckSquare, Square, X } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -432,12 +433,12 @@ export default function HomeScreen() {
         <>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {latestMedia.map((m) => (
-              <MediaCard
-                key={m.id}
-                media={m}
-                compact
-                onPress={() => navigation.navigate('Detail', { id: m.id })}
-              />
+                <MediaCard
+                  key={m.id}
+                  media={m}
+                  compact
+                  onPress={() => openMediaPlay(navigation, m)}
+                />
             ))}
           </ScrollView>
         </>
@@ -493,7 +494,7 @@ export default function HomeScreen() {
                   epLabel={epLabel}
                   progressPct={progressPct}
                   editing={editMode}
-                  onPress={() => navigation.navigate('Detail', { id: media.id })}
+                  onPress={() => openMediaPlay(navigation, media)}
                   onLongPress={() => setEditMode(true)}
                   onDelete={() => removeHistoryItem(media.id)}
                 />
@@ -525,7 +526,7 @@ export default function HomeScreen() {
               editing={editMode}
               onLongPress={() => setEditMode(true)}
               onDelete={() => removeHistoryItem(m.id)}
-              onPress={() => navigation.navigate('Detail', { id: m.id })}
+              onPress={() => openMediaPlay(navigation, m)}
             />
           ))}
         </ScrollView>
@@ -546,12 +547,12 @@ export default function HomeScreen() {
       ) : (
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           {favMediaList.map(m => (
-            <MediaCard
-              key={m.id}
-              media={m}
-              compact
-              onPress={() => navigation.navigate('Detail', { id: m.id })}
-            />
+              <MediaCard
+                key={m.id}
+                media={m}
+                compact
+                onPress={() => openMediaPlay(navigation, m)}
+              />
           ))}
         </ScrollView>
       )}

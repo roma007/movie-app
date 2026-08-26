@@ -35,3 +35,6 @@ MOBILE_DESKTOP_DIFF.md
 
 # 离线 vendored 框架 tar 包（由 withLocalVendored 插件在 prebuild 时拷入 ios/）
 apps/mobile/plugins/local_vendored/
+# prebuild 时由 config 插件生成到 ios/ 的副本（源在 assets/model-cn 与 plugins/local_vendored，可再生产，无需入库）
+apps/mobile/ios/MovieApp/model-cn/
+apps/mobile/ios/local_vendored/
