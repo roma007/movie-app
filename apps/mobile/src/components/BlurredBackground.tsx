@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { View, Image, Animated, StyleSheet } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { BlurView } from 'expo-blur';
 import { useThemeStore } from '../themes/store';
 
@@ -39,7 +40,12 @@ export default function BlurredBackground({ imageUrl, children }: BlurredBackgro
 
   return (
     <View style={styles.container}>
-      <Image source={DEFAULT_BG} style={[StyleSheet.absoluteFill, { transform: [{ scale: imageScale }] }]} resizeMode="cover" blurRadius={imageBlur} />
+      <ExpoImage
+        source={DEFAULT_BG}
+        style={[StyleSheet.absoluteFill, { transform: [{ scale: imageScale }] }]}
+        contentFit="cover"
+        blurRadius={imageBlur}
+      />
       {imageUrl ? (
         <Animated.Image
           source={{ uri: imageUrl }}

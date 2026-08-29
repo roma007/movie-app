@@ -2,7 +2,7 @@
   "expo": {
     "name": "Movie App",
     "slug": "movie-app",
-    "version": "1.0.78",
+    "version": "1.0.79",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -41,7 +41,7 @@
     "plugins": [
       "expo-sqlite",
       "expo-image",
-      "expo-video",
+      ["expo-video", { "supportsPictureInPicture": true }],
       "expo-screen-orientation",
       "expo-status-bar",
       "expo-speech-transcriber",
