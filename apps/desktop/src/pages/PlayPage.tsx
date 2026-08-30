@@ -170,6 +170,10 @@ export default function PlayPage() {
       }
       return;
     }
+    // pip 激活且 session 已被切到与当前路由不同的集（pip 主导播放）时，主窗口不接管，
+    // 否则会用路由 episodeId 覆盖/顶掉 pip 刚切到的新集，造成 pip 切集被「反击回退」。
+    const st = usePlayerStore.getState();
+    if (st.pipActive && st.session?.episodeId && st.session.episodeId !== episodeId) return;
     if (openingRef.current === episodeId) return;
     openingRef.current = episodeId;
     // PIP 存活恢复场景：initApp 已预置 pipActive=true，openPlayback 须保留该状态，

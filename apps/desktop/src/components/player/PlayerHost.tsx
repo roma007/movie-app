@@ -114,6 +114,9 @@ export function PlayerHost() {
   const skipDismissedRef = useRef(false);
   const skipEligibleRef = useRef(false);
   const lastTimeRef = useRef(0);
+  // 并发安全的 pip 切集豁免计数：pip://next 可能有并发 handler（如浮层双触发），
+  // 用计数而非布尔，任何 handler 在途都豁免 subscribe 关 pip。
+  const pipSwitchingRef = useRef(0);
 
   useEffect(() => {
     setOverlayVisible(false);
@@ -224,10 +227,9 @@ export function PlayerHost() {
       } catch {}
     });
     // pip 内点「下一集」：经主窗口解析新集后回传，期间保持 pipActive
-    let pipSwitching = false;
     on<{ episodeId: string }>('pip://next', async ({ episodeId }) => {
       const st = usePlayerStore.getState();
-      pipSwitching = true;
+      pipSwitchingRef.current += 1;
       try {
         await st.switchEpisode(episodeId, { keepPipActive: true });
         const s2 = usePlayerStore.getState().session;
@@ -235,19 +237,16 @@ export function PlayerHost() {
           void emit('pip://episode', buildPipPayload(s2, s2.currentTime));
         }
       } finally {
-        pipSwitching = false;
+        pipSwitchingRef.current = Math.max(0, pipSwitchingRef.current - 1);
       }
     });
     // 主窗口侧发起新播放（非 pip 流程）时关闭 pip，避免双流
     unsubs.push(
       usePlayerStore.subscribe((s, prev) => {
-        if (
-          !pipSwitching &&
-          prev.pipActive &&
-          s.session &&
-          prev.session &&
-          s.session.episodeId !== prev.session.episodeId
-        ) {
+        const sEp = s.session?.episodeId;
+        const pEp = prev.session?.episodeId;
+        const episodeChanged = !!sEp && !!pEp && sEp !== pEp;
+        if (pipSwitchingRef.current <= 0 && prev.pipActive && episodeChanged) {
           void WebviewWindow.getByLabel('pip').then((w) => w?.close().catch(() => {}));
         }
       }),

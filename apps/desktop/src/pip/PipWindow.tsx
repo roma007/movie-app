@@ -62,6 +62,7 @@ function PipRoot() {
   const [playSourceId, setPlaySourceId] = useState<string | null>(initialData?.playSourceId ?? null);
   const playerRef = useRef<MediaPlayerInstance>(null);
   const lastTimeEmitRef = useRef(0);
+  const lastNextEmitRef = useRef<{ id: string; at: number }>({ id: '', at: 0 });
   const lastCloseEmitRef = useRef(0);
 
   const [overlayVisible, setOverlayVisible] = useState(false);
@@ -248,8 +249,14 @@ function PipRoot() {
 
   const handleNext = useCallback(() => {
     if (!data?.nextEpisode) return;
-    void emit('pip://next', { episodeId: data.nextEpisode.id });
-  }, [data?.nextEpisode]);
+    const now = Date.now();
+    const target = data.nextEpisode.id;
+    if (lastNextEmitRef.current.id === target && now - lastNextEmitRef.current.at < 1000) {
+      return;
+    }
+    lastNextEmitRef.current = { id: target, at: now };
+    void emit('pip://next', { episodeId: target });
+  }, [data?.nextEpisode, data?.episodeId]);
 
   const handleFullscreen = () => {
     const p = playerRef.current;

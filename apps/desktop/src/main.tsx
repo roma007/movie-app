@@ -1,4 +1,3 @@
-import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { invoke } from '@tauri-apps/api/core';
 import App from './App';
@@ -62,8 +61,4 @@ function captureWebviewErrors() {
 
 captureWebviewErrors();
 
-createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+createRoot(document.getElementById('root')!).render(<App />);
