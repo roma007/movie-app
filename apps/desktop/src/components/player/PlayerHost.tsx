@@ -255,17 +255,25 @@ export function PlayerHost() {
     on<{ t: number; d: number }>('pip://back', ({ t, d }) => {
       const st = usePlayerStore.getState();
       console.log('[pip] main: back received', { t, d });
+      console.warn('[PIPDEBUG] main: back received', { t, d });
       st.applyPipTime(t, d);
       st.setPipActive(false, { resumePlay: true });
       void st.flushProgress();
       // 兜底强制销毁画中画窗口：destroy 不触发 onCloseRequested 拦截，杜绝 pip 残留双流播放
-      void WebviewWindow.getByLabel('pip')
+      WebviewWindow.getByLabel('pip')
         .then((w) => {
-          console.log('[pip] main: getByLabel pip →', w ? 'found' : 'null');
-          return w?.destroy().catch(() => {});
+          console.warn('[PIPDEBUG] main: getByLabel pip →', w ? 'found' : 'null');
+          if (!w) return;
+          return w.destroy().then(
+            () => console.warn('[PIPDEBUG] main: getByLabel destroy ok'),
+            (err) => console.warn('[PIPDEBUG] main: getByLabel destroy err', String(err)),
+          );
         })
-        .catch(() => {});
+        .catch((err) => console.warn('[PIPDEBUG] main: getByLabel 查询失败', String(err)));
       if (st.session?.episodeId) navigate(`/play/${st.session.episodeId}`);
+    });
+    on<{ where: string; msg: string; extra: unknown }>('pip://debug', ({ where, msg, extra }) => {
+      console.warn('[PIPDEBUG] from pip:', `${where}|${msg}`, extra ?? '');
     });
     on<{ t: number; d: number }>('pip://closing', ({ t, d }) => {
       const st = usePlayerStore.getState();

@@ -224,21 +224,26 @@ function PipRoot() {
     lastCloseEmitRef.current = Date.now();
     const { t, d } = readVideoTime();
     console.log('[pip] back: start');
+    const dbg = (msg: string, extra?: unknown) => {
+      console.warn('[PIPDEBUG]', msg, extra ?? '');
+      void emit('pip://debug', { where: 'pip-back', msg, extra: extra ?? null });
+    };
     // 先发 back 通知主窗口续播；不给 emit 无限 await（避免 emit 挂起导致窗口不销毁）
-    const emitP = emit('pip://back', { t, d }).catch((err) =>
-      console.error('[pip] back: emit err', err),
+    const emitP = emit('pip://back', { t, d }).then(
+      () => dbg('pip://back emit ok'),
+      (err) => dbg('pip://back emit err', String(err)),
     );
     try {
       await Promise.race([emitP, new Promise((r) => setTimeout(r, 800))]);
     } catch { /* 忽略，无论如何都继续销毁 */ }
-    // 用 destroy() 强关：按官方 API，destroy 强制关闭、不会触发 onCloseRequested 拦截，
-    // 彻底避免 close()/emit 卡住造成 pip 残留与主窗口双流播放
-    console.log('[pip] back: destroy window');
+    dbg('destroy 前，label=' + win.label);
     try {
       await win.destroy();
+      dbg('destroy ok');
     } catch (err) {
-      console.error('[pip] back: destroy 失败', err);
+      dbg('destroy 抛错', String(err));
     }
+    dbg('destroy 后（若还能执行到这，说明通道仍在）');
   }, [readVideoTime, win]);
 
   const handleNext = useCallback(() => {
