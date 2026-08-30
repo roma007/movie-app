@@ -254,12 +254,17 @@ export function PlayerHost() {
     );
     on<{ t: number; d: number }>('pip://back', ({ t, d }) => {
       const st = usePlayerStore.getState();
+      console.log('[pip] main: back received', { t, d });
       st.applyPipTime(t, d);
       st.setPipActive(false, { resumePlay: true });
       void st.flushProgress();
-      // 兜底销毁画中画窗口：pip 侧 win.close() 可能因 onCloseRequested 拦截/竞态而未真正关闭，
-      // 若不强制销毁，主窗口已续播而 pip 仍在播放，造成双流。
-      void WebviewWindow.getByLabel('pip').then((w) => w?.destroy().catch(() => {}));
+      // 兜底强制销毁画中画窗口：destroy 不触发 onCloseRequested 拦截，杜绝 pip 残留双流播放
+      void WebviewWindow.getByLabel('pip')
+        .then((w) => {
+          console.log('[pip] main: getByLabel pip →', w ? 'found' : 'null');
+          return w?.destroy().catch(() => {});
+        })
+        .catch(() => {});
       if (st.session?.episodeId) navigate(`/play/${st.session.episodeId}`);
     });
     on<{ t: number; d: number }>('pip://closing', ({ t, d }) => {

@@ -223,14 +223,15 @@ function PipRoot() {
   const handleBack = useCallback(async () => {
     lastCloseEmitRef.current = Date.now();
     const { t, d } = readVideoTime();
+    console.log('[pip] back: emit pip://back', { t, d });
     await emit('pip://back', { t, d });
-    // 先 destroy 强关，避免 onCloseRequested 拦截 win.close() 造成 pip 残留与主窗口双流播放
+    // 用 destroy() 强关：按官方 API，destroy 强制关闭、不会触发 onCloseRequested 拦截，
+    // 彻底避免 close() 被自身拦截造成 pip 残留与主窗口双流播放
+    console.log('[pip] back: destroy window');
     try {
-      await win.close();
-    } finally {
-      try {
-        await win.destroy();
-      } catch {}
+      await win.destroy();
+    } catch (err) {
+      console.error('[pip] back: destroy 失败', err);
     }
   }, [readVideoTime, win]);
 
