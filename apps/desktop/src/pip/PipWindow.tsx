@@ -223,10 +223,16 @@ function PipRoot() {
   const handleBack = useCallback(async () => {
     lastCloseEmitRef.current = Date.now();
     const { t, d } = readVideoTime();
-    console.log('[pip] back: emit pip://back', { t, d });
-    await emit('pip://back', { t, d });
+    console.log('[pip] back: start');
+    // 先发 back 通知主窗口续播；不给 emit 无限 await（避免 emit 挂起导致窗口不销毁）
+    const emitP = emit('pip://back', { t, d }).catch((err) =>
+      console.error('[pip] back: emit err', err),
+    );
+    try {
+      await Promise.race([emitP, new Promise((r) => setTimeout(r, 800))]);
+    } catch { /* 忽略，无论如何都继续销毁 */ }
     // 用 destroy() 强关：按官方 API，destroy 强制关闭、不会触发 onCloseRequested 拦截，
-    // 彻底避免 close() 被自身拦截造成 pip 残留与主窗口双流播放
+    // 彻底避免 close()/emit 卡住造成 pip 残留与主窗口双流播放
     console.log('[pip] back: destroy window');
     try {
       await win.destroy();
