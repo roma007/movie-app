@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity } from 'react-native';
+import Slider from '@react-native-community/slider';
 import { ArrowLeft, Check } from 'lucide-react-native';
 import { useAppStore, getProvider } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
@@ -32,12 +33,14 @@ export default function UsagePreferencesScreen({ navigation }: Props) {
 
   const [playbackEnabled, setPlaybackEnabled] = useState(true);
   const [playbackThreshold, setPlaybackThreshold] = useState(10);
+  const [prefetchConcurrency, setPrefetchConcurrency] = useState(3);
 
   useEffect(() => {
     loadUserUsageTypes();
     new SystemConfigService(provider).getPlaybackConfig().then((cfg: any) => {
       setPlaybackEnabled(cfg.showNextEpisodeOverlay);
       setPlaybackThreshold(cfg.outroThresholdMinutes);
+      setPrefetchConcurrency(cfg.prefetchConcurrency);
     }).catch(() => {});
   }, []);
 
@@ -58,6 +61,12 @@ export default function UsagePreferencesScreen({ navigation }: Props) {
     setPlaybackThreshold(minutes);
     const configService = new SystemConfigService(provider);
     await configService.setPlaybackConfig({ outroThresholdMinutes: minutes });
+  };
+
+  const handlePrefetchChange = async (n: number) => {
+    setPrefetchConcurrency(n);
+    const configService = new SystemConfigService(provider);
+    await configService.setPlaybackConfig({ prefetchConcurrency: n });
   };
 
   const styles = useMemo(() => StyleSheet.create({
@@ -126,6 +135,10 @@ export default function UsagePreferencesScreen({ navigation }: Props) {
       flex: 1,
       paddingVertical: 10,
       borderRadius: radius.md,
+    },
+    thresholdSliderTrack: {
+      justifyContent: 'center',
+      height: 40,
     },
   }), [colors, cardBg, s, cardOpacity]);
 
@@ -196,6 +209,28 @@ export default function UsagePreferencesScreen({ navigation }: Props) {
                 </View>
               </View>
             )}
+          </View>
+
+          <View style={styles.card}>
+            <View style={styles.menuItem}>
+              <Text style={styles.menuText}>播放缓冲并发数</Text>
+              <Text style={[styles.menuText, { color: colors.mutedForeground }]}>{prefetchConcurrency}</Text>
+            </View>
+            <View style={styles.thresholdRow}>
+              <Text style={styles.thresholdLabel}>播放时单视频并发缓冲的数量。越大卡顿越少，但越可能引起片源方反爬</Text>
+              <View style={styles.thresholdSliderTrack}>
+                <Slider
+                  minimumValue={1}
+                  maximumValue={20}
+                  step={1}
+                  value={prefetchConcurrency}
+                  onValueChange={handlePrefetchChange}
+                  minimumTrackTintColor={colors.mutedForeground}
+                  maximumTrackTintColor={colors.trackBg}
+                  thumbTintColor={colors.text}
+                />
+              </View>
+            </View>
           </View>
         </View>
       </ScrollView>

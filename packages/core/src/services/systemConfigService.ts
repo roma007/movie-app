@@ -28,6 +28,7 @@ export interface PlaybackConfig {
   showNextEpisodeOverlay: boolean;
   prefetchConcurrency: number;
   miniPlayerEnabled: boolean;
+  showSegmentProgress: boolean;
 }
 
 export interface ShortDramaConfig {
@@ -232,6 +233,7 @@ export class SystemConfigService {
       showNextEpisodeOverlay: await this.getJSON<boolean>('playback.showNextEpisodeOverlay', true),
       prefetchConcurrency: await this.getNumber('playback.prefetchConcurrency', 3),
       miniPlayerEnabled: await this.getJSON<boolean>('playback.miniPlayerEnabled', true),
+      showSegmentProgress: await this.getJSON<boolean>('playback.showSegmentProgress', true),
     };
   }
 
@@ -247,6 +249,9 @@ export class SystemConfigService {
     }
     if (config.miniPlayerEnabled !== undefined) {
       await this.setJSON('playback.miniPlayerEnabled', config.miniPlayerEnabled);
+    }
+    if (config.showSegmentProgress !== undefined) {
+      await this.setJSON('playback.showSegmentProgress', config.showSegmentProgress);
     }
   }
 

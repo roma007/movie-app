@@ -88,6 +88,8 @@ export function PlayerHost() {
   const loadMiniPlayerPref = usePlayerStore((s) => s.loadMiniPlayerPref);
   const closePlayback = usePlayerStore((s) => s.closePlayback);
   const handleSourceChange = usePlayerStore((s) => s.handleSourceChange);
+  const switchLineWithResume = usePlayerStore((s) => s.switchLineWithResume);
+  const flushProgress = usePlayerStore((s) => s.flushProgress);
   const handleTimeUpdate = usePlayerStore((s) => s.handleTimeUpdate);
   const switchEpisode = usePlayerStore((s) => s.switchEpisode);
   const volume = usePlayerStore((s) => s.volume);
@@ -111,6 +113,7 @@ export function PlayerHost() {
   const [skipForwardVisible, setSkipForwardVisible] = useState(false);
   const skipDismissedRef = useRef(false);
   const skipEligibleRef = useRef(false);
+  const lastTimeRef = useRef(0);
 
   useEffect(() => {
     setOverlayVisible(false);
@@ -119,6 +122,7 @@ export function PlayerHost() {
     skipEligibleRef.current = (session?.currentTime ?? 0) < 5 * 60;
     setSkipForwardVisible(false);
     skipDismissedRef.current = false;
+    lastTimeRef.current = session?.currentTime ?? 0;
   }, [session?.episodeId, session?.playSourceId, session?.currentTime]);
 
   const handleBossKey = useCallback(async () => {
@@ -208,9 +212,11 @@ export function PlayerHost() {
     on<{ v: number; m: boolean }>('pip://volume', ({ v, m }) => {
       usePlayerStore.getState().setVolume(v, m);
     });
-    on<{ id: string; sourceId: string | null }>('pip://source', ({ id, sourceId }) => {
-      const s = usePlayerStore.getState().session;
-      if (s) usePlayerStore.setState({ session: { ...s, playSourceId: id, selectedSourceId: sourceId } });
+    on<{ id: string; sourceId: string | null }>('pip://source', async ({ id }) => {
+      const st = usePlayerStore.getState();
+      await st.switchLineWithResume(id);
+      const s2 = usePlayerStore.getState().session;
+      if (s2 && s2.episodeId) void emit('pip://episode', buildPipPayload(s2, s2.currentTime));
     });
     on<{ x: number; y: number; w: number; h: number }>('pip://geometry', (geo) => {
       try {
@@ -250,12 +256,17 @@ export function PlayerHost() {
       const st = usePlayerStore.getState();
       st.applyPipTime(t, d);
       st.setPipActive(false, { resumePlay: true });
+      void st.flushProgress();
+      // 兜底销毁画中画窗口：pip 侧 win.close() 可能因 onCloseRequested 拦截/竞态而未真正关闭，
+      // 若不强制销毁，主窗口已续播而 pip 仍在播放，造成双流。
+      void WebviewWindow.getByLabel('pip').then((w) => w?.destroy().catch(() => {}));
       if (st.session?.episodeId) navigate(`/play/${st.session.episodeId}`);
     });
     on<{ t: number; d: number }>('pip://closing', ({ t, d }) => {
       const st = usePlayerStore.getState();
       st.applyPipTime(t, d);
       st.setPipActive(false);
+      void st.flushProgress();
     });
     on<unknown>('tauri://destroyed', (payload) => {
       const label = (payload as { label?: string } | null)?.label;
@@ -268,6 +279,40 @@ export function PlayerHost() {
       unsubs.forEach((u) => u());
     };
   }, [navigate]);
+
+  // 应用窗口关闭（含 Cmd+Q/关窗口）：先锁存播放进度，再真正关闭，保证退出即保存
+  useEffect(() => {
+    let un: (() => void) | undefined;
+    let flushed = false;
+    (async () => {
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        const win = getCurrentWindow();
+        un = await win.onCloseRequested(async (event) => {
+          if (flushed) return;
+          event.preventDefault();
+          try {
+            const pipWin = await WebviewWindow.getByLabel('pip');
+            if (pipWin) await pipWin.close();
+            await usePlayerStore.getState().flushProgress();
+          } catch (err) {
+            console.error('[PlayerHost] 关闭前保存进度失败:', err);
+          } finally {
+            flushed = true;
+            void win.close();
+          }
+        });
+      } catch {}
+    })();
+    return () => un?.();
+  }, [flushProgress]);
+
+  // pip 激活期间主窗口始终不播（含切集后 VideoPlayer 重挂场景），杜绝双声道
+  useEffect(() => {
+    if (!pipActive) return;
+    const video = playerRef.current?.el?.querySelector('video');
+    if (video && !video.paused) video.pause();
+  }, [pipActive, session?.episodeId]);
 
   // 画中画关闭后：主窗口视频回到最新进度；「返回播放页」路径自动续播
   useEffect(() => {
@@ -510,7 +555,7 @@ export function PlayerHost() {
 
   const handleSourceSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const src = session.sources.find((s) => s.id === e.target.value);
-    if (src) handleSourceChange(src);
+    if (src) void switchLineWithResume(src.id);
   };
 
   const handleNextEpisode = () => {
@@ -554,6 +599,16 @@ export function PlayerHost() {
       setOverlayVisible(true);
       setSkipForwardVisible(false);
       skipDismissedRef.current = true;
+    }
+    // 主动向后拖动（currentTime 明显回落）：离开片尾隐藏下一集浮窗，并恢复快进浮窗可选性
+    const backwardSeek = lastTimeRef.current - currentTime >= 3;
+    lastTimeRef.current = currentTime;
+    if (!reachedOutro) {
+      setOverlayVisible(false);
+    }
+    if (backwardSeek) {
+      skipDismissedRef.current = false;
+      skipEligibleRef.current = currentTime < 5 * 60;
     }
     if (currentTime >= 5 * 60) {
       setSkipForwardVisible(false);
@@ -680,7 +735,7 @@ export function PlayerHost() {
           <VideoPlayer
             playerRef={playerRef}
             keyTarget={mode === 'full' ? 'document' : 'player'}
-            autoPlay={mode === 'full' || !pipStartPaused}
+            autoPlay={!pipActive && (mode === 'full' || !pipStartPaused)}
             onPipOpen={IS_MAC && mode === 'full' ? () => void openNativePipWindow() : undefined}
             sources={session.sources}
             initialSourceId={session.playSourceId ?? undefined}

@@ -37,7 +37,8 @@ react {
     //   The list of variants to that are debuggable. For those we're going to
     //   skip the bundling of the JS bundle and the assets. By default is just 'debug'.
     //   If you add flavors like lite, prod, etc. you'll have to list your debuggableVariants.
-    // debuggableVariants = ["liteDebug", "prodDebug"]
+    // 模拟器验证用独立包方案：debug 也内嵌 JS bundle，不依赖 Metro（Expo SDK 57 dev server 对 /index.bundle 返回 404，RN dev 加载会回落 assets 红屏）
+    debuggableVariants = []
 
     /* Bundling */
     //   A list containing the node command and its flags. Default is just 'node'.

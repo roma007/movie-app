@@ -62,6 +62,7 @@ function PipRoot() {
   const [playSourceId, setPlaySourceId] = useState<string | null>(initialData?.playSourceId ?? null);
   const playerRef = useRef<MediaPlayerInstance>(null);
   const lastTimeEmitRef = useRef(0);
+  const lastCloseEmitRef = useRef(0);
 
   const [overlayVisible, setOverlayVisible] = useState(false);
   const overlayDismissedRef = useRef(false);
@@ -69,6 +70,7 @@ function PipRoot() {
   const [skipForwardVisible, setSkipForwardVisible] = useState(false);
   const skipDismissedRef = useRef(false);
   const skipEligibleRef = useRef((initialData?.currentTime ?? 0) < 5 * 60);
+  const lastTimeRef = useRef(initialData?.currentTime ?? 0);
 
   useEffect(() => {
     let un: (() => void) | undefined;
@@ -93,6 +95,7 @@ function PipRoot() {
     skipEligibleRef.current = (data?.currentTime ?? 0) < 5 * 60;
     setSkipForwardVisible(false);
     skipDismissedRef.current = false;
+    lastTimeRef.current = data?.currentTime ?? 0;
   }, [data?.episodeId]);
 
   const readVideoTime = useCallback(() => {
@@ -119,6 +122,16 @@ function PipRoot() {
         setOverlayVisible(true);
         setSkipForwardVisible(false);
         skipDismissedRef.current = true;
+      }
+      // 主动向后拖动（currentTime 明显回落）：离开片尾隐藏下一集浮窗，并恢复快进浮窗可选性
+      const backwardSeek = lastTimeRef.current - t >= 3;
+      lastTimeRef.current = t;
+      if (!reached) {
+        setOverlayVisible(false);
+      }
+      if (backwardSeek) {
+        skipDismissedRef.current = false;
+        skipEligibleRef.current = t < 5 * 60;
       }
       if (t >= 5 * 60) {
         setSkipForwardVisible(false);
@@ -182,16 +195,43 @@ function PipRoot() {
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, [win]);
 
+  useEffect(() => {
+    let un: (() => void) | undefined;
+    (async () => {
+      try {
+        un = await win.onCloseRequested(async (event) => {
+          event.preventDefault();
+          if (Date.now() - lastCloseEmitRef.current >= 1000) {
+            lastCloseEmitRef.current = Date.now();
+            const { t, d } = readVideoTime();
+            await emit('pip://closing', { t, d });
+          }
+          await win.destroy();
+        });
+      } catch {}
+    })();
+    return () => un?.();
+  }, [win, readVideoTime]);
+
   const closePip = useCallback(async () => {
+    lastCloseEmitRef.current = Date.now();
     const { t, d } = readVideoTime();
     await emit('pip://closing', { t, d });
-    setTimeout(() => void win.close(), 120);
+    win.close();
   }, [readVideoTime, win]);
 
   const handleBack = useCallback(async () => {
+    lastCloseEmitRef.current = Date.now();
     const { t, d } = readVideoTime();
     await emit('pip://back', { t, d });
-    setTimeout(() => void win.close(), 150);
+    // 先 destroy 强关，避免 onCloseRequested 拦截 win.close() 造成 pip 残留与主窗口双流播放
+    try {
+      await win.close();
+    } finally {
+      try {
+        await win.destroy();
+      } catch {}
+    }
   }, [readVideoTime, win]);
 
   const handleNext = useCallback(() => {
@@ -225,7 +265,6 @@ function PipRoot() {
   const handleSourceSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const src = data?.sources.find((s) => s.id === e.target.value);
     if (!src || !data) return;
-    setPlaySourceId(src.id);
     void emit('pip://source', { id: src.id, sourceId: src.sourceId });
   };
 
@@ -309,8 +348,12 @@ function PipRoot() {
         >
           <VideoPlayer
             playerRef={playerRef}
-            key={data.episodeId}
+            key={`${data.episodeId}:${data.playSourceId}`}
             keyTarget="document"
+            onSpaceToggle={() => {
+              const p = playerRef.current;
+              if (p) (p.paused ? void p.play().catch(() => {}) : p.pause());
+            }}
             sources={data.sources}
             initialSourceId={playSourceId ?? undefined}
             initialCurrentTime={data.currentTime}

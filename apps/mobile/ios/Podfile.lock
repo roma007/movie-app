@@ -124,6 +124,8 @@ PODS:
     - ExpoModulesCore
   - ExpoVideo (57.0.2):
     - ExpoModulesCore
+  - ExpoVideoCache (2.1.0):
+    - ExpoModulesCore
   - FBLazyVector (0.86.0)
   - google-cast-sdk (4.8.6):
     - GTMSessionFetcher
@@ -2284,6 +2286,7 @@ DEPENDENCIES:
   - ExpoSpeechTranscriber (from `../../../node_modules/expo-speech-transcriber/ios`)
   - ExpoSQLite (from `../../../node_modules/expo-sqlite/ios`)
   - ExpoVideo (from `../../../node_modules/expo-video/ios/ExpoVideo.podspec`)
+  - ExpoVideoCache (from `../../../node_modules/expo-video-cache/ios`)
   - FBLazyVector (from `../../../node_modules/react-native/Libraries/FBLazyVector`)
   - hermes-engine (from `../../../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
   - NitroModules (from `../../../node_modules/react-native-nitro-modules`)
@@ -2415,6 +2418,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/expo-sqlite/ios"
   ExpoVideo:
     :podspec: "../../../node_modules/expo-video/ios/ExpoVideo.podspec"
+  ExpoVideoCache:
+    :path: "../../../node_modules/expo-video-cache/ios"
   FBLazyVector:
     :path: "../../../node_modules/react-native/Libraries/FBLazyVector"
   hermes-engine:
@@ -2606,6 +2611,7 @@ SPEC CHECKSUMS:
   ExpoSpeechTranscriber: 429160b0766c7f2ec6122988e2d22e1c19b53e06
   ExpoSQLite: ddd65ed74bdebcff20f6766e682f9321ecb28ab8
   ExpoVideo: b1d9a325ddcd4f3ed8ccb374c01b688e98bc6a04
+  ExpoVideoCache: 084e7322fd18d084e67063d560301bc9ae9be0f4
   FBLazyVector: b3e7ad108f0d882e30445c5527d774e3fd432f3d
   google-cast-sdk: 1fdce1373a29b7a0472c0747addf4b664f1c5121
   GTMSessionFetcher: a6d2b2aa203485893d4511ff64642dc811f7c09f

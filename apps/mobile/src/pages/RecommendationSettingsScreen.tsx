@@ -10,6 +10,8 @@ import { radius } from '../themes/radiusTokens';
 import BlurredBackground from '../components/BlurredBackground';
 import { Button } from '../components/ui/Button';
 import type { RecommendationOverview, DislikedMediaItem, TagBlacklistItem } from '@movie-app/core';
+import { getProvider } from '../init';
+import { openMediaPlay } from '../utils/openMediaPlay';
 
 const TAG_TYPE_LABEL: Record<TagBlacklistItem['tagType'], string> = {
   genre: '类型',
@@ -366,7 +368,7 @@ export default function RecommendationSettingsScreen({ navigation }: Props) {
                     <TouchableOpacity
                       key={m.id}
                       style={styles.topItem}
-                      onPress={() => navigation.navigate('Detail', { id: m.id })}
+                      onPress={async () => { const mm = await getProvider().getMediaById(m.id); if (mm) openMediaPlay(navigation, mm); }}
                       activeOpacity={0.7}
                     >
                       <Text style={styles.topItemText} numberOfLines={1}>{m.title}</Text>
@@ -467,7 +469,7 @@ export default function RecommendationSettingsScreen({ navigation }: Props) {
                     <TouchableOpacity
                       key={m.mediaId}
                       style={styles.dislikedRow}
-                      onPress={() => navigation.navigate('Detail', { id: m.mediaId })}
+                      onPress={async () => { const mm = await getProvider().getMediaById(m.mediaId); if (mm) openMediaPlay(navigation, mm); }}
                       activeOpacity={0.7}
                     >
                       <Text style={styles.dislikedTitle} numberOfLines={1}>{m.title || m.mediaId}</Text>

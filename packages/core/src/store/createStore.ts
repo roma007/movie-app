@@ -601,6 +601,16 @@ export function createAppStore(db: DatabaseProvider) {
     ) => {
       try {
         await db.upsertWatchHistory(mediaId, episodeId, progress, duration, sourceId, playSourceId);
+        if (playSourceId) {
+          await db.upsertWatchLineProgress(
+            mediaId,
+            episodeId || 'movie',
+            playSourceId,
+            progress,
+            duration,
+            sourceId
+          );
+        }
         const count = await db.getWatchHistoryCount();
         set((state) => {
           const now = new Date().toISOString();

@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import type { Media } from '@movie-app/core';
 import { useAppStore } from '../useAppStore';
 import { getProvider, getStore } from '../init';
+import { openMediaPlay } from '../utils/openMediaPlay';
 import { useBackgroundStore } from '../themes/backgroundStore';
 import { MediaGrid } from '@/components/MediaCard';
 import { Button } from '@/components/ui/button';
@@ -645,9 +646,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                       className="hover:bg-hover cursor-pointer transition-colors"
                       onClick={() => {
                         saveScrollPosition();
-                        navigate(`/media/${m.id}`, {
-                          state: { page: currentPage, type, sort, subType: activeSubType, year: activeYear, area: activeArea, episodeType: activeEpisodeType }
-                        });
+                        openMediaPlay(navigate, m, { page: currentPage, type, sort, subType: activeSubType, year: activeYear, area: activeArea, episodeType: activeEpisodeType });
                       }}
                     >
                       {allColumns

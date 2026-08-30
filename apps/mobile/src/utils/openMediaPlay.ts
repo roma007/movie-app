@@ -15,12 +15,11 @@ export async function openMediaPlay(navigation: any, media: Media): Promise<void
         episodeId: target.episodeId,
         mediaId: media.id,
         sourceId: target.sourceId,
+        playSourceId: target.playSourceId ?? null,
         title: media.title,
       });
-      return;
     }
   } catch {
-    // 解析失败回退到详情页
+    // 解析失败无动作（详情页已移除）
   }
-  navigation.navigate('Detail', { id: media.id });
 }

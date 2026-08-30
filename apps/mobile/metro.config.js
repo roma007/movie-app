@@ -8,6 +8,7 @@ const config = getDefaultConfig(projectRoot);
 
 // serverRoot keeps default (monorepo root) so entry resolves as ./apps/mobile/index correctly
 
+
 // monorepo: 保留默认 watchFolders 并追加 monorepoRoot
 config.watchFolders = [...(config.watchFolders || []), monorepoRoot];
 

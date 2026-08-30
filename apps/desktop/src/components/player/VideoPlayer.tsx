@@ -57,6 +57,8 @@ interface VideoPlayerProps {
   onPipOpen?: () => void;
   playerRef?: React.Ref<MediaPlayerInstance>;
   keyTarget?: 'document' | 'player';
+  /** 空格切换播放/暂停的回调；主窗口由 PlayerHost 统一接管时空格不传此 prop（避免双切换），pip 窗口传入。 */
+  onSpaceToggle?: () => void;
   overlays?: ReactNode;
   onTimeUpdate?: (currentTime: number, duration: number) => void;
   onEnded?: () => void;
@@ -74,6 +76,7 @@ export function VideoPlayer({
   onPipOpen,
   playerRef,
   keyTarget = 'document',
+  onSpaceToggle,
   overlays,
   onTimeUpdate,
   onEnded,
@@ -186,6 +189,26 @@ export function VideoPlayer({
     const src = activeSources[currentIndex];
     if (src?.url) void invokePrewarm(src.url);
   }, [currentIndex, activeSources]);
+
+  useEffect(() => {
+    if (!onSpaceToggle) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== ' ' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        !target ||
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable
+      )
+        return;
+      e.preventDefault();
+      onSpaceToggle();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onSpaceToggle]);
 
   const currentTimeRef = useRef(0);
 

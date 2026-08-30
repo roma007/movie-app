@@ -10,7 +10,6 @@ import { useThemeStore } from './src/themes/store';
 import { useThemeColors } from './src/themes/useThemeColors';
 import HomeScreen from './src/pages/HomeScreen';
 import SearchScreen from './src/pages/SearchScreen';
-import DetailScreen from './src/pages/DetailScreen';
 import PlayScreen from './src/pages/PlayScreen';
 import SourceManagerScreen from './src/pages/SourceManagerScreen';
 import AiSourceImportScreen from './src/pages/AiSourceImportScreen';
@@ -55,7 +54,6 @@ function RootNavigator() {
         <Stack.Screen name="Variety" component={VarietyScreen} />
         <Stack.Screen name="Anime" component={AnimeScreen} />
         <Stack.Screen name="Documentary" component={DocumentaryScreen} />
-        <Stack.Screen name="Detail" component={DetailScreen} options={{ animation: 'default' }} />
         <Stack.Screen name="Play" component={PlayScreen} options={{ animation: 'default' }} />
         <Stack.Screen name="SourceManager" component={SourceManagerScreen} />
         <Stack.Screen name="AiSourceImport" component={AiSourceImportScreen} />

@@ -293,6 +293,20 @@ const MIGRATIONS: Migration[] = [
     );
     CREATE INDEX IF NOT EXISTS idx_media_change_log_created_at ON media_change_log(created_at);`,
   },
+  {
+    version: 33,
+    description: 'create_watch_line_progress_table',
+    sql: `CREATE TABLE IF NOT EXISTS watch_line_progress (
+      media_id TEXT NOT NULL,
+      episode_id TEXT NOT NULL,
+      play_source_id TEXT NOT NULL,
+      source_id TEXT,
+      progress INTEGER DEFAULT 0,
+      duration INTEGER DEFAULT 0,
+      updated_at TEXT,
+      PRIMARY KEY (media_id, episode_id, play_source_id)
+    );`,
+  },
 ];
 
 /**
@@ -856,6 +870,10 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     );
   }
 
+  async updateEpisodeDuration(episodeId: string, duration: number | null): Promise<void> {
+    await this.db!.runAsync('UPDATE episode SET duration = ? WHERE id = ?', [duration ?? null, episodeId]);
+  }
+
   async deleteEpisodesByMediaIdAndSourceId(mediaId: string, sourceId: string): Promise<void> {
     await this.db!.runAsync('DELETE FROM episode WHERE media_id = ? AND source_id = ?', [mediaId, sourceId]);
   }
@@ -1347,10 +1365,46 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async clearWatchHistory(): Promise<void> {
     await this.db!.runAsync('DELETE FROM watch_history');
+    await this.db!.runAsync('DELETE FROM watch_line_progress');
   }
 
   async deleteWatchHistory(mediaId: string): Promise<void> {
     await this.db!.runAsync('DELETE FROM watch_history WHERE media_id = ?', [mediaId]);
+    await this.db!.runAsync('DELETE FROM watch_line_progress WHERE media_id = ?', [mediaId]);
+  }
+
+  // —— WatchLineProgress DAO ——
+  async getWatchLineProgressByPlaySource(mediaId: string, episodeId: string, playSourceId: string): Promise<WatchHistory | null> {
+    const row = await this.db!.getFirstAsync<any>(
+      'SELECT * FROM watch_line_progress WHERE media_id = ? AND episode_id = ? AND play_source_id = ? LIMIT 1',
+      [mediaId, episodeId, playSourceId]
+    );
+    return row ? rowToWatchHistory(row) : null;
+  }
+
+  async upsertWatchLineProgress(
+    mediaId: string,
+    episodeId: string,
+    playSourceId: string,
+    progress: number,
+    duration: number,
+    sourceId?: string | null,
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db!.runAsync(
+      `INSERT INTO watch_line_progress (media_id, episode_id, play_source_id, source_id, progress, duration, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(media_id, episode_id, play_source_id) DO UPDATE SET
+         source_id = excluded.source_id,
+         progress = excluded.progress,
+         duration = excluded.duration,
+         updated_at = excluded.updated_at`,
+      [mediaId, episodeId, playSourceId, sourceId ?? null, progress, duration, now]
+    );
+  }
+
+  async clearWatchLineProgressByMediaId(mediaId: string): Promise<void> {
+    await this.db!.runAsync('DELETE FROM watch_line_progress WHERE media_id = ?', [mediaId]);
   }
 
   // —— SearchHistory DAO ——

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { SystemConfigService, type Episode, type Media, type PlaySource } from '@movie-app/core';
+import { SystemConfigService, type Episode, type Media, type PlaySource, type WatchHistory } from '@movie-app/core';
 import { getProvider, getStore } from '../init';
 import { prefetchManager } from '../components/player/PrefetchManager';
 
@@ -36,11 +36,13 @@ interface PlayerState {
   muted: boolean;
 
   setVolume: (volume: number, muted: boolean) => void;
-  openPlayback: (episodeId: string, opts?: { sourceId?: string | null; keepPipActive?: boolean }) => Promise<void>;
+  openPlayback: (episodeId: string, opts?: { sourceId?: string | null; playSourceId?: string | null; keepPipActive?: boolean }) => Promise<void>;
   switchEpisode: (episodeId: string, opts?: { keepPipActive?: boolean }) => Promise<void>;
   closePlayback: () => Promise<void>;
-  switchCmsSource: (sourceId: string) => void;
+  switchCmsSource: (sourceId: string) => Promise<void>;
   handleSourceChange: (source: PlaySource) => void;
+  switchLineWithResume: (lineId: string) => Promise<void>;
+  flushProgress: () => Promise<void>;
   handleTimeUpdate: (currentTime: number, duration: number) => void;
   updateNextEpisode: () => void;
   setSlotRect: (rect: Rect | null) => void;
@@ -231,16 +233,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
 
       const activePs = ps;
       const effective = opts?.sourceId ?? ep.sourceId ?? null;
-      let playSourceId: string | null = null;
-      if (effective) {
-        const byCms =
-          activePs.find((p) => p.sourceId === effective) || ps.find((p) => p.sourceId === effective);
-        playSourceId = byCms?.id ?? activePs[0]?.id ?? null;
-      } else {
-        playSourceId = activePs[0]?.id ?? null;
-      }
-      const selectedSourceId = playSourceId ? ps.find((p) => p.id === playSourceId)?.sourceId ?? null : null;
 
+      let savedEp: WatchHistory | null = null;
       let resume = 0;
       let watched: string[] = [];
       let outro = 10;
@@ -264,19 +258,54 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
                 (h.progress > 60 || (h.duration > 0 && h.progress / h.duration >= 0.1)),
             )
             .map((h) => h.episodeId as string);
-          // 续播判定：同媒体 + 同季 + 同播放源 + 同集号 + 同播放线路。
-          // 按当前集变体（episode_id 隐含媒体/季/集号）取最新记录，再校验播放源与播放线路。
-          // 旧数据（source_id/play_source_id 为 NULL）视为任意源/任意线路，向后兼容。
-          const savedEp = await provider.getWatchHistoryByEpisodeId(media.id, ep.id);
-          if (savedEp && savedEp.progress > 0) {
-            const sameSource = !savedEp.sourceId || savedEp.sourceId === ep.sourceId;
-            const sameLine = !savedEp.playSourceId || savedEp.playSourceId === playSourceId;
-            const nearEnd = savedEp.duration > 0 && savedEp.progress >= savedEp.duration - 5;
-            if (sameSource && sameLine && !nearEnd) resume = savedEp.progress;
-          }
+          savedEp = await provider.getWatchHistoryByEpisodeId(media.id, ep.id);
         } catch (err) {
           console.error('[playerStore] 读取观看配置/历史失败:', err);
         }
+      }
+      if (seq !== loadSeq) return;
+
+      // 播放线路恢复：显式传入线路 → 该集历史上一次线路（progress>0）→ 该源首条。
+      // 匹配要求该线路属于解析出的有效源，防止跨源串线。
+      let playSourceId: string | null = null;
+      const prefLine =
+        opts?.playSourceId ??
+        (savedEp && savedEp.progress > 0 ? savedEp.playSourceId : null) ??
+        null;
+      if (prefLine) {
+        const byLine = activePs.find(
+          (p) => p.id === prefLine && (!effective || p.sourceId === effective),
+        );
+        playSourceId = byLine?.id ?? null;
+      }
+      if (!playSourceId) {
+        const byCms = effective
+          ? activePs.find((p) => p.sourceId === effective) ||
+            ps.find((p) => p.sourceId === effective)
+          : undefined;
+        playSourceId = byCms?.id ?? activePs[0]?.id ?? null;
+      }
+      const selectedSourceId = playSourceId ? ps.find((p) => p.id === playSourceId)?.sourceId ?? null : null;
+
+      // 续播判定：优先按「定稿线路自己的记忆」进度续播（路线切换后互不覆盖）。
+      // 线路记忆缺失（存量数据/无线路）时回退旧逻辑（同媒体+同源+同线路的历史行）。
+      let lineSaved: WatchHistory | null = null;
+      if (media && playSourceId) {
+        try {
+          lineSaved = await provider.getWatchLineProgressByPlaySource(media.id, ep.id, playSourceId);
+        } catch (err) {
+          console.error('[playerStore] 读取线路记忆失败:', err);
+        }
+        if (seq !== loadSeq) return;
+      }
+      if (lineSaved && lineSaved.progress > 0) {
+        const nearEnd = lineSaved.duration > 0 && lineSaved.progress >= lineSaved.duration - 5;
+        if (!nearEnd) resume = lineSaved.progress;
+      } else if (savedEp && savedEp.progress > 0) {
+        const sameSource = !savedEp.sourceId || savedEp.sourceId === ep.sourceId;
+        const sameLine = !savedEp.playSourceId || savedEp.playSourceId === playSourceId;
+        const nearEnd = savedEp.duration > 0 && savedEp.progress >= savedEp.duration - 5;
+        if (sameSource && sameLine && !nearEnd) resume = savedEp.progress;
       }
       if (seq !== loadSeq) return;
 
@@ -316,10 +345,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     await get().openPlayback(episodeId, opts);
   },
 
-  switchCmsSource: (sourceId) => {
+  switchCmsSource: async (sourceId) => {
     const s = get().session;
     if (!s) return;
     const matching = s.sources.find((p) => p.sourceId === sourceId);
+    if (matching && matching.id !== s.playSourceId) {
+      await get().switchLineWithResume(matching.id);
+      return;
+    }
     set({ session: { ...s, selectedSourceId: sourceId, playSourceId: matching?.id ?? s.playSourceId } });
   },
 
@@ -327,6 +360,44 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     const s = get().session;
     if (!s) return;
     set({ session: { ...s, playSourceId: source.id, selectedSourceId: source.sourceId } });
+  },
+
+  switchLineWithResume: async (lineId) => {
+    const s = get().session;
+    if (!s || !s.media || !s.episode) return;
+    const target = s.sources.find((p) => p.id === lineId);
+    if (!target) return;
+    if (s.playSourceId === lineId && s.selectedSourceId === target.sourceId) return;
+    // 1) 先把当前线路的真实进度落库（保存旧线路记忆，返回后恢复该线路进度）
+    await finalSave(s);
+    // 2) 读取目标线路自己的记忆，续播到该位置（无记忆从头）
+    let resume = 0;
+    try {
+      const mem = await getProvider().getWatchLineProgressByPlaySource(
+        s.media.id,
+        s.episode.id,
+        lineId,
+      );
+      if (mem && mem.progress > 0) {
+        const nearEnd = mem.duration > 0 && mem.progress >= mem.duration - 5;
+        if (!nearEnd) resume = mem.progress;
+      }
+    } catch (err) {
+      console.error('[playerStore] 读取线路记忆失败:', err);
+    }
+    set({
+      session: {
+        ...s,
+        playSourceId: lineId,
+        selectedSourceId: target.sourceId,
+        currentTime: resume,
+      },
+    });
+    get().updateNextEpisode();
+  },
+
+  flushProgress: async () => {
+    await finalSave(get().session);
   },
 
   handleTimeUpdate: (currentTime, duration) => {

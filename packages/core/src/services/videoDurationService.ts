@@ -105,6 +105,90 @@ export class VideoDurationService {
     }
   }
 
+  /**
+   * 解析 HLS 媒体播放清单（media playlist），返回分片序列。
+   * master playlist 会自动递归到第一个 variant playlist。
+   * 返回 [{ url, duration, start }]，start 为分片累计起始时间（秒）；解析失败返回 null。
+   */
+  async getSegmentListFromM3U8(url: string, logger?: (msg: string) => void): Promise<{ url: string; duration: number; start: number }[] | null> {
+    const log = (msg: string) => {
+      console.log(msg);
+      logger?.(msg);
+    };
+    try {
+      const fetchFn = videoFetchFn || fetch.bind(globalThis);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+      const response = await fetchFn(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+          Referer: new URL(url).origin,
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        log(`[M3U8分片] HTTP ${response.status} ${url.slice(0, 100)}`);
+        return null;
+      }
+
+      const buffer = await response.text();
+      if (!buffer) {
+        log(`[M3U8分片] 空内容 ${url.slice(0, 100)}`);
+        return null;
+      }
+
+      const lines = buffer.split('\n');
+      const segments: { url: string; duration: number; start: number }[] = [];
+      let pendingDuration = 0;
+      let hasExtInf = false;
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        const durationMatch = trimmed.match(/#EXTINF:([\d\.]+)/);
+        if (durationMatch) {
+          hasExtInf = true;
+          pendingDuration = parseFloat(durationMatch[1]);
+          continue;
+        }
+        if (trimmed && !trimmed.startsWith('#') && hasExtInf) {
+          const segUrl = trimmed.startsWith('http') ? trimmed : new URL(trimmed, url).href;
+          segments.push({ url: segUrl, duration: pendingDuration, start: 0 });
+          pendingDuration = 0;
+        }
+      }
+
+      if (segments.length > 0) {
+        let acc = 0;
+        for (const seg of segments) {
+          seg.start = acc;
+          acc += seg.duration;
+        }
+        log(`[M3U8分片] 解析 ${segments.length} 片 (${(acc / 60).toFixed(1)}分钟) ${url.slice(0, 100)}`);
+        return segments;
+      }
+
+      // master playlist → 第一个 variant playlist 递归
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#')) {
+          const variantUrl = trimmed.startsWith('http') ? trimmed : new URL(trimmed, url).href;
+          log(`[M3U8分片] master → ${variantUrl.slice(0, 100)}`);
+          return this.getSegmentListFromM3U8(variantUrl, logger);
+        }
+      }
+
+      log(`[M3U8分片] 无分片 ${url.slice(0, 100)}`);
+      return null;
+    } catch (err: any) {
+      log(`[M3U8分片] 失败 ${err?.message || 'unknown'} ${url.slice(0, 100)}`);
+      return null;
+    }
+  }
+
   async getDurationsFromUrls(urls: string[]): Promise<(number | null)[]> {
     const start = Date.now();
     const promises = urls.map(url => this.getDurationFromM3U8(url));

@@ -14,6 +14,23 @@ function logToConsole(message: string): void {
   console.log(`[MOVIE-APP] ${message}`);
 }
 
+// 主窗口刷新后 store 重置会让 pipActive/session 丢失。若 PIP 独立窗口（label `pip`）
+// 仍存活，此处在启动阶段（UI 渲染前、无 openPlayback 并发）预置 pipActive=true，
+// 让主窗口保持暂停并显示 PIP 占位遮罩，消除「播放页与 PIP 双流」竞态。
+async function probePipAlive(): Promise<boolean> {
+  try {
+    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+    const pipWin = await WebviewWindow.getByLabel('pip');
+    if (!pipWin) return false;
+    const { usePlayerStore } = await import('./stores/playerStore');
+    usePlayerStore.getState().setPipActive(true);
+    logToConsole('检测到 PIP 窗口仍存活，主窗口保持暂停（恢复 PIP 模式）');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function createTauriHttpClient(): Promise<HttpClient> {
   logToConsole('>>> createTauriHttpClient started');
   
@@ -214,6 +231,10 @@ export async function initApp(onProgress?: (step: string) => void): Promise<void
       _store = createAppStore(_provider);
       report('Step 4: AppStore 创建完成');
       await logToDb('Created AppStore');
+
+      report('Step 4a: 探测 PIP 窗口存活（刷新恢复场景）...');
+      await probePipAlive();
+      report('Step 4a: PIP 存活探测完成');
 
       report('Step 4b: 清理僵尸采集任务...');
       const staleCount = await _store.getState().resetStaleTasks();

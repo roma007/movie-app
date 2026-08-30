@@ -73,6 +73,8 @@ export interface DatabaseProvider {
   getEpisodeSourcesByMediaId(mediaId: string, season?: number): Promise<VideoSource[]>;
   getEpisodeById(id: string): Promise<Episode | null>;
   upsertEpisode(episode: Episode): Promise<void>;
+  /** 写入单集已探测到的视频时长（秒），供播放页剧集列表复用，避免重复探测。 */
+  updateEpisodeDuration(episodeId: string, duration: number | null): Promise<void>;
   deleteEpisodesByMediaId(mediaId: string): Promise<void>;
   deleteEpisodesByMediaIdAndSourceId(mediaId: string, sourceId: string): Promise<void>;
   getSeasonsByMediaId(mediaId: string): Promise<number[]>;
@@ -144,6 +146,25 @@ export interface DatabaseProvider {
   ): Promise<void>;
   clearWatchHistory(): Promise<void>;
   deleteWatchHistory(mediaId: string): Promise<void>;
+
+  // —— WatchLineProgress DAO（按「媒体+剧集+线路」独立记忆的播放进度） ——
+  /** 读取指定线路在该集的历史进度；无记录返回 null。 */
+  getWatchLineProgressByPlaySource(
+    mediaId: string,
+    episodeId: string,
+    playSourceId: string
+  ): Promise<WatchHistory | null>;
+  /** 写入/更新指定线路在该集的进度（复合主键 upsert）。 */
+  upsertWatchLineProgress(
+    mediaId: string,
+    episodeId: string,
+    playSourceId: string,
+    progress: number,
+    duration: number,
+    sourceId?: string | null,
+  ): Promise<void>;
+  /** 删除该媒体全部线路进度（配合清历史/删单条）。 */
+  clearWatchLineProgressByMediaId(mediaId: string): Promise<void>;
 
   // —— SearchHistory DAO ——
   addSearchHistory(keyword: string): Promise<void>;

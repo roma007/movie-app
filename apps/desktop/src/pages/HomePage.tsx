@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Media, Episode, UserUsageType, WatchHistory, HiddenCollectItem } from '@movie-app/core';
-import { resolveDefaultPlayTarget } from '@movie-app/core';
 import { useAppStore, getProvider } from '../useAppStore';
+import { openMediaPlay } from '../utils/openMediaPlay';
 import { useBackgroundStore } from '../themes/backgroundStore';
 import { useImportDialogStore } from '../themes/importDialogStore';
 import { MediaCard } from '@/components/MediaCard';
@@ -350,13 +350,7 @@ export default function HomePage() {
   );
 
   const playMedia = useCallback(async (m: Media) => {
-    const provider = getProvider();
-    const target = await resolveDefaultPlayTarget(provider, m);
-    if (target) {
-      navigate(`/play/${target.episodeId}?sourceId=${encodeURIComponent(target.sourceId)}`);
-    } else {
-      navigate(`/media/${m.id}`);
-    }
+    await openMediaPlay(navigate, m);
   }, [navigate]);
 
   const renderTvSeriesCard = () => {

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useAppStore, getProvider } from '../useAppStore';
+import { openMediaPlay } from '../utils/openMediaPlay';
 import { useConfirm } from '@/components/ConfirmProvider';
 import { useToast } from '@/components/Layout';
 import type { ShortDramaConfig } from '@movie-app/core';
@@ -1132,7 +1133,7 @@ export default function VideoManagementPage() {
                 {(showAllReprobe ? reprobeMediaList : reprobeMediaList.slice(0, 100)).map((item) => (
                   <button
                     key={item.id}
-                    onClick={() => navigate(`/media/${item.id}`)}
+                    onClick={async () => { const m = await getProvider().getMediaById(item.id); if (m) openMediaPlay(navigate, m); }}
                     className="w-full px-3 py-2 text-left text-sm hover:bg-secondary/50 transition-colors flex items-center gap-2"
                   >
                     <AlertCircle className="size-3.5 text-muted-foreground shrink-0" />
@@ -1186,7 +1187,7 @@ export default function VideoManagementPage() {
                     {reprobeResult.failedItems.map((item) => (
                       <button
                         key={item.id}
-                        onClick={() => navigate(`/media/${item.id}`)}
+                    onClick={async () => { const m = await getProvider().getMediaById(item.id); if (m) openMediaPlay(navigate, m); }}
                         className="w-full px-3 py-2 text-left text-sm hover:bg-secondary/50 transition-colors flex items-center gap-2"
                       >
                         <AlertCircle className="size-3.5 text-destructive shrink-0" />

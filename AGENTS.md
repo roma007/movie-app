@@ -115,9 +115,32 @@
 - 默认单 commit 全量提交：工作区所有代码改动一次提交，除非用户明确要求按功能拆分。
 - 提交前 `git status` 核对暂存内容；使用 `git add -A` 前先确认 `.gitignore` 已覆盖工具文档，避免误加。
 - 提交信息：中文，`feat:`/`fix:`/`refactor:` 前缀 + 一句话概括本次改动。
-- 提交后同时推送两端：`git push origin master`（gitee）与 `git push github master`。
-- 提交/推送一律走 `pnpm push "提交信息"`（含版本 tag 全流程）。GitHub 端由 `.github/workflows/release-check.yml` 兜底：push 到 master 时自动补打 `v<版本号>` 标签（版本号以 `package.json` 的 version 为准），随后用 `workflow_dispatch` 显式触发 `build.yml` 在 tag 上构建并生成 GitHub Release 安装包。**注意：GITHUB_TOKEN 推送的 tag 不会自动触发 `build.yml`（GitHub 限制），必须显式 dispatch，否则只有构建产物没有 Release。** **默认不需要手动打标签**；仅当 CI 不可用需手动发布时，才执行 `git tag v<版本号>` 与 `git push github v<版本号>`（手动 push tag 会按 `tags: v*` 正常触发 `build.yml`）。
 - 工具文档（`.trae/`、`BUTTON_COLORS.md`、`MOBILE_DESKTOP_DIFF.md`、`主题字色*.md`）永不提交，`.gitignore` 已兜底。
+
+## 移动端构建同步铁律（模拟器 + iPhone 保持最新）
+
+> 任何修改移动端代码（`apps/mobile`、`packages/core` 被移动端消费的 JS/TS）后，必须同时构建部署到**安卓模拟器**与 **iPhone 真机（MfiPhone）**，保证两端运行的都是最新构建。违反视为未完成。
+
+### 机制速查
+- 模拟器/真机运行的是独立安装包（embedded bundle），不会自动获取源码新改动；必须重新构建安装后才生效。
+- **安卓模拟器更新命令**：
+  ```
+  cd apps/mobile/android && ./gradlew :app:assembleDebug
+  adb -s emulator-5554 install -r apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+  adb -s emulator-5554 shell am start -n com.movie.app/.MainActivity
+  ```
+- **iPhone 真机更新命令**（实测可用，**不要用 `npx expo run:ios --device MfiPhone`**——expo CLI 用 `xcrun xctrace list devices` 匹配设备，而 MfiPhone 在 xctrace 被判 offline，永匹配不到；须用 devicectl 标识符构建+安装+启动）：
+  ```
+  cd apps/mobile/ios
+  APP_DIR=$(xcodebuild -workspace MovieApp.xcworkspace -scheme MovieApp -configuration Release -showBuildSettings 2>/dev/null | awk '/ BUILT_PRODUCTS_DIR =/{print $3}')
+  xcodebuild -workspace MovieApp.xcworkspace -scheme MovieApp -configuration Release \
+    -destination 'platform=iOS,id=1D4B63FE-82F6-5C8B-9C7F-DAA006E0B13D' -allowProvisioningUpdates build
+  xcrun devicectl device install app --device 1D4B63FE-82F6-5C8B-9C7F-DAA006E0B13D "$APP_DIR/MovieApp.app"
+  xcrun devicectl device process launch --device 1D4B63FE-82F6-5C8B-9C7F-DAA006E0B13D com.mengfeng.movieapp
+  ```
+  Release 独立包，内嵌最新 JS；部署前置条件见「移动端真机部署」节。**由 AI 执行，不得推给用户/等用户手动跑**；构建完成后报告结果。（注意：勿加 `-derivedDataPath` 到项目内——会再编一整份派生目录，此前触发过磁盘满。）
+- 两者都以「进入对应页面验证改动已生效」为完成标准（如设置页滑杆可见、日志出现新输出等）。
+- 依赖 node_modules 补丁（`DataSourceUtils.kt` 并发、`expo-modules-jsi` no-op 等）在重装/重编时有丢失风险；构建异常时报错优先对照 `apps/mobile/NATIVE_PATCHES.md` 重打，不得擅自绕过。
 
 ## 推荐分数增量重算规则（铁律）
 
@@ -127,32 +150,27 @@
 增量重算结果必须等于「从零全量重算」结果（同一 `now` 下逐 media 分数一致）。任何增量 / 缓存 / 短路优化都不得破坏此判据。
 
 ### 影响集 A 必须覆盖的输入
-`A` 为需重算的 media 集合，必须包含以下任一变更会改分数的 media：
-- **行为变更（含移除类）**：watched/completed/giveUp/favorites/impressions/disliked 变化。「取消收藏 / 取消不喜欢」会使 media 离开当前行为集，必须用 `lastBehaviorMediaIds` 记录上次并集，`A` 取 `currentB ∪ prevB`，否则移除类操作（含同系列 `seriesContinueBoost` 回落）不重算。
-- **兴趣画像变化**：`diffInterest` 标记的 `changedExact`（genre/director/actor/keyword 复合 key）→ 经 `tagToMedia` 倒排定位；`changedKeyword` 全量扫描 `mediaText`。
-- **penalized 变化（含缩小）**：用 `penalized ∪ lastPenalized`。
-- **新增 media**：`deltaRows`。
+`A` 为需重算的 media 集合，必须包含所有因本次变更分数会改变的 media，包括「移除类操作」（取消收藏 / 取消不喜欢）使 media 离开当前行为集的情况（用 `lastBehaviorMediaIds` 记录上次并集，`A` 取 `currentB ∪ prevB`）。
 
 ### personal_score 不得依赖当前时间 now
-`recentFactor`（已看抑制）、坏源豁免等基于 `Date.now()` 的时间窗口会让分数随时间自然变化，而增量只在行为 / 库 / 偏好变更时触发，导致长时间无行为时增量偏离全量。
-- `recentFactor` 已移至展示层 `reorder`（实时基于 `now` 抑制），**不得**放回 `computeMediaScore` / `personal_score`。
-- 坏源豁免 `exemptMedia` 已改为「所有坏源失败 media 永久豁免」，不依赖时间窗口。
-
-### series / genre 同伴扩展
-- series 同伴：依赖 `behaviorUnion`（含 `prevB`），因 `series_group` 不是 interest key，无法靠 `changedExact` 倒排。
-- genre 同伴：靠 `changedExact` 倒排（genre 是 interest key）。无需在 A 中单独按 genre 扩展（原 `bGenres` 为死代码，已删）。
+`recentFactor`（已看抑制）已移至展示层 `reorder`，**不得**放回 `computeMediaScore` / `personal_score`。坏源豁免 `exemptMedia` 为永久豁免，不依赖时间窗口。
 
 ### 兴趣画像必须每次重建，禁止陈旧缓存
 `buildUserInterestTags` 须每次重算时基于当前行为数据重建，**不得**缓存复用旧 interest（否则增量复用陈旧值，与全量不一致）。
-历史教训：`interestCache` 曾因 `cacheHash` 含 `Math.floor(now/1000)` 而实质永不命中；若「修复缓存」把 `now` 移出 hash 使其命中，会引入「增量复用陈旧 interest」的真实 bug。该缓存已整体删除——若未来要加缓存，必须以行为数据指纹（非时间）保证 interest 与全量重建一致。
 
-## 移动端「热更新」机制（事实，避免误判）
+## 移动端真机开发流程（事实，供参考）
 
-- 项目**无 OTA 热更新能力**：`apps/mobile/app.json` 无 `expo.updates`，全仓无 `expo-updates` 依赖，无 `eas.json`。生产 / TestFlight / App Store 包**无法**热更新，只能重新构建安装包分发。
-- 开发期「热更新」= **Metro 开发热重载**：手机（Expo Go 或 dev build）通过 `expo start` / `expo run:ios --device` 连开发机；`expo run:ios --device` 可直接连真机（如设备名 MfiPhone）。
-- 改 `packages/core` 源码**无需 build core、无需提交、无需发布**：`@movie-app/core` 的 `package.json` 的 `main` 指向 `src/index.ts`（源码），且 `apps/mobile/metro.config.js` 的 `watchFolders` 含 `monorepoRoot`，Metro 自动重新 transpile 并推到手机。
-- 验证 core 逻辑改动在手机上的效果：**只需确保 Metro dev server 在跑且手机连着**（真机用 `expo run:ios --device`），手机刷新 / 重开 App 即见最新代码。**不要**走提交 / 构建 / 发布流程去「让手机看到」——那是生产分发，与开发验证无关。
-- 未登录 Expo 账号时 `expo start --tunnel`（公网穿透）不可用，仅 LAN 模式（手机与电脑同 WiFi）可用。
+> 用户已于 2026-08-28 明确授权「任何拦路虎全部删除」，解除原「真机开发铁律（禁止安装/卸载任何东西）」中阻碍功能开发/原生补丁/依赖管理的条款（留档：`.trae/documents/mobile_segment_progress_plan.md` 偏离记录）。以下仅保留流程事实。
+
+### 真机运行方式
+1. **真机运行 = 编译内嵌代码的独立包**：`cd apps/mobile && npx expo run:ios --device MfiPhone --configuration Release`（经实测此命令匹配不到 MfiPhone，改用「移动端构建同步铁律」节的 xcodebuild + devicectl 命令）。
+   - 产出的 App 内嵌当前 JS，装到手机后独立运行，不依赖 Metro、不需要 dev-client。
+2. **看代码改动 = 重编一次**：改了任何 JS / `packages/core` 源码 / 原生补丁后，想在看效果就再跑一次上面的命令重编重装。
+3. **Metro 不用于真机**：真机不连 Metro、不使用 dev-client。Mac 上的 Metro 仅用于 iOS 模拟器。
+
+### 模拟器（可选）
+- 如需热重载看改动，用 **iOS 模拟器**：`npx expo start` 后按 `i`（或 `expo run:ios` 编模拟器）。模拟器 `localhost` = Mac，Metro 热重载即时生效。
+- 真机走上面的 Release 独立包流程，二者不可混用。
 
 ## 移动端真机部署（Xcode 26.6 + iOS 18 设备）
 
@@ -166,7 +184,7 @@
 1. `sudo xcode-select -s /Applications/Xcode.app`（Xcode 26.6 路径），`xcodebuild -version` 应为 26.6。
 2. 安装 iOS 26.5 platform（Xcode 26.6 把真机也当作需 iOS 26.5 platform 的 destination，否则报 `iOS 26.5 is not installed`）：`xcodebuild -downloadPlatform iOS`（下载 iOS 26.5，无需 sudo，Xcode.app 归用户所有）。
 3. 在 **Xcode 26.6** 的 Settings › Accounts 登录 Apple ID（16.4 的账号不共享），否则报 `No Accounts` / `No profiles`。登录后 Xcode 自动关联本机证书并生成 `com.mengfeng.movieapp` 的 development profile。
-4. 运行：`cd apps/mobile && npx expo run:ios --device MfiPhone`。手机与 Mac 同 WiFi，dev build 自动连 Metro（LAN）验证。
+4. 运行：`cd apps/mobile/ios` 后用「移动端构建同步铁律」节的 xcodebuild + devicectl 命令（构建、安装、启动三步）。手机与 Mac 同 WiFi，安装后独立运行（不连 Metro）。
 
 ### 已知临时 workaround（node_modules 内，不提交，必要时可删）
 - `node_modules/expo-modules-jsi/apple/scripts/build-xcframework.sh` 被改为 no-op（`exit 0`），复用 8/24 预编译的 Swift 6.2 xcframework，避免重建。若 `pod install` 重置该脚本，Xcode 26.6 下原始脚本也能正常重建 6.2 xcframework，无需该 hack。
@@ -174,3 +192,15 @@
 
 ### 为什么 Xcode 26.6 能部署 iOS 18
 Xcode 26 用 CoreDevice 机制连真机，不依赖传统 DeviceSupport 目录；`xcrun devicectl list devices` 已显示 MfiPhone `available (paired)`。构建用 iOS 26.5 SDK、deployment target 设为 ≤ iOS 18 即可装到 iOS 18.7.10。
+
+## 安卓模拟器 DNS（沙箱事实，AI 必知）
+
+> 本机安卓模拟器（`avd name = movieapp`，序列号 `emulator-5554`）DNS 默认失效。
+
+- **唯一修复**：启动时必须带 `-dns-server`，运行时无法改（`adb root` / `setprop` 在 production build 无效）：
+  ```
+  adb -s emulator-5554 emu kill          # 先 kill，禁止同 AVD 多实例
+  sleep 2
+  emulator -avd movieapp -dns-server 8.8.8.8,8.8.4.4
+  ```
+- **验证**：`adb -s emulator-5554 shell ping -c 2 www.baidu.com` 应解析并收到回包。

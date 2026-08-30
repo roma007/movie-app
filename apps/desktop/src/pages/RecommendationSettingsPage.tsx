@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../useAppStore';
+import { getProvider } from '../init';
+import { openMediaPlay } from '../utils/openMediaPlay';
 import { useConfirm } from '@/components/ConfirmProvider';
 import { useToast } from '@/components/Layout';
 import { Button } from '@/components/ui/button';
@@ -210,7 +212,7 @@ export default function RecommendationSettingsPage() {
                   <button
                     key={m.id}
                     className="flex items-center justify-between w-full px-3 py-2 rounded-md text-left hover:bg-hover transition-colors"
-                    onClick={() => navigate(`/media/${m.id}`)}
+                    onClick={async () => { const mm = await getProvider().getMediaById(m.id); if (mm) openMediaPlay(navigate, mm); }}
                   >
                     <span className="text-sm truncate">{m.title}</span>
                     <span className="text-sm text-muted-foreground shrink-0 ml-3">+{m.score}</span>
@@ -310,7 +312,7 @@ export default function RecommendationSettingsPage() {
                   <div key={m.mediaId} className="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-hover transition-colors">
                     <button
                       className="flex-1 text-left text-sm truncate hover:text-text"
-                      onClick={() => navigate(`/media/${m.mediaId}`)}
+                      onClick={async () => { const mm = await getProvider().getMediaById(m.mediaId); if (mm) openMediaPlay(navigate, mm); }}
                     >
                       {m.title || m.mediaId}
                     </button>

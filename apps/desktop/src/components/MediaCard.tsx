@@ -1,8 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Media, MediaNavState } from '@movie-app/core';
-import { resolveDefaultPlayTarget } from '@movie-app/core';
-import { getProvider } from '../init';
+import { openMediaPlay } from '../utils/openMediaPlay';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PosterImage } from '@/components/PosterImage';
@@ -29,18 +28,10 @@ export function MediaCard({
     onBeforeNavigate?.();
     setResolving(true);
     try {
-      const provider = getProvider();
-      const target = await resolveDefaultPlayTarget(provider, media);
-      if (target) {
-        navigate(`/play/${target.episodeId}?sourceId=${encodeURIComponent(target.sourceId)}`);
-        return;
-      }
-    } catch {
-      // 解析失败则回退到详情页
+      await openMediaPlay(navigate, media, navigateState);
     } finally {
       setResolving(false);
     }
-    navigate(`/media/${media.id}`, { state: navigateState });
   }, [resolving, media, navigateState, navigate, onBeforeNavigate]);
 
   if (size === 'small') {

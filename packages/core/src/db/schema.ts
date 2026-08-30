@@ -141,6 +141,19 @@ export const SCHEMA_SQL = `
     updated_at TEXT
   );
 
+  -- 按「媒体+剧集+线路（视频源）」独立记忆的播放进度，用于切换线路后续播。
+  -- episode_id 采用与 watch_history 主键相同的 'movie' 哨兵约定（电影恒为 'movie'）。
+  CREATE TABLE IF NOT EXISTS watch_line_progress (
+    media_id TEXT NOT NULL,
+    episode_id TEXT NOT NULL,
+    play_source_id TEXT NOT NULL,
+    source_id TEXT,
+    progress INTEGER DEFAULT 0,
+    duration INTEGER DEFAULT 0,
+    updated_at TEXT,
+    PRIMARY KEY (media_id, episode_id, play_source_id)
+  );
+
   CREATE TABLE IF NOT EXISTS search_history (
     id TEXT PRIMARY KEY,
     keyword TEXT NOT NULL,
