@@ -4,6 +4,42 @@ import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { File, Paths } from 'expo-file-system';
+
+// 全局 JS 错误捕获：未捕获异常/未处理 rejection 写入本地 js_error.log（仅写日志，不改变行为）。
+// 用于「播放页返回闪退」一类 JS fatal 的诊断留存；本地开发/线上排障时可取出该文件定位。
+function setupJSErrorLog() {
+  try {
+    // 同步写（覆盖写最新一条），栈溢出等极端场景下异步 .then 可能来不及落盘
+    const write = (tag: string, msg: string | null | undefined) => {
+      try {
+        const line = `[${new Date().toISOString()}] ${tag}: ${msg || 'no message'}\n`;
+        const file = new File(Paths.cache, 'js_error.log');
+        try { file.create({ overwrite: true }); } catch {}
+        try { file.write(line); } catch {}
+      } catch {}
+    };
+    write('BOOT', '启动，等待 JS 全局错误');
+    const g = globalThis as any;
+    const orig = g.ErrorUtils && g.ErrorUtils.getGlobalHandler && g.ErrorUtils.getGlobalHandler();
+    if (g.ErrorUtils && g.ErrorUtils.setGlobalHandler) {
+      g.ErrorUtils.setGlobalHandler((err: any, isFatal?: boolean) => {
+        try {
+          const stack = (err && err.stack) || (err && err.message) || '';
+          write('FATAL' + (isFatal ? '(fatal)' : ''), stack);
+        } catch {}
+        if (orig) { try { orig(err, isFatal); } catch {} }
+      });
+    }
+    if (g.HermesInternal && g.HermesInternal.enablePromiseRejectionTracker) {
+      g.HermesInternal.enablePromiseRejectionTracker({
+        onUnhandledRejection: (e: any) => { try { write('UNHANDLED_REJECTION', (e && (e.stack || e.message)) || String(e)); } catch {} },
+        onRejected: (msg: string) => { try { write('REJECTED_FINAL', msg); } catch {} },
+      });
+    }
+  } catch {}
+}
+setupJSErrorLog();
 
 import { initApp, getStore } from './src/init';
 import { useThemeStore } from './src/themes/store';

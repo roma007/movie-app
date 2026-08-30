@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Modal, Platform, Switch, AppState } from 'react-native';
-import { VideoView, useVideoPlayer, isPictureInPictureSupported } from 'expo-video';
+import { VideoView, createVideoPlayer, isPictureInPictureSupported } from 'expo-video';
 import { Paths, File } from 'expo-file-system';
 // 可选原生依赖：expo-video-cache（iOS 本地代理，将 HLS 分片改为 N 并发下载）。
 // 仅在用户构建环境安装；此处用 try/require 守卫，未安装时自动降级为直连。
@@ -536,19 +536,41 @@ export default function PlayScreen({ route, navigation }: Props) {
     return { uri: videoUrl, useCaching: Platform.OS === 'android' } as any;
   }, [videoUrl, videoCacheReady]);
 
-  const player = useVideoPlayer(effectiveVideoUrl as any, (p) => {
+  // 播放器生命周期：不用 useVideoPlayer（其卸载时自动 release() 在 iOS 18 + SDK57 expo-video 下
+  // 触发 SIGABRT 闪退，见 .trae/documents/ios_category_back_crash_plan.md）。
+  // 改用 createVideoPlayer 手动管理：source 变化用 replace 复用同一实例；
+  // 卸载时 pause() 停止播放 + 释放（iOS 规避崩溃的 release，Android 正常 release）。
+  const player = useMemo(() => {
+    const p = createVideoPlayer(effectiveVideoUrl as any);
     p.loop = false;
     playerRef.current = p;
     if (initialCurrentTime > 0) {
       p.currentTime = initialCurrentTime;
     }
-  });
+    return p;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
+  // source 变化（换集/换线路/初始就绪）时复用同一播放器替换内容
   useEffect(() => {
-    if (player && initialCurrentTime > 0) {
-      player.currentTime = initialCurrentTime;
-    }
-  }, [player, initialCurrentTime]);
+    const p = playerRef.current;
+    if (!p || !effectiveVideoUrl) return;
+    try { p.replace(effectiveVideoUrl as any, true); } catch {}
+  }, [effectiveVideoUrl]);
+
+  // 卸载：先暂停（停止播放/声音），再视平台释放。
+  // iOS 上 release() 本身即崩溃（fatal abort 无法 try/catch 拦截），故跳过以规避闪退；
+  // Android 上 release 安全，正常释放。未调 release 的原生实例由 Hermes GC 按
+  // expo-modules-core 机制最终回收（SDK57 行为，见 issue #47568）。
+  useEffect(() => {
+    return () => {
+      const p = playerRef.current;
+      try { p?.pause(); } catch {}
+      if (Platform.OS !== 'ios') {
+        try { p?.release(); } catch {}
+      }
+    };
+  }, []);
 
   // 进入即自动播放：iOS 会拦截非静音自动播放，故先静音起播，真正开播后取消静音恢复声音
   // 同时监听 sourceLoad / readyToPlay 重试 play()，避免 play() 调用过早被忽略
