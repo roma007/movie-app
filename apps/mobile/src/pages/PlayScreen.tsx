@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Modal, Platform, Switch, AppState } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Modal, Platform, Switch, AppState, useWindowDimensions } from 'react-native';
 import { VideoView, createVideoPlayer, isPictureInPictureSupported } from 'expo-video';
 import { Paths, File } from 'expo-file-system';
 // 可选原生依赖：expo-video-cache（iOS 本地代理，将 HLS 分片改为 N 并发下载）。
@@ -8,10 +8,11 @@ import { Paths, File } from 'expo-file-system';
 const VideoCache: any = (() => { try { return require('expo-video-cache'); } catch { return null; } })();
 import { getProvider } from '../init';
 import { useAppStore, getStore } from '../useAppStore';
-import { ArrowLeft, Mic, EyeOff, Heart, ThumbsDown, Star, Settings, PictureInPicture2 } from 'lucide-react-native';
+import { ArrowLeft, Mic, EyeOff, Heart, ThumbsDown, Star, Settings, PictureInPicture2, ChevronUp, X } from 'lucide-react-native';
 import { SystemConfigService, getVoiceControlSystem, UNCATEGORIZED_GENRE, VideoDurationService } from '@movie-app/core';
 import { clearCategoryFilterCache } from '../categoryFilterCache';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
 import { useScaledFontSize } from '../themes/useScaledFontSize';
@@ -66,6 +67,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   const [isFav, setIsFav] = useState(false);
   const [isDisliked, setIsDisliked] = useState(false);
   const [hideModalVisible, setHideModalVisible] = useState(false);
+  const [episodesSheetVisible, setEpisodesSheetVisible] = useState(false);
   const [selectedHideGenres, setSelectedHideGenres] = useState<string[]>([]);
   const [hiding, setHiding] = useState(false);
   const [activePlayIdx, setActivePlayIdx] = useState(0);
@@ -182,6 +184,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   }, [media]);
 
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const cardOpacity = useThemeStore((s) => s.cardOpacity);
   const cardBg = hexToRgba(colors.card, cardOpacity / 100);
   const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100);
@@ -189,22 +192,42 @@ export default function PlayScreen({ route, navigation }: Props) {
   const dimBg = hexToRgba(colors.cardDim, cardOpacity / 100);
   const sf = useScaledFontSize();
 
+  // 播放器区块尺寸：宽度=屏宽；高度=屏宽×9/16，但封顶为屏高（防横屏/宽屏超高），
+  // 超限时 VideoView contentFit="contain" 等比缩放并上下居中
+  const { width: screenW, height: screenH } = useWindowDimensions();
+  const videoHeight = Math.min(screenW * 9 / 16, screenH);
+
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1 },
-    header: { flexDirection: 'row', alignItems: 'center', padding: 15, paddingTop: 50, backgroundColor: colors.playerHeader },
-    backButton: { padding: 8 },
-    headerTitle: { flex: 1, fontSize: sf(16), fontWeight: '600', color: colors.text, marginLeft: 8 },
-    placeholder: { width: 40 },
-    videoContainer: { width: '100%', aspectRatio: 16 / 9, backgroundColor: colors.playerBg },
-    video: { width: '100%', height: '100%' },
-    toolbar: {
+    // 播放器整体在屏幕垂直居中：上方留白 spacerTop(flex:1) 与 下方正文 body(flex:1) 上下等分，
+    // 中间固定高度的播放器即位于屏幕正中
+    spacerTop: { flex: 1 },
+    // header 悬浮在播放器上层（半透明）
+    header: {
+      position: 'absolute',
+      top: insets.top + 6,
+      left: 0,
+      right: 0,
+      zIndex: 20,
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'flex-end',
+      padding: 15,
+      backgroundColor: 'rgba(0,0,0,0.35)',
+    },
+    backButton: { padding: 8 },
+    headerTitle: { flex: 1, fontSize: sf(16), fontWeight: '600', color: '#fff', marginLeft: 8 },
+    placeholder: { width: 40 },
+    videoContainer: { width: '100%', height: videoHeight, backgroundColor: colors.playerBg },
+    video: { width: '100%', height: '100%' },
+    // 五个按钮从视频下方实心行改为悬浮在播放器左上角（压在视频上层）
+    toolbarOverlay: {
+      position: 'absolute',
+      top: 8,
+      left: 12,
+      zIndex: 20,
+      flexDirection: 'row',
+      alignItems: 'center',
       gap: 8,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      backgroundColor: colors.playerBg,
     },
     toolbarButton: {
       width: 36,
@@ -247,6 +270,12 @@ export default function PlayScreen({ route, navigation }: Props) {
     settingsChip: { minWidth: 64 },
     section: { padding: 15 },
     sectionLabel: { fontSize: sf(14), color: colors.mutedForeground, marginBottom: 10 },
+    episodeListEntry: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, marginBottom: 10, marginHorizontal: 12, paddingVertical: 12, paddingHorizontal: 16, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+    episodesSheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    episodesSheet: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: 18, maxHeight: '75%' },
+    episodesSheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+    episodesSheetTitle: { fontSize: sf(16), fontWeight: '600' },
+    episodesSheetBody: { paddingBottom: 8 },
     row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.sm },
     sourceEpisodeRow: { flexDirection: 'row', alignItems: 'stretch' },
@@ -266,7 +295,7 @@ export default function PlayScreen({ route, navigation }: Props) {
     episodeBtnText: { color: colors.textSecondary, fontSize: sf(13), fontWeight: '500', textAlign: 'center' },
     episodeBtnTextActive: { color: colors.cardDim },
     episodeDuration: { color: colors.disabledForeground, fontSize: sf(11), marginTop: 4 },
-  }), [colors, cardBg, surfaceBg, accentBg, dimBg, sf]);
+  }), [colors, cardBg, surfaceBg, accentBg, dimBg, sf, videoHeight, insets]);
 
   useEffect(() => {
     if (!mediaId) return;
@@ -1200,6 +1229,7 @@ export default function PlayScreen({ route, navigation }: Props) {
         <View style={styles.placeholder} />
       </View>
 
+      <View style={styles.spacerTop} />
       <View style={styles.videoContainer}>
         {isLoading && (
           <View style={styles.loadingOverlay}>
@@ -1252,42 +1282,41 @@ export default function PlayScreen({ route, navigation }: Props) {
             onClose={() => setShowSegmentProgress(false)}
           />
         )}
+        {videoUrl && !error && (
+          <View style={styles.toolbarOverlay}>
+            <TouchableOpacity
+              style={styles.toolbarButton}
+              activeOpacity={0.7}
+              onPress={() => setSettingsVisible(true)}
+            >
+              <Settings size={18} color="#fff" />
+            </TouchableOpacity>
+            {voiceControl?.getConfig().enabled && (
+              <TouchableOpacity
+                style={styles.toolbarButton}
+                activeOpacity={0.7}
+                onPress={handleVoiceControl}
+              >
+                <Mic size={18} color="#fff" />
+              </TouchableOpacity>
+            )}
+            {isPictureInPictureSupported() && (
+              <TouchableOpacity
+                style={styles.toolbarButton}
+                activeOpacity={0.7}
+                onPress={handlePictureInPicture}
+              >
+                <PictureInPicture2 size={18} color="#fff" />
+              </TouchableOpacity>
+            )}
+            <CastButton
+              onDeviceSelect={handleCastDeviceSelect}
+              onSearch={castManager.searchDevices}
+              style={styles.toolbarButton}
+            />
+          </View>
+        )}
       </View>
-
-      {videoUrl && !error && (
-        <View style={styles.toolbar}>
-          <TouchableOpacity
-            style={styles.toolbarButton}
-            activeOpacity={0.7}
-            onPress={() => setSettingsVisible(true)}
-          >
-            <Settings size={18} color="#fff" />
-          </TouchableOpacity>
-          {voiceControl?.getConfig().enabled && (
-            <TouchableOpacity
-              style={styles.toolbarButton}
-              activeOpacity={0.7}
-              onPress={handleVoiceControl}
-            >
-              <Mic size={18} color="#fff" />
-            </TouchableOpacity>
-          )}
-          {isPictureInPictureSupported() && (
-            <TouchableOpacity
-              style={styles.toolbarButton}
-              activeOpacity={0.7}
-              onPress={handlePictureInPicture}
-            >
-              <PictureInPicture2 size={18} color="#fff" />
-            </TouchableOpacity>
-          )}
-          <CastButton
-            onDeviceSelect={handleCastDeviceSelect}
-            onSearch={castManager.searchDevices}
-            style={styles.toolbarButton}
-          />
-        </View>
-      )}
 
       <Modal visible={settingsVisible} transparent animationType="slide" onRequestClose={() => setSettingsVisible(false)}>
         <TouchableOpacity
@@ -1606,72 +1635,104 @@ export default function PlayScreen({ route, navigation }: Props) {
           </View>
         )}
 
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>剧集（{filteredEpisodes.length}集）</Text>
-          <View style={styles.sourceEpisodeRow}>
-            {episodeSources.length > 1 && (
-              <View style={styles.sourceTabCol}>
-                {episodeSources.map((s: VideoSource) => {
-                  const active = selectedSourceId === s.id;
-                  return (
-                    <TouchableOpacity
-                      key={s.id}
-                      activeOpacity={0.7}
-                      onPress={() => handleSourceChange(s.id)}
-                      style={[styles.sourceTab, active ? styles.sourceTabActive : styles.sourceTabInactive]}
-                    >
-                      <Text numberOfLines={1} style={[styles.sourceTabText, { color: active ? colors.buttonPrimaryText : colors.buttonSecondaryText }]}>
-                        {s.name}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
-
-            <View style={styles.episodePanel}>
-              {episodesLoading || episodeListSwitching || !sourcesLoaded || (episodeSources.length > 0 && !selectedSourceId) ? (
-                <View style={styles.episodesPlaceholder}>
-                  <ActivityIndicator size="small" color={colors.mutedForeground} />
-                  <Text style={styles.episodesPlaceholderText}>加载中...</Text>
-                </View>
-              ) : filteredEpisodes.length === 0 ? (
-                <View style={styles.episodesPlaceholder}>
-                  <Text style={styles.episodesPlaceholderText}>暂无剧集</Text>
-                </View>
-              ) : (
-                <View style={styles.episodeGrid}>
-                  {filteredEpisodes.map((ep: Episode) => {
-                    const isActive = ep.id === currentEpisodeId;
-                    const isWatched = watchedEpisodes.has(ep.id) && !isActive;
-                    const dur = episodeDurations[ep.id] ?? ep.duration;
+        <TouchableOpacity
+          style={[styles.episodeListEntry, { backgroundColor: cardBg }]}
+          activeOpacity={0.7}
+          onPress={() => setEpisodesSheetVisible(true)}
+        >
+          <Text style={[styles.sectionLabel, { marginBottom: 0 }]}>剧集（{filteredEpisodes.length}集）</Text>
+          <ChevronUp size={18} color={colors.mutedForeground} />
+        </TouchableOpacity>
+      </ScrollView>
+    </View>
+    </BlurredBackground>
+    <Modal
+      visible={episodesSheetVisible}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setEpisodesSheetVisible(false)}
+    >
+      <TouchableOpacity
+        style={styles.episodesSheetOverlay}
+        activeOpacity={1}
+        onPress={() => setEpisodesSheetVisible(false)}
+      >
+        <TouchableOpacity
+          style={[styles.episodesSheet, { backgroundColor: colors.background }]}
+          activeOpacity={1}
+          onPress={() => {}}
+        >
+          <View style={styles.episodesSheetHeader}>
+            <Text style={[styles.episodesSheetTitle, { color: colors.text }]}>剧集列表（{filteredEpisodes.length}集）</Text>
+            <TouchableOpacity onPress={() => setEpisodesSheetVisible(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <X size={20} color={colors.mutedForeground} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={styles.episodesSheetBody}>
+            <View style={styles.sourceEpisodeRow}>
+              {episodeSources.length > 1 && (
+                <View style={styles.sourceTabCol}>
+                  {episodeSources.map((s: VideoSource) => {
+                    const active = selectedSourceId === s.id;
                     return (
                       <TouchableOpacity
-                        key={ep.id}
+                        key={s.id}
                         activeOpacity={0.7}
-                        disabled={isWatched}
-                        style={[styles.episodeBtn, isActive ? styles.episodeBtnActive : styles.episodeBtnIdle, isWatched && styles.episodeBtnWatched]}
-                        onPress={() => handleEpisodePress(ep)}
+                        onPress={() => handleSourceChange(s.id)}
+                        style={[styles.sourceTab, active ? styles.sourceTabActive : styles.sourceTabInactive]}
                       >
-                        <Text style={[styles.episodeBtnText, isActive && styles.episodeBtnTextActive]}>
-                          {ep.title || `第${ep.episodeNumber}集`}
+                        <Text numberOfLines={1} style={[styles.sourceTabText, { color: active ? colors.buttonPrimaryText : colors.buttonSecondaryText }]}>
+                          {s.name}
                         </Text>
-                        {typeof dur === 'number' && dur > 0 && (
-                          <Text style={styles.episodeDuration}>
-                            {Math.floor(dur / 60)}:{String(dur % 60).padStart(2, '0')}
-                          </Text>
-                        )}
                       </TouchableOpacity>
                     );
                   })}
                 </View>
               )}
+
+              <View style={[styles.episodePanel, { backgroundColor: colors.background }]}>
+                {episodesLoading || episodeListSwitching || !sourcesLoaded || (episodeSources.length > 0 && !selectedSourceId) ? (
+                  <View style={styles.episodesPlaceholder}>
+                    <ActivityIndicator size="small" color={colors.mutedForeground} />
+                    <Text style={styles.episodesPlaceholderText}>加载中...</Text>
+                  </View>
+                ) : filteredEpisodes.length === 0 ? (
+                  <View style={styles.episodesPlaceholder}>
+                    <Text style={styles.episodesPlaceholderText}>暂无剧集</Text>
+                  </View>
+                ) : (
+                  <View style={styles.episodeGrid}>
+                    {filteredEpisodes.map((ep: Episode) => {
+                      const isActive = ep.id === currentEpisodeId;
+                      const isWatched = watchedEpisodes.has(ep.id) && !isActive;
+                      const dur = episodeDurations[ep.id] ?? ep.duration;
+                      return (
+                        <TouchableOpacity
+                          key={ep.id}
+                          activeOpacity={0.7}
+                          disabled={isWatched}
+                          style={[styles.episodeBtn, isActive ? styles.episodeBtnActive : styles.episodeBtnIdle, isWatched && styles.episodeBtnWatched]}
+                          onPress={() => { setEpisodesSheetVisible(false); handleEpisodePress(ep); }}
+                        >
+                          <Text style={[styles.episodeBtnText, isActive && styles.episodeBtnTextActive]}>
+                            {ep.title || `第${ep.episodeNumber}集`}
+                          </Text>
+                          {typeof dur === 'number' && dur > 0 && (
+                            <Text style={styles.episodeDuration}>
+                              {Math.floor(dur / 60)}:{String(dur % 60).padStart(2, '0')}
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
             </View>
-          </View>
-        </View>
-      </ScrollView>
-    </View>
-    </BlurredBackground>
+          </ScrollView>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
     <Modal
       visible={hideModalVisible}
       transparent
