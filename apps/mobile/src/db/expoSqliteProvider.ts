@@ -307,6 +307,39 @@ const MIGRATIONS: Migration[] = [
       PRIMARY KEY (media_id, episode_id, play_source_id)
     );`,
   },
+  {
+    version: 37,
+    description: 'drop_sync_change_log_remnants',
+    sql: `DROP TRIGGER IF EXISTS favorite_change_log_insert;
+          DROP TRIGGER IF EXISTS favorite_change_log_update;
+          DROP TRIGGER IF EXISTS favorite_change_log_delete;
+          DROP TRIGGER IF EXISTS watch_history_change_log_insert;
+          DROP TRIGGER IF EXISTS watch_history_change_log_update;
+          DROP TRIGGER IF EXISTS watch_history_change_log_delete;
+          DROP TRIGGER IF EXISTS watch_line_progress_change_log_insert;
+          DROP TRIGGER IF EXISTS watch_line_progress_change_log_update;
+          DROP TRIGGER IF EXISTS watch_line_progress_change_log_delete;
+          DROP TRIGGER IF EXISTS search_history_change_log_insert;
+          DROP TRIGGER IF EXISTS search_history_change_log_update;
+          DROP TRIGGER IF EXISTS search_history_change_log_delete;
+          DROP TRIGGER IF EXISTS hidden_genre_change_log_insert;
+          DROP TRIGGER IF EXISTS hidden_genre_change_log_update;
+          DROP TRIGGER IF EXISTS hidden_genre_change_log_delete;
+          DROP TRIGGER IF EXISTS dislike_change_log_insert;
+          DROP TRIGGER IF EXISTS dislike_change_log_update;
+          DROP TRIGGER IF EXISTS dislike_change_log_delete;
+          DROP TRIGGER IF EXISTS system_config_change_log_insert;
+          DROP TRIGGER IF EXISTS system_config_change_log_update;
+          DROP TRIGGER IF EXISTS system_config_change_log_delete;
+          DROP TRIGGER IF EXISTS user_interest_tag_change_log_insert;
+          DROP TRIGGER IF EXISTS user_interest_tag_change_log_update;
+          DROP TRIGGER IF EXISTS user_interest_tag_change_log_delete;
+          DROP INDEX IF EXISTS idx_change_log_synced;
+          DROP INDEX IF EXISTS idx_change_log_timestamp;
+          DROP INDEX IF EXISTS idx_change_log_table_record;
+          DROP TABLE IF EXISTS change_log;
+          DELETE FROM migrations WHERE version IN (34, 35, 36);`,
+  },
 ];
 
 /**
