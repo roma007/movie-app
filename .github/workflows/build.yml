@@ -42,6 +42,19 @@ jobs:
           node-version: "24"
           cache: pnpm
 
+      - name: Verify app identifiers unchanged
+        shell: bash
+        run: |
+          set -e
+          # 升级 vs 重装由系统按「标识符+签名」判定，标识符一旦发布不可更改，否则新装不再覆盖、旧数据丢失。改包名构建直接失败。
+          desktop_id=$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').identifier")
+          android_pkg=$(node -p "require('./apps/mobile/app.json').expo.android.package")
+          ios_bundle=$(node -p "require('./apps/mobile/app.json').expo.ios.bundleIdentifier")
+          [ "$desktop_id" = "com.movie.app.desktop" ] || { echo "IDENTIFIER CHANGED: desktop identifier=$desktop_id"; exit 1; }
+          [ "$android_pkg" = "com.movie.app" ] || { echo "IDENTIFIER CHANGED: android package=$android_pkg"; exit 1; }
+          [ "$ios_bundle" = "com.mengfeng.movieapp" ] || { echo "IDENTIFIER CHANGED: ios bundleIdentifier=$ios_bundle"; exit 1; }
+          echo "Identifiers OK (desktop=$desktop_id, android=$android_pkg, ios=$ios_bundle)"
+
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -92,6 +105,19 @@ jobs:
         with:
           node-version: "24"
           cache: pnpm
+
+      - name: Verify app identifiers unchanged
+        shell: bash
+        run: |
+          set -e
+          # 升级 vs 重装由系统按「标识符+签名」判定，标识符一旦发布不可更改，否则新装不再覆盖、旧数据丢失。改包名构建直接失败。
+          desktop_id=$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').identifier")
+          android_pkg=$(node -p "require('./apps/mobile/app.json').expo.android.package")
+          ios_bundle=$(node -p "require('./apps/mobile/app.json').expo.ios.bundleIdentifier")
+          [ "$desktop_id" = "com.movie.app.desktop" ] || { echo "IDENTIFIER CHANGED: desktop identifier=$desktop_id"; exit 1; }
+          [ "$android_pkg" = "com.movie.app" ] || { echo "IDENTIFIER CHANGED: android package=$android_pkg"; exit 1; }
+          [ "$ios_bundle" = "com.mengfeng.movieapp" ] || { echo "IDENTIFIER CHANGED: ios bundleIdentifier=$ios_bundle"; exit 1; }
+          echo "Identifiers OK (desktop=$desktop_id, android=$android_pkg, ios=$ios_bundle)"
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable

@@ -1493,7 +1493,7 @@ export default function PlayScreen({ route, navigation }: Props) {
                   <Text style={styles.ratingValue}>{ratingMedia.rating.toFixed(1)}</Text>
                   {ratingMedia.ratingCount != null && ratingMedia.ratingCount > 0 && (
                     <Text style={styles.ratingCount}>
-                      {ratingMedia.ratingCount >= 10000 ? `${(ratingMedia.ratingCount / 10000).toFixed(1)}万人` : `${ratingMedia.ratingCount}人`}评分 (豆瓣)
+                      {ratingMedia.ratingCount >= 10000 ? `${(ratingMedia.ratingCount / 10000).toFixed(1)}万人` : `${ratingMedia.ratingCount}人`}评分 ({ratingMedia.ratingSource === 'TMDB' ? 'TMDB' : '豆瓣'})
                     </Text>
                   )}
                 </View>

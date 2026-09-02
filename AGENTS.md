@@ -121,6 +121,19 @@
 - 提交信息：中文，`feat:`/`fix:`/`refactor:` 前缀 + 一句话概括本次改动。
 - 工具文档（`.trae/`、`BUTTON_COLORS.md`、`MOBILE_DESKTOP_DIFF.md`、`主题字色*.md`）永不提交，`.gitignore` 已兜底。
 
+## 升级标识符铁律（安装包制作方必读）
+
+> 升级 vs 重装由系统按「应用标识符 + 签名」判定，与 App 代码/版本号无关。`applicationId`/`bundleIdentifier`/`identifier` 一旦对外发布**永久不可更改**，否则新版被系统当成另一款 App（新装）、旧数据不再延续。此铁律已由 GitHub Actions `build.yml` 的“Verify app identifiers unchanged”步骤机器化校验，改了包名构建直接失败。
+
+### 三铁律
+1. `applicationId`（Android 移动端=`com.movie.app`）/ `bundleIdentifier`（iOS=`com.mengfeng.movieapp`）/ Tauri `identifier`（桌面=`com.movie.app.desktop`）**永不修改**。
+2. 移动端发布用**固定 release 签名**（Android 固定 release keystore；iOS 固定 Release 证书），不混用 debug/release；CI 构建 Android（含 Tauri gen/android）用默认模板 debug key 时，两次构建签名须保持一致，debug↔release 交叉会覆盖失败。
+3. 升级分发走**同一产物路径**，勿让用户先卸载再装；版本号只用于提示更新，不参与升级/重装判定。
+
+### 判定基准确认
+- 桌面端（Tauri）：`apps/desktop/src-tauri/tauri.conf.json` → `identifier`。
+- 移动端（Expo）：`apps/mobile/app.json` → `expo.ios.bundleIdentifier` / `expo.android.package`。
+
 ## 移动端构建同步铁律（模拟器 + iPhone 保持最新）
 
 > 任何修改移动端代码（`apps/mobile`、`packages/core` 被移动端消费的 JS/TS）后，必须同时构建部署到**安卓模拟器**与 **iPhone 真机（MfiPhone）**，保证两端运行的都是最新构建。违反视为未完成。

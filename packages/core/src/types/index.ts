@@ -29,7 +29,7 @@ export interface Media {
   viewCount: number;
   rating?: number | null;
   ratingCount?: number | null;
-  ratingSource?: 'DOUBAN' | null;
+  ratingSource?: 'DOUBAN' | 'TMDB' | null;
   ratingUpdatedAt?: string | null;
   hidden?: boolean;
   personalScore?: number;

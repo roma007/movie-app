@@ -479,7 +479,7 @@ export default function PlayPage() {
                     <span className="text-lg font-semibold text-amber-400 leading-none">{currentMedia.rating.toFixed(1)}</span>
                     {currentMedia.ratingCount != null && currentMedia.ratingCount > 0 && (
                       <span className="text-xs text-muted-foreground">
-                        {currentMedia.ratingCount >= 10000 ? `${(currentMedia.ratingCount / 10000).toFixed(1)}万人` : `${currentMedia.ratingCount}人`}评分 (豆瓣)
+                        {currentMedia.ratingCount >= 10000 ? `${(currentMedia.ratingCount / 10000).toFixed(1)}万人` : `${currentMedia.ratingCount}人`}评分 ({currentMedia.ratingSource === 'TMDB' ? 'TMDB' : '豆瓣'})
                       </span>
                     )}
                   </p>
