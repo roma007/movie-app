@@ -1,7 +1,7 @@
 /**
  * 将含 BEGIN...END 触发器体的 SQL 源串拆分为单条语句。
  * naive split(';') 会把触发器体内的 INSERT 分号误判为语句边界，故按
- * BEGIN/END 嵌套深度分组：仅当深度回到 0 且该行以 ';' 结尾时切分。
+ * BEGIN/END 嵌套深度分组：当深度回到 0 且该行以 ';' 结尾或以 END 收尾时切分。
  */
 export function splitSqlStatements(sql: string): string[] {
   const statements: string[] = [];
@@ -14,7 +14,7 @@ export function splitSqlStatements(sql: string): string[] {
     const begins = (t.match(/\bBEGIN\b/g) || []).length;
     const ends = (t.match(/\bEND\b/g) || []).length;
     depth += begins - ends;
-    if (depth <= 0 && t.endsWith(';')) {
+    if (depth <= 0 && (t.endsWith(';') || /^END\b/i.test(t))) {
       statements.push(buf.replace(/;\s*$/, ''));
       buf = '';
       depth = 0;
@@ -35,6 +35,156 @@ export const PRAGMA_SQL = `
   PRAGMA synchronous = NORMAL;
   PRAGMA cache_size = -20000;
 `;
+
+/**
+ * 多设备同步：变更日志表。
+ * data 列恒为 NULL（触发器只写元数据），payload 的 data 由 push 阶段现读组装（2.12/II-3）。
+ */
+export const CHANGE_LOG_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS change_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_name TEXT NOT NULL,
+    record_id TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    device_id TEXT,
+    timestamp INTEGER NOT NULL,
+    synced INTEGER DEFAULT 0,
+    data TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_change_log_synced ON change_log(synced);
+  CREATE INDEX IF NOT EXISTS idx_change_log_table_record ON change_log(table_name, record_id);
+`;
+
+export interface SyncTriggerTableDef {
+  table: string;
+  /** record_id 拼接表达式，用 {prefix} 占位（NEW/OLD 由事件决定） */
+  recordExpr: string;
+  /** 触发器 WHEN 条件（同样支持 {prefix}），如 system_config 排除两键 */
+  when?: string;
+}
+
+/**
+ * 同步触发表（27 = 9 表 × 3 事件）。episode/play_source 不在其中：
+ * 作为 media 子集快照随 media 变更传输（2026-09-02 决策，见 2.12 定案）。
+ */
+export const SYNC_TRIGGER_TABLES: SyncTriggerTableDef[] = [
+  { table: 'favorite', recordExpr: '{prefix}.media_id' },
+  { table: 'watch_history', recordExpr: '{prefix}.id' },
+  { table: 'watch_line_progress', recordExpr: "{prefix}.media_id || ':' || {prefix}.episode_id || ':' || {prefix}.play_source_id" },
+  { table: 'hidden_genre', recordExpr: '{prefix}.sub_type' },
+  { table: 'dislike', recordExpr: '{prefix}.media_id' },
+  { table: 'media', recordExpr: 'COALESCE({prefix}.fingerprint, {prefix}.id)' },
+  { table: 'video_source', recordExpr: 'COALESCE({prefix}.code, {prefix}.id)' },
+  {
+    table: 'system_config',
+    recordExpr: '{prefix}.key',
+    when: "{prefix}.key != 'device_id' AND {prefix}.key != 'sync_config'",
+  },
+  { table: 'user_interest_tag', recordExpr: "{prefix}.tag || ':' || {prefix}.tag_type" },
+];
+
+/** 编程生成 27 个单一事件触发器（AFTER INSERT/UPDATE/DELETE）。 */
+export function buildChangeLogTriggersSql(): string {
+  const lines: string[] = [];
+  for (const def of SYNC_TRIGGER_TABLES) {
+    for (const evt of ['INSERT', 'UPDATE', 'DELETE'] as const) {
+      const prefix = evt === 'DELETE' ? 'OLD' : 'NEW';
+      const name = `${def.table}_change_log_${evt.toLowerCase()}`;
+      const recordExpr = def.recordExpr.split('{prefix}').join(prefix);
+      const when = def.when ? `WHEN ${def.when.split('{prefix}').join(prefix)} ` : '';
+      lines.push(`CREATE TRIGGER IF NOT EXISTS ${name} AFTER ${evt} ON ${def.table} ${when}BEGIN
+  INSERT INTO change_log (table_name, record_id, operation, device_id, timestamp)
+  VALUES ('${def.table}', ${recordExpr}, '${evt}', (SELECT value FROM system_config WHERE key = 'device_id'), (CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)));
+END`);
+    }
+  }
+  return lines.join('\n\n');
+}
+
+export function buildChangeLogTriggerDropSql(): string {
+  return SYNC_TRIGGER_TABLES.flatMap((def) =>
+    ['insert', 'update', 'delete'].map((e) => `DROP TRIGGER IF EXISTS ${def.table}_change_log_${e};`)
+  ).join('\n');
+}
+
+export const CHANGE_LOG_TRIGGERS_SQL = buildChangeLogTriggersSql();
+export const CHANGE_LOG_TRIGGER_DROP_SQL = buildChangeLogTriggerDropSql();
+export const SYNC_TRIGGER_COUNT = SYNC_TRIGGER_TABLES.length * 3;
+
+export interface SyncUpsertRule {
+  /** 删除闭环业务键（deleteSyncRecord 依据） */
+  recordKey: string;
+  /** ON CONFLICT 目标（复合键含括号）；media→fingerprint、video_source→code，NULL 回退由 readSyncRecord/delete 兜底 */
+  conflictTarget: string;
+  /** 去重铁律：INSERT 前先 DELETE WHERE recordKey（如 favorite/dislike 每 media 恒一行） */
+  dedupeBeforeInsert?: boolean;
+}
+
+/** 同步写入的冲突规则（两端 provider 复用，列名全部 snake_case）。 */
+export const SYNC_UPSERT_RULES: Record<string, SyncUpsertRule> = {
+  favorite: { recordKey: 'media_id', conflictTarget: 'id', dedupeBeforeInsert: true },
+  dislike: { recordKey: 'media_id', conflictTarget: 'media_id', dedupeBeforeInsert: true },
+  watch_history: { recordKey: 'id', conflictTarget: 'id' },
+  watch_line_progress: { recordKey: 'media_id:episode_id:play_source_id', conflictTarget: '(media_id, episode_id, play_source_id)' },
+  hidden_genre: { recordKey: 'sub_type', conflictTarget: 'sub_type' },
+  user_interest_tag: { recordKey: 'tag:tag_type', conflictTarget: '(tag, tag_type)' },
+  system_config: { recordKey: 'key', conflictTarget: 'key' },
+  media: { recordKey: 'fingerprint', conflictTarget: 'fingerprint' },
+  video_source: { recordKey: 'code', conflictTarget: 'code' },
+};
+
+/**
+ * 同步写入列白名单（snake_case，远端行仅取白名单列，丢失列用建表默认值）。
+ * media 排除 local 派生列 personal_score；video_source 排除本地派生列 last_collected_at（2.12 列级排除）。
+ * episode/play_source 供 rebuildMediaSubtree 复用。
+ */
+export const SYNC_TABLE_COLUMNS: Record<string, string[]> = {
+  favorite: ['id', 'media_id', 'created_at'],
+  dislike: ['media_id', 'created_at'],
+  watch_history: ['id', 'media_id', 'episode_id', 'progress', 'duration', 'source_id', 'play_source_id', 'updated_at'],
+  watch_line_progress: ['media_id', 'episode_id', 'play_source_id', 'source_id', 'progress', 'duration', 'updated_at'],
+  hidden_genre: ['sub_type', 'created_at'],
+  user_interest_tag: ['tag', 'tag_type', 'strength', 'sample_count', 'updated_at'],
+  system_config: ['key', 'value', 'value_type', 'remark', 'created_at', 'updated_at'],
+  media: [
+    'id', 'title', 'original_title', 'alias', 'type', 'year', 'area', 'genre', 'director', 'cast',
+    'description', 'poster_url', 'backdrop_url', 'status', 'remarks', 'fingerprint',
+    'current_episodes', 'total_episodes', 'is_short_drama', 'duration_check_status', 'episode_duration',
+    'view_count', 'rating', 'rating_count', 'rating_source', 'rating_updated_at',
+    'favorite_count', 'search_count', 'hidden', 'series_group', 'series_season',
+    'created_at', 'updated_at',
+  ],
+  video_source: [
+    'id', 'code', 'name', 'base_url', 'type', 'is_enabled', 'rate_limit', 'health_status',
+    'last_check_at', 'last_success_at', 'avg_response_time', 'last_incremental_collected_at',
+    'created_at', 'fail_count', 'total_requests',
+  ],
+  episode: ['id', 'media_id', 'season_number', 'episode_number', 'title', 'duration', 'source_id'],
+  play_source: ['id', 'episode_id', 'source_id', 'source_name', 'url', 'quality', 'is_active', 'fail_count', 'last_fail_at'],
+};
+
+/** 按表取白名单列（按远端行内实际出现的列过滤，保持远端缺失列走表默认值）。 */
+export function syncColumns(tableName: string, row: Record<string, unknown>): string[] {
+  const whitelist = SYNC_TABLE_COLUMNS[tableName];
+  if (!whitelist) return Object.keys(row);
+  return whitelist.filter((c) => c in row);
+}
+
+/** 生成 INSERT ... ON CONFLICT (target) DO UPDATE SET（SET 自动排除冲突目标列，防止改写主键导致 FK 失效，如 media 的 DO UPDATE 绝不可 SET id）。conflictTarget 允许带或不带外层括号。 */
+export function buildUpsertSql(table: string, cols: string[], conflictTarget: string): string {
+  const inner = conflictTarget.trim().startsWith('(') ? conflictTarget.trim() : `(${conflictTarget.trim()})`;
+  const excluded = inner.replace(/[()]/g, '').split(',').map((s) => s.trim());
+  const setCols = cols.filter((c) => !excluded.includes(c));
+  const values = cols.map(() => '?').join(', ');
+  const setClause = setCols.map((c) => `${c} = excluded.${c}`).join(', ');
+  return `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${values}) ON CONFLICT ${inner} DO UPDATE SET ${setClause}`;
+}
+
+/** 生成纯 INSERT（去重铁律类：INSERT 前先 DELETE WHERE recordKey）。 */
+export function buildInsertSql(table: string, cols: string[]): string {
+  const values = cols.map(() => '?').join(', ');
+  return `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${values})`;
+}
 
 export const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS media (
@@ -283,6 +433,14 @@ export const SCHEMA_SQL = `
     created_at TEXT,
     updated_at TEXT
   );
+
+  -- ============ 多设备同步（OneDrive）：change_log 表 + 27 个变更触发器 ============
+  -- DROP 先于 CREATE：旧定义（WebDAV 期遗留）不会因 IF NOT EXISTS 而残留
+  ${CHANGE_LOG_TRIGGER_DROP_SQL}
+
+  ${CHANGE_LOG_TABLE_SQL}
+
+  ${CHANGE_LOG_TRIGGERS_SQL}
 `;
 
 /**
