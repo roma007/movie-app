@@ -10,22 +10,7 @@ import type {
   CollectTask,
   TaskStatus,
   CollectionLog,
-  ChangeLog,
-  SyncConfig,
 } from '../types';
-
-/**
- * media 子集快照（2.12 定案：episode/play_source 不建触发器，随 media 变更传输）。
- * 行均为 snake_case 列；rebuild 时以 remoteMediaId → 本端 mediaId 重写确定性 id。
- */
-export interface MediaSubtreeSnapshot {
-  episodes: any[];
-  playSources: any[];
-  /** 快照覆盖的源 id（buildPayload 从 episodes 推导）；rebuild 仅删除这些源下的旧集，保留本端其它源 */
-  sourceIds: string[];
-  /** A 端 media id：rebuild 将快照内 episode id（ep_{A}_...）与 play_source id（ps_ep_{A}_...）前缀替换为本端 */
-  remoteMediaId: string;
-}
 
 /**
  * 「未分类」子类型哨兵值：用于隐藏/取消隐藏没有任何子类型（genre 为空）的视频。
@@ -253,43 +238,6 @@ export interface DatabaseProvider {
   setVoiceConfig(key: string, value: string, valueType?: string): Promise<void>;
   deleteVoiceConfig(key: string): Promise<void>;
   getAllVoiceConfig(): Promise<Record<string, string>>;
-
-  // —— 多设备同步（OneDrive）DAO ——
-  getUnsyncedChanges(): Promise<ChangeLog[]>;
-  /** 标记已推送（synced=1），成功后推送侧调用（原名 markChangesSynced） */
-  markChangesSynced(ids: number[]): Promise<void>;
-  getMaxChangeLogId(): Promise<number>;
-  /** 某业务键最近变更时间（含 synced=1），冲突判定用 */
-  getLastChangeTime(tableName: string, recordId: string): Promise<number | null>;
-  /** 现读行快照（snake_case 列）；media 排除 personal_score、video_source 排除 last_collected_at；复合键拆分见实现 */
-  readSyncRecord(tableName: string, recordId: string): Promise<any | null>;
-  /** 读取某 media 的 episode/play_source 子集（做快照附入 media data） */
-  readMediaSubtree(mediaId: string): Promise<{ episodes: any[]; playSources: any[] }>;
-  /**
-   * 按快照整片重建本端子集（单事务）：先删「sourceIds 覆盖源」的旧集，再以本端 mediaId
-   * 确定性重建（ep_/ps_ep_ 前缀替换 remoteMediaId→本端）。性能：事务内批处理，禁止裸逐行。
-   */
-  rebuildMediaSubtree(mediaId: string, sourceIds: string[], subtree: MediaSubtreeSnapshot): Promise<void>;
-  /** 应用一条远端变更：DELETE→deleteSyncRecord；非 DELETE→upsertSyncRecord（media 特判：upsert 后取本端实际 id 并 rebuild 子集） */
-  applyRemoteChange(tableName: string, recordId: string, operation: ChangeLog['operation'], data: any | null): Promise<boolean>;
-  /** 写一条同步行（按 SYNC_UPSERT_RULES：dedupe 类先 DELETE 后 INSERT，其余 ON CONFLICT(target) DO UPDATE 全列） */
-  upsertSyncRecord(tableName: string, row: any): Promise<void>;
-  /** 按业务键删除一行（media/video_source 按 recordKey 回退 id 双层匹配） */
-  deleteSyncRecord(tableName: string, recordId: string): Promise<void>;
-  /** 清除 pull 应用产生的回声（synced=0 AND id > sinceId），返回删除行数 */
-  clearEchoChanges(sinceId: number): Promise<number>;
-  /** 校准回声行时间戳为原远端 ts（防回声伪造更晚时间杀死后续真实更新 / 回声链无限 ping-pong） */
-  setEchoTimestamp(sinceId: number, tableName: string, recordId: string, timestamp: number, deviceId: string): Promise<void>;
-  /** 清理已同步的历史行（保留每记录最后一条 MAX(id)） */
-  purgeSyncedChanges(beforeTs: number): Promise<number>;
-  getSyncConfig(): Promise<SyncConfig | null>;
-  setSyncConfig(config: SyncConfig): Promise<void>;
-  getDeviceId(): Promise<string | null>;
-  setDeviceId(deviceId: string): Promise<void>;
-  getSystemConfigValue(key: string): Promise<string | null>;
-  setSystemConfigValue(key: string, value: string, valueType?: string): Promise<void>;
-  /** 类门控 T4：清除该类所有 synced=0 行 */
-  deleteUnsyncedByTables(tables: string[]): Promise<number>;
 
   // —— 通用 SQL ——
   select<T>(sql: string, params?: any[]): Promise<T[]>;

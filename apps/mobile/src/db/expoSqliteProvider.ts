@@ -17,15 +17,8 @@ import {
   rowToCollectTask,
   expandSubTypes,
   extractFirstSubtypes,
-  SYNC_UPSERT_RULES,
-  syncColumns,
-  buildUpsertSql,
-  buildInsertSql,
-  SYNC_TRIGGER_COUNT,
-  CHANGE_LOG_TABLE_SQL,
-  CHANGE_LOG_TRIGGERS_SQL,
 } from '@movie-app/core';
-import type { DatabaseProvider, MediaSubtreeSnapshot } from '@movie-app/core';
+import type { DatabaseProvider } from '@movie-app/core';
 import type {
   Media,
   Episode,
@@ -37,8 +30,6 @@ import type {
   ListParams,
   CollectTask,
   CollectionLog,
-  ChangeLog,
-  SyncConfig,
 } from '@movie-app/core';
 
 interface Migration {
@@ -349,15 +340,6 @@ const MIGRATIONS: Migration[] = [
           DROP TABLE IF EXISTS change_log;
           DELETE FROM migrations WHERE version IN (34, 35, 36);`,
   },
-  {
-    version: 38,
-    description: 'create_sync_change_log_and_triggers_onedrive',
-    sql: `DROP TABLE IF EXISTS change_log;
-          DROP INDEX IF EXISTS idx_change_log_synced;
-          DROP INDEX IF EXISTS idx_change_log_table_record;
-          ${CHANGE_LOG_TABLE_SQL}
-          ${CHANGE_LOG_TRIGGERS_SQL}`,
-  },
 ];
 
 /**
@@ -458,18 +440,6 @@ export class ExpoSqliteProvider implements DatabaseProvider {
             await this.db!.execAsync(stmt);
           } catch (e) {
             console.warn(`Migration ${migration.version} statement failed:`, stmt, e);
-          }
-        }
-        // 教训 1：迁移 38 触发器数量校验——runMigrations 对单条语句 try-catch 吞错，
-        // 不校验将 0 触发器却标记成功、旧库永不重跑（全链路失效）。
-        if (migration.version === 38) {
-          const cnt = await this.db!.getFirstAsync<{ c: number }>(
-            "SELECT COUNT(*) as c FROM sqlite_master WHERE type='trigger' AND name LIKE '%_change_log_%'"
-          );
-          if ((cnt?.c ?? 0) !== SYNC_TRIGGER_COUNT) {
-            throw new Error(
-              `迁移 38 失败：change_log 触发器数量校验不过（实际 ${cnt?.c ?? 0}/${SYNC_TRIGGER_COUNT}），已取消标记该迁移，下次启动重试`
-            );
           }
         }
         const now = new Date().toISOString();
@@ -1907,235 +1877,6 @@ export class ExpoSqliteProvider implements DatabaseProvider {
       config[row.key] = row.value;
     }
     return config;
-  }
-
-  // —— 多设备同步（OneDrive）DAO（SQL 语义与桌面端 TauriSqlProvider 完全一致） ——
-  async getUnsyncedChanges(): Promise<ChangeLog[]> {
-    const rows = await this.db!.getAllAsync<any>('SELECT * FROM change_log WHERE synced = 0 ORDER BY id ASC');
-    return rows.map((r) => ({
-      id: r.id,
-      tableName: r.table_name,
-      recordId: r.record_id,
-      operation: r.operation,
-      deviceId: r.device_id,
-      timestamp: r.timestamp,
-      synced: r.synced,
-      data: r.data,
-    }));
-  }
-
-  async markChangesSynced(ids: number[]): Promise<void> {
-    if (!ids.length) return;
-    const ph = ids.map(() => '?').join(',');
-    await this.db!.runAsync(`UPDATE change_log SET synced = 1 WHERE id IN (${ph})`, ids);
-  }
-
-  async getMaxChangeLogId(): Promise<number> {
-    const row = await this.db!.getFirstAsync<{ id: number | null }>('SELECT MAX(id) as id FROM change_log');
-    return row?.id ?? 0;
-  }
-
-  async getLastChangeTime(tableName: string, recordId: string): Promise<number | null> {
-    const row = await this.db!.getFirstAsync<{ ts: number | null }>(
-      'SELECT MAX(timestamp) as ts FROM change_log WHERE table_name = ? AND record_id = ?',
-      [tableName, recordId]
-    );
-    return row?.ts ?? null;
-  }
-
-  private splitRecordId(tableName: string, recordId: string): { where: string; params: any[] } | null {
-    if (tableName === 'watch_line_progress') {
-      const parts = recordId.split(':');
-      if (parts.length !== 3) return null;
-      return { where: 'media_id = ? AND episode_id = ? AND play_source_id = ?', params: parts };
-    }
-    if (tableName === 'user_interest_tag') {
-      const idx = recordId.lastIndexOf(':');
-      if (idx <= 0 || idx >= recordId.length - 1) return null;
-      return { where: 'tag = ? AND tag_type = ?', params: [recordId.slice(0, idx), recordId.slice(idx + 1)] };
-    }
-    return null;
-  }
-
-  private recordCondition(tableName: string, recordId: string): { where: string; params: any[] } | null {
-    const split = this.splitRecordId(tableName, recordId);
-    if (split) return split;
-    const rule = SYNC_UPSERT_RULES[tableName];
-    if (tableName === 'media' || tableName === 'video_source') {
-      const key = tableName === 'media' ? 'fingerprint' : 'code';
-      return { where: `${key} = ? OR (${key} IS NULL AND id = ?)`, params: [recordId, recordId] };
-    }
-    if (!rule) return null;
-    return { where: `${rule.recordKey} = ?`, params: [recordId] };
-  }
-
-  async readSyncRecord(tableName: string, recordId: string): Promise<any | null> {
-    const cond = this.recordCondition(tableName, recordId);
-    if (!cond) return null;
-    const row = await this.db!.getFirstAsync<any>(`SELECT * FROM ${tableName} WHERE ${cond.where}`, cond.params);
-    if (!row) return null;
-    if (tableName === 'media') delete row.personal_score;
-    if (tableName === 'video_source') delete row.last_collected_at;
-    return row;
-  }
-
-  async readMediaSubtree(mediaId: string): Promise<{ episodes: any[]; playSources: any[] }> {
-    const episodes = await this.db!.getAllAsync<any>('SELECT * FROM episode WHERE media_id = ?', [mediaId]);
-    const playSources = await this.db!.getAllAsync<any>(
-      'SELECT * FROM play_source WHERE episode_id IN (SELECT id FROM episode WHERE media_id = ?)',
-      [mediaId]
-    );
-    return { episodes, playSources };
-  }
-
-  async rebuildMediaSubtree(mediaId: string, sourceIds: string[], subtree: MediaSubtreeSnapshot): Promise<void> {
-    const db = this.db!;
-    await db.runAsync('BEGIN');
-    try {
-      for (const sid of sourceIds) {
-        await db.runAsync('DELETE FROM episode WHERE media_id = ? AND source_id = ?', [mediaId, sid]);
-      }
-      const remoteId = subtree.remoteMediaId;
-      for (const ep of subtree.episodes ?? []) {
-        const row: any = { ...ep };
-        if (remoteId && typeof row.id === 'string') row.id = row.id.replace(`ep_${remoteId}_`, `ep_${mediaId}_`);
-        row.media_id = mediaId;
-        const cols = syncColumns('episode', row);
-        await db.runAsync(buildUpsertSql('episode', cols, 'id'), cols.map((c) => row[c]));
-      }
-      for (const ps of subtree.playSources ?? []) {
-        const row: any = { ...ps };
-        if (remoteId) {
-          if (typeof row.episode_id === 'string') row.episode_id = row.episode_id.replace(`ep_${remoteId}_`, `ep_${mediaId}_`);
-          if (typeof row.id === 'string') row.id = row.id.replace(`ps_ep_${remoteId}_`, `ps_ep_${mediaId}_`);
-        }
-        const psCols = syncColumns('play_source', row);
-        await db.runAsync(buildUpsertSql('play_source', psCols, 'id'), psCols.map((c) => row[c]));
-      }
-      await db.runAsync('COMMIT');
-    } catch (err) {
-      await db.runAsync('ROLLBACK').catch(() => {});
-      throw err;
-    }
-  }
-
-  async applyRemoteChange(tableName: string, recordId: string, operation: ChangeLog['operation'], data: any | null): Promise<boolean> {
-    if (operation === 'DELETE') {
-      await this.deleteSyncRecord(tableName, recordId);
-      return true;
-    }
-    if (!data) return false;
-    await this.upsertSyncRecord(tableName, data);
-    if (tableName === 'media' && data.subtree && Array.isArray(data.subtree.episodes)) {
-      const existing = await this.db!.getFirstAsync<{ id: string }>(
-        'SELECT id FROM media WHERE fingerprint = ? OR (fingerprint IS NULL AND id = ?)',
-        [data.fingerprint ?? null, data.id]
-      );
-      const localId = existing?.id ?? data.id;
-      await this.rebuildMediaSubtree(localId, data.subtree.sourceIds ?? [], {
-        ...data.subtree,
-        remoteMediaId: data.id,
-      });
-    }
-    return true;
-  }
-
-  async upsertSyncRecord(tableName: string, row: any): Promise<void> {
-    const rule = SYNC_UPSERT_RULES[tableName];
-    if (!rule) return;
-    const cols = syncColumns(tableName, row);
-    if (!cols.length) return;
-    const values = cols.map((c) => row[c]);
-    if (rule.dedupeBeforeInsert) {
-      await this.db!.runAsync(`DELETE FROM ${tableName} WHERE ${rule.recordKey} = ?`, [row[rule.recordKey]]);
-      await this.db!.runAsync(buildInsertSql(tableName, cols), values);
-    } else {
-      await this.db!.runAsync(buildUpsertSql(tableName, cols, rule.conflictTarget), values);
-    }
-  }
-
-  async deleteSyncRecord(tableName: string, recordId: string): Promise<void> {
-    const split = this.splitRecordId(tableName, recordId);
-    if (split) {
-      await this.db!.runAsync(`DELETE FROM ${tableName} WHERE ${split.where}`, split.params);
-      return;
-    }
-    if (tableName === 'media') {
-      await this.db!.runAsync('DELETE FROM media WHERE fingerprint = ? OR (fingerprint IS NULL AND id = ?)', [recordId, recordId]);
-      return;
-    }
-    if (tableName === 'video_source') {
-      await this.db!.runAsync('DELETE FROM video_source WHERE code = ? OR (code IS NULL AND id = ?)', [recordId, recordId]);
-      return;
-    }
-    const rule = SYNC_UPSERT_RULES[tableName];
-    if (rule) await this.db!.runAsync(`DELETE FROM ${tableName} WHERE ${rule.recordKey} = ?`, [recordId]);
-  }
-
-  async clearEchoChanges(sinceId: number): Promise<number> {
-    const r = await this.db!.runAsync('DELETE FROM change_log WHERE synced = 0 AND id > ?', [sinceId]);
-    return r.changes ?? 0;
-  }
-
-  async setEchoTimestamp(sinceId: number, tableName: string, recordId: string, timestamp: number, deviceId: string): Promise<void> {
-    await this.db!.runAsync(
-      'UPDATE change_log SET timestamp = ? WHERE id > ? AND synced = 0 AND table_name = ? AND record_id = ? AND device_id = ?',
-      [timestamp, sinceId, tableName, recordId, deviceId]
-    );
-  }
-
-  async purgeSyncedChanges(beforeTs: number): Promise<number> {
-    const r = await this.db!.runAsync(
-      `DELETE FROM change_log
-        WHERE synced = 1 AND timestamp < ? AND id NOT IN (
-          SELECT MAX(id) FROM change_log WHERE synced = 1 AND timestamp < ? GROUP BY table_name, record_id
-        )`,
-      [beforeTs, beforeTs]
-    );
-    return r.changes ?? 0;
-  }
-
-  async getSyncConfig(): Promise<SyncConfig | null> {
-    const value = await this.getSystemConfigValue('sync_config');
-    if (!value) return null;
-    try {
-      return JSON.parse(value);
-    } catch {
-      return null;
-    }
-  }
-
-  async setSyncConfig(config: SyncConfig): Promise<void> {
-    await this.setSystemConfigValue('sync_config', JSON.stringify(config), 'json');
-  }
-
-  async getDeviceId(): Promise<string | null> {
-    return this.getSystemConfigValue('device_id');
-  }
-
-  async setDeviceId(deviceId: string): Promise<void> {
-    await this.setSystemConfigValue('device_id', deviceId, 'string');
-  }
-
-  async getSystemConfigValue(key: string): Promise<string | null> {
-    const row = await this.db!.getFirstAsync<{ value: string }>('SELECT value FROM system_config WHERE key = ?', [key]);
-    return row?.value ?? null;
-  }
-
-  async setSystemConfigValue(key: string, value: string, valueType = 'string'): Promise<void> {
-    const now = new Date().toISOString();
-    await this.db!.runAsync(
-      `INSERT INTO system_config (key, value, value_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, value_type = excluded.value_type, updated_at = excluded.updated_at`,
-      [key, value, valueType, now, now]
-    );
-  }
-
-  async deleteUnsyncedByTables(tables: string[]): Promise<number> {
-    if (!tables.length) return 0;
-    const ph = tables.map(() => '?').join(',');
-    const r = await this.db!.runAsync(`DELETE FROM change_log WHERE synced = 0 AND table_name IN (${ph})`, tables);
-    return r.changes ?? 0;
   }
 
   async select<T>(sql: string, params?: any[]): Promise<T[]> {

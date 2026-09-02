@@ -67,22 +67,8 @@ export {
 } from './services/voicePowerOptimizer';
 
 // 数据库抽象层
-export {
-  PRAGMA_SQL,
-  SCHEMA_SQL,
-  INSERT_DEFAULT_SOURCE_SQL,
-  COUNT_VIDEO_SOURCE_SQL,
-  splitSqlStatements,
-  CHANGE_LOG_TABLE_SQL,
-  CHANGE_LOG_TRIGGERS_SQL,
-  SYNC_TRIGGER_COUNT,
-  SYNC_UPSERT_RULES,
-  SYNC_TABLE_COLUMNS,
-  syncColumns,
-  buildUpsertSql,
-  buildInsertSql,
-} from './db/schema';
-export { type DatabaseProvider, type MediaSubtreeSnapshot, UNCATEGORIZED_GENRE } from './db/provider';
+export { PRAGMA_SQL, SCHEMA_SQL, INSERT_DEFAULT_SOURCE_SQL, COUNT_VIDEO_SOURCE_SQL, splitSqlStatements } from './db/schema';
+export { type DatabaseProvider, UNCATEGORIZED_GENRE } from './db/provider';
 export {
   rowToMedia,
   rowToEpisode,
@@ -95,6 +81,3 @@ export {
 
 // 状态管理
 export { createAppStore, getCurrentStoreApiVersion, getStoreApiVersion, type AppState, type AppStore } from './store/createStore';
-
-// 多设备同步内核
-export * from './sync';
