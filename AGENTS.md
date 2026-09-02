@@ -121,6 +121,17 @@
 - 提交信息：中文，`feat:`/`fix:`/`refactor:` 前缀 + 一句话概括本次改动。
 - 工具文档（`.trae/`、`BUTTON_COLORS.md`、`MOBILE_DESKTOP_DIFF.md`、`主题字色*.md`）永不提交，`.gitignore` 已兜底。
 
+### 推送规范（铁律）
+
+> 「提交」的完整语义 = **本地 commit + 双端推送**。只 commit 不推送视为未完成。任何 AI 助手处理需求时必须遵守。
+
+1. 每次提交后**必须**同时 push 到两个远程，缺一不可：
+   - `origin`（gitee，`git@gitee.com:roma007007/movie-app.git`）
+   - `github`（github，`git@github.com:roma007/movie-app.git`）
+2. 推送后**必须核实**两端 remote 已同步（`git status` 无 ahead）且远端确实是目标提交。
+3. **推送到 `github` 的 `master`（或 `v*` tag）会自动触发 GitHub Actions「Build Release」构建桌面安装包**（macos aarch64/x86_64 + windows 三平台），并 `contents: write` 发布 release 产物。此机制由 `.github/workflows/build.yml` 提供，AI 无需手动造包；但推送后**须核实 Actions 工作流已触发并正常启动**。
+4. 若某次只 commit 未双推（如会话中断），下次会话先补齐双端推送，再继续新工作。
+
 ## 升级标识符铁律（安装包制作方必读）
 
 > 升级 vs 重装由系统按「应用标识符 + 签名」判定，与 App 代码/版本号无关。`applicationId`/`bundleIdentifier`/`identifier` 一旦对外发布**永久不可更改**，否则新版被系统当成另一款 App（新装）、旧数据不再延续。此铁律已由 GitHub Actions `build.yml` 的“Verify app identifiers unchanged”步骤机器化校验，改了包名构建直接失败。
