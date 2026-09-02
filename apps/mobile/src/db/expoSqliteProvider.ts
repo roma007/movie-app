@@ -2,6 +2,7 @@ import * as SQLite from 'expo-sqlite';
 import {
   PRAGMA_SQL,
   SCHEMA_SQL,
+  DROP_SYNC_REMNANTS_SQL,
   INSERT_DEFAULT_SOURCE_SQL,
   COUNT_VIDEO_SOURCE_SQL,
   defaultSources,
@@ -339,6 +340,12 @@ const MIGRATIONS: Migration[] = [
           DROP INDEX IF EXISTS idx_change_log_table_record;
           DROP TABLE IF EXISTS change_log;
           DELETE FROM migrations WHERE version IN (34, 35, 36);`,
+  },
+  {
+    // 版本号取 39（> 曾被同步功能占用的 38），确保已执行过迁移 38 的库也会重跑本清理。
+    version: 39,
+    description: 'drop_sync_remnants_after_revert',
+    sql: DROP_SYNC_REMNANTS_SQL,
   },
 ];
 

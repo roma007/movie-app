@@ -1,6 +1,7 @@
 import Database from '@tauri-apps/plugin-sql';
 import {
   SCHEMA_SQL,
+  DROP_SYNC_REMNANTS_SQL,
   INSERT_DEFAULT_SOURCE_SQL,
   COUNT_VIDEO_SOURCE_SQL,
   defaultSources,
@@ -209,6 +210,16 @@ export class TauriSqlProvider implements DatabaseProvider {
         await this.db!.execute(stmt);
       } catch (e) {
         console.warn('Schema statement failed:', stmt, e);
+      }
+    }
+
+    // 清理已废弃多设备同步残留（change_log 表/触发器/索引，幂等），
+    // 仅对曾执行过同步逻辑的库生效；SCHEMA_SQL 已不含这些对象，此处专清历史残留。
+    for (const stmt of splitSqlStatements(DROP_SYNC_REMNANTS_SQL)) {
+      try {
+        await this.db!.execute(stmt);
+      } catch (e) {
+        console.warn('Drop sync remnant failed:', stmt, e);
       }
     }
 

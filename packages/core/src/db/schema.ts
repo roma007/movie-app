@@ -290,3 +290,48 @@ export const SCHEMA_SQL = `
  */
 export const INSERT_DEFAULT_SOURCE_SQL = `INSERT INTO video_source (id, code, name, base_url, type, is_enabled, rate_limit, created_at) VALUES (?, ?, ?, ?, 'CMS', 1, ?, ?)`;
 export const COUNT_VIDEO_SOURCE_SQL = 'SELECT COUNT(*) as count FROM video_source';
+
+/**
+ * 清理已废弃「多设备同步」功能在已升级设备库中残留的对象（表/触发器/索引）。
+ * - 同步功能以 revert 整体移除后，SCHEMA_SQL 已不再创建这些对象；
+ *   但已执行过同步迁移/启动同步逻辑的库文件里仍残留 change_log 表与 27 个触发器。
+ * - 幂等（全用 DROP ... IF EXISTS），桌面端每次启动执行、移动端以一次迁移执行。
+ * - 注意：仅清理同步残留的 change_log 体系；media_change_log(原有推荐机制) 与
+ *   media_ai/media_au/media_ad(FTS) 触发器不在清理范围。
+ */
+export const DROP_SYNC_REMNANTS_SQL = `
+  DROP TRIGGER IF EXISTS favorite_change_log_insert;
+  DROP TRIGGER IF EXISTS favorite_change_log_update;
+  DROP TRIGGER IF EXISTS favorite_change_log_delete;
+  DROP TRIGGER IF EXISTS watch_history_change_log_insert;
+  DROP TRIGGER IF EXISTS watch_history_change_log_update;
+  DROP TRIGGER IF EXISTS watch_history_change_log_delete;
+  DROP TRIGGER IF EXISTS watch_line_progress_change_log_insert;
+  DROP TRIGGER IF EXISTS watch_line_progress_change_log_update;
+  DROP TRIGGER IF EXISTS watch_line_progress_change_log_delete;
+  DROP TRIGGER IF EXISTS hidden_genre_change_log_insert;
+  DROP TRIGGER IF EXISTS hidden_genre_change_log_update;
+  DROP TRIGGER IF EXISTS hidden_genre_change_log_delete;
+  DROP TRIGGER IF EXISTS dislike_change_log_insert;
+  DROP TRIGGER IF EXISTS dislike_change_log_update;
+  DROP TRIGGER IF EXISTS dislike_change_log_delete;
+  DROP TRIGGER IF EXISTS media_change_log_insert;
+  DROP TRIGGER IF EXISTS media_change_log_update;
+  DROP TRIGGER IF EXISTS media_change_log_delete;
+  DROP TRIGGER IF EXISTS video_source_change_log_insert;
+  DROP TRIGGER IF EXISTS video_source_change_log_update;
+  DROP TRIGGER IF EXISTS video_source_change_log_delete;
+  DROP TRIGGER IF EXISTS system_config_change_log_insert;
+  DROP TRIGGER IF EXISTS system_config_change_log_update;
+  DROP TRIGGER IF EXISTS system_config_change_log_delete;
+  DROP TRIGGER IF EXISTS user_interest_tag_change_log_insert;
+  DROP TRIGGER IF EXISTS user_interest_tag_change_log_update;
+  DROP TRIGGER IF EXISTS user_interest_tag_change_log_delete;
+  DROP TRIGGER IF EXISTS search_history_change_log_insert;
+  DROP TRIGGER IF EXISTS search_history_change_log_update;
+  DROP TRIGGER IF EXISTS search_history_change_log_delete;
+  DROP INDEX IF EXISTS idx_change_log_synced;
+  DROP INDEX IF EXISTS idx_change_log_table_record;
+  DROP INDEX IF EXISTS idx_change_log_timestamp;
+  DROP TABLE IF EXISTS change_log;
+`;
