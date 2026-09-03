@@ -38,6 +38,7 @@ interface PlayerState {
   setVolume: (volume: number, muted: boolean) => void;
   openPlayback: (episodeId: string, opts?: { sourceId?: string | null; playSourceId?: string | null; keepPipActive?: boolean }) => Promise<void>;
   switchEpisode: (episodeId: string, opts?: { keepPipActive?: boolean }) => Promise<void>;
+  switchEpisodeKeepPip: (episodeId: string) => Promise<void>;
   closePlayback: () => Promise<void>;
   switchCmsSource: (sourceId: string) => Promise<void>;
   handleSourceChange: (source: PlaySource) => void;
@@ -72,6 +73,32 @@ const currentTimeRef = { value: 0 };
 const durationRef = { value: 0 };
 const lastSaveRef = { value: 0 };
 let loadSeq = 0;
+
+// 跨组件共享的 pip 切集豁免计数（替代 PlayerHost 组件级 useRef）。
+// 任何在这期间修改 session.episodeId 的 pip 主导切集都应豁免 subscribe 的关窗逻辑。
+let pipSwitchingRef = 0;
+export function isPipSwitching(): boolean {
+  return pipSwitchingRef > 0;
+}
+
+export function buildPipPayload(
+  session: NonNullable<ReturnType<typeof usePlayerStore.getState>['session']>,
+  currentTime: number,
+): Record<string, unknown> {
+  return {
+    episodeId: session.episodeId,
+    title: session.media?.title ?? '',
+    episodeLabel: session.episode ? session.episode.title || `第${session.episode.episodeNumber}集` : '',
+    sources: session.sources,
+    playSourceId: session.playSourceId,
+    currentTime,
+    volume: usePlayerStore.getState().volume,
+    muted: usePlayerStore.getState().muted,
+    nextEpisode: session.nextEpisode,
+    outroThresholdMinutes: session.outroThresholdMinutes,
+    showNextEpisodeOverlay: session.showNextEpisodeOverlay,
+  };
+}
 
 async function finalSave(session: PlaybackSession | null): Promise<void> {
   if (!session || !session.media) return;
@@ -343,6 +370,22 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     const s = get().session;
     if (s?.episodeId === episodeId) return;
     await get().openPlayback(episodeId, opts);
+  },
+
+  switchEpisodeKeepPip: async (episodeId) => {
+    const s = get().session;
+    if (s?.episodeId === episodeId) return;
+    pipSwitchingRef += 1;
+    try {
+      await get().switchEpisode(episodeId, { keepPipActive: true });
+      const s2 = get().session;
+      if (s2 && s2.episodeId === episodeId) {
+        const { emit } = await import('@tauri-apps/api/event');
+        void emit('pip://episode', buildPipPayload(s2, s2.currentTime));
+      }
+    } finally {
+      pipSwitchingRef = Math.max(0, pipSwitchingRef - 1);
+    }
   },
 
   switchCmsSource: async (sourceId) => {

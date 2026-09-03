@@ -79,6 +79,7 @@ export default function PlayPage() {
   }
 
   const openingRef = useRef<string | null>(null);
+  const prevEpisodeIdRef = useRef<string | undefined>(undefined);
   const prevMediaIdRef = useRef<string | null>(null);
   const pendingLineRef = useRef<{ episodeId: string; playSourceId: string } | null>(null);
 
@@ -170,10 +171,28 @@ export default function PlayPage() {
       }
       return;
     }
-    // pip 激活且 session 已被切到与当前路由不同的集（pip 主导播放）时，主窗口不接管，
-    // 否则会用路由 episodeId 覆盖/顶掉 pip 刚切到的新集，造成 pip 切集被「反击回退」。
+    // pip 激活且目标与当前 session 不同时：
+    //  - 用户主动导航（路由 episodeId 变化）→ 保持 PIP 直切到目标集（含切换不同视频）
+    //  - pip 主导切集引发的 effect 重跑（episodeId 未变）→ 不接管，防用路由旧集顶回
     const st = usePlayerStore.getState();
-    if (st.pipActive && st.session?.episodeId && st.session.episodeId !== episodeId) return;
+    if (st.pipActive && st.session?.episodeId) {
+      if (st.session.episodeId === episodeId) {
+        // session 已同步到当前路由集（PIP 存活恢复等场景），不接管
+        return;
+      }
+      const isNewNav =
+        prevEpisodeIdRef.current === undefined || prevEpisodeIdRef.current !== episodeId;
+      if (isNewNav) {
+        if (openingRef.current === episodeId) return;
+        openingRef.current = episodeId;
+        void st.switchEpisodeKeepPip(episodeId).finally(() => {
+          if (openingRef.current === episodeId) openingRef.current = null;
+        });
+        prevEpisodeIdRef.current = episodeId;
+        return;
+      }
+      return;
+    }
     if (openingRef.current === episodeId) return;
     openingRef.current = episodeId;
     // PIP 存活恢复场景：initApp 已预置 pipActive=true，openPlayback 须保留该状态，

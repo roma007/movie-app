@@ -9,7 +9,7 @@ import { emit, listen } from '@tauri-apps/api/event';
 import { PictureInPicture2, Maximize2, ChevronsUpDown, ChevronsDownUp, X, ExternalLink } from 'lucide-react';
 import { VideoPlayer } from './VideoPlayer';
 import { PlayerOverlays } from './PlayerOverlays';
-import { usePlayerStore } from '../../stores/playerStore';
+import { usePlayerStore, buildPipPayload, isPipSwitching } from '../../stores/playerStore';
 
 const HEADER_H = 36;
 const COLLAPSED_W = 240;
@@ -23,25 +23,6 @@ interface PipGeometry {
   y?: number;
   w: number;
   h: number;
-}
-
-function buildPipPayload(
-  session: NonNullable<ReturnType<typeof usePlayerStore.getState>['session']>,
-  currentTime: number,
-): Record<string, unknown> {
-  return {
-    episodeId: session.episodeId,
-    title: session.media?.title ?? '',
-    episodeLabel: session.episode ? session.episode.title || `第${session.episode.episodeNumber}集` : '',
-    sources: session.sources,
-    playSourceId: session.playSourceId,
-    currentTime,
-    volume: usePlayerStore.getState().volume,
-    muted: usePlayerStore.getState().muted,
-    nextEpisode: session.nextEpisode,
-    outroThresholdMinutes: session.outroThresholdMinutes,
-    showNextEpisodeOverlay: session.showNextEpisodeOverlay,
-  };
 }
 
 function readPipGeometry(): PipGeometry {
@@ -114,9 +95,6 @@ export function PlayerHost() {
   const skipDismissedRef = useRef(false);
   const skipEligibleRef = useRef(false);
   const lastTimeRef = useRef(0);
-  // 并发安全的 pip 切集豁免计数：pip://next 可能有并发 handler（如浮层双触发），
-  // 用计数而非布尔，任何 handler 在途都豁免 subscribe 关 pip。
-  const pipSwitchingRef = useRef(0);
 
   useEffect(() => {
     setOverlayVisible(false);
@@ -229,16 +207,7 @@ export function PlayerHost() {
     // pip 内点「下一集」：经主窗口解析新集后回传，期间保持 pipActive
     on<{ episodeId: string }>('pip://next', async ({ episodeId }) => {
       const st = usePlayerStore.getState();
-      pipSwitchingRef.current += 1;
-      try {
-        await st.switchEpisode(episodeId, { keepPipActive: true });
-        const s2 = usePlayerStore.getState().session;
-        if (s2 && s2.episodeId === episodeId) {
-          void emit('pip://episode', buildPipPayload(s2, s2.currentTime));
-        }
-      } finally {
-        pipSwitchingRef.current = Math.max(0, pipSwitchingRef.current - 1);
-      }
+      await st.switchEpisodeKeepPip(episodeId);
     });
     // 主窗口侧发起新播放（非 pip 流程）时关闭 pip，避免双流
     unsubs.push(
@@ -246,7 +215,7 @@ export function PlayerHost() {
         const sEp = s.session?.episodeId;
         const pEp = prev.session?.episodeId;
         const episodeChanged = !!sEp && !!pEp && sEp !== pEp;
-        if (pipSwitchingRef.current <= 0 && prev.pipActive && episodeChanged) {
+        if (!isPipSwitching() && prev.pipActive && episodeChanged) {
           void WebviewWindow.getByLabel('pip').then((w) => w?.close().catch(() => {}));
         }
       }),
@@ -447,6 +416,7 @@ export function PlayerHost() {
       url: `/?view=pip&d=${encodeURIComponent(JSON.stringify(buildPipPayload(session, currentTime)))}`,
       title: '画中画',
       decorations: false,
+      transparent: true,
       alwaysOnTop: true,
       resizable: true,
       maximizable: false,
