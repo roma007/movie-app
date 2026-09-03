@@ -416,7 +416,6 @@ export function PlayerHost() {
       url: `/?view=pip&d=${encodeURIComponent(JSON.stringify(buildPipPayload(session, currentTime)))}`,
       title: '画中画',
       decorations: false,
-      transparent: true,
       alwaysOnTop: true,
       resizable: true,
       maximizable: false,

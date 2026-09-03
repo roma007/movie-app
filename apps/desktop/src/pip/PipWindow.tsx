@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { MediaPlayerInstance } from '@vidstack/react';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
 import { ExternalLink, Maximize2, X } from 'lucide-react';
 import type { PlaySource } from '@movie-app/core';
@@ -73,13 +72,6 @@ function PipRoot() {
   const skipDismissedRef = useRef(false);
   const skipEligibleRef = useRef((initialData?.currentTime ?? 0) < 5 * 60);
   const lastTimeRef = useRef(initialData?.currentTime ?? 0);
-
-  useEffect(() => {
-    // 原生层给 pip 窗口套圆角 + 贴合阴影（消除无边框窗口的矩形边界亮线）。
-    invoke('style_pip_window').catch((err) => {
-      console.error('[PipWindow] style_pip_window 失败:', err);
-    });
-  }, []);
 
   useEffect(() => {
     let un: (() => void) | undefined;
