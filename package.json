@@ -1,6 +1,6 @@
 {
   "name": "movie-app-monorepo",
-  "version": "1.0.92",
+  "version": "1.0.93",
   "private": true,
   "scripts": {
     "mobile": "pnpm --filter @movie-app/mobile start",
@@ -26,8 +26,5 @@
     }
   },
   "packageManager": "pnpm@10.30.3",
-  "dependencies": {
-    "lucide-react-native": "^1.23.0",
-    "sqlite3": "^6.0.1"
-  }
+  "dependencies": {}
 }

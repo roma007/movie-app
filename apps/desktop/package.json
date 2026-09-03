@@ -1,6 +1,6 @@
 {
   "name": "@movie-app/desktop",
-  "version": "1.0.92",
+  "version": "1.0.93",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,7 +17,6 @@
     "@radix-ui/react-dialog": "^1.1.19",
     "@radix-ui/react-label": "^2.1.11",
     "@radix-ui/react-scroll-area": "^1.2.14",
-    "@radix-ui/react-separator": "^1.1.11",
     "@radix-ui/react-slot": "^1.3.0",
     "@radix-ui/react-switch": "^1.3.3",
     "@radix-ui/react-tabs": "^1.1.17",

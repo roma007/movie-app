@@ -576,9 +576,9 @@ export class TauriSqlProvider implements DatabaseProvider {
         description, poster_url, backdrop_url, status, remarks, fingerprint,
         current_episodes, total_episodes, is_short_drama, duration_check_status, episode_duration,
         view_count, rating, rating_count, rating_source, rating_updated_at,
-        favorite_count, search_count, hidden, series_group, series_season,
+        hidden, series_group, series_season,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(fingerprint) DO UPDATE SET
         title = excluded.title,
         original_title = excluded.original_title,
@@ -610,7 +610,7 @@ export class TauriSqlProvider implements DatabaseProvider {
         media.isShortDrama ? 1 : 0, media.durationCheckStatus || null, media.episodeDuration || null,
         media.viewCount || 0,
         media.rating ?? null, media.ratingCount ?? null, media.ratingSource || null, media.ratingUpdatedAt || null,
-        0, 0, media.hidden ? 1 : 0,
+        media.hidden ? 1 : 0,
         media.seriesGroup || null, media.seriesSeason ?? null,
         media.createdAt || now, now,
       ]
@@ -649,10 +649,6 @@ export class TauriSqlProvider implements DatabaseProvider {
 
   async incrementViewCount(id: string): Promise<void> {
     await this.db!.execute('UPDATE media SET view_count = view_count + 1 WHERE id = ?', [id]);
-  }
-
-  async incrementSearchCount(id: string): Promise<void> {
-    await this.db!.execute('UPDATE media SET search_count = search_count + 1 WHERE id = ?', [id]);
   }
 
   async searchMedia(
@@ -861,10 +857,6 @@ export class TauriSqlProvider implements DatabaseProvider {
     await this.db!.execute('DELETE FROM episode WHERE media_id = ? AND source_id = ?', [mediaId, sourceId]);
   }
 
-  async deleteEpisodesByMediaId(mediaId: string): Promise<void> {
-    await this.db!.execute('DELETE FROM episode WHERE media_id = ?', [mediaId]);
-  }
-
   async deleteAllMedia(): Promise<void> {
     await this.db!.execute('DELETE FROM play_source');
     await this.db!.execute('DELETE FROM episode');
@@ -879,14 +871,6 @@ export class TauriSqlProvider implements DatabaseProvider {
     await this.db!.execute(`DELETE FROM media WHERE NOT EXISTS (SELECT 1 FROM episode WHERE episode.media_id = media.id)`);
     await this.db!.execute(`DELETE FROM favorite WHERE NOT EXISTS (SELECT 1 FROM media WHERE media.id = favorite.media_id)`);
     await this.db!.execute(`DELETE FROM watch_history WHERE NOT EXISTS (SELECT 1 FROM media WHERE media.id = watch_history.media_id)`);
-  }
-
-  async getMediaCountBySourceId(sourceId: string): Promise<number> {
-    const rows = await this.db!.select<{ count: number }[]>(
-      `SELECT COUNT(DISTINCT media_id) as count FROM episode WHERE source_id = ?`,
-      [sourceId]
-    );
-    return rows[0]?.count || 0;
   }
 
   async getMediaCountBySourceIdMap(): Promise<Map<string, number>> {
@@ -1111,16 +1095,6 @@ export class TauriSqlProvider implements DatabaseProvider {
     return rows.map(rowToPlaySource);
   }
 
-  async getPlaySourcesByMediaId(mediaId: string): Promise<PlaySource[]> {
-    const rows = await this.db!.select<any[]>(
-      `SELECT ps.* FROM play_source ps
-       INNER JOIN episode e ON ps.episode_id = e.id
-       WHERE e.media_id = ?`,
-      [mediaId]
-    );
-    return rows.map(rowToPlaySource);
-  }
-
   async upsertPlaySource(playSource: PlaySource): Promise<void> {
     await this.db!.execute(
       `INSERT INTO play_source (id, episode_id, source_id, source_name, url, quality, is_active, fail_count, last_fail_at)
@@ -1132,20 +1106,6 @@ export class TauriSqlProvider implements DatabaseProvider {
         playSource.id, playSource.episodeId, playSource.sourceId, playSource.sourceName || null,
         playSource.url, playSource.quality || null, 1, 0, null,
       ]
-    );
-  }
-
-  async deletePlaySourcesByMediaId(mediaId: string): Promise<void> {
-    await this.db!.execute(
-      `DELETE FROM play_source WHERE episode_id IN (SELECT id FROM episode WHERE media_id = ?)`,
-      [mediaId]
-    );
-  }
-
-  async deletePlaySourcesByMediaIdAndSourceId(mediaId: string, sourceId: string): Promise<void> {
-    await this.db!.execute(
-      `DELETE FROM play_source WHERE episode_id IN (SELECT id FROM episode WHERE media_id = ?) AND source_id = ?`,
-      [mediaId, sourceId]
     );
   }
 
@@ -1300,14 +1260,6 @@ export class TauriSqlProvider implements DatabaseProvider {
     return Number(rows[0]?.c ?? 0);
   }
 
-  async getWatchHistoryByMediaId(mediaId: string): Promise<WatchHistory | null> {
-    const rows = await this.db!.select<any[]>(
-      'SELECT * FROM watch_history WHERE media_id = ? ORDER BY updated_at DESC LIMIT 1',
-      [mediaId]
-    );
-    return rows[0] ? rowToWatchHistory(rows[0]) : null;
-  }
-
   async getWatchHistoryByEpisodeId(mediaId: string, episodeId: string): Promise<WatchHistory | null> {
     const rows = await this.db!.select<any[]>(
       'SELECT * FROM watch_history WHERE media_id = ? AND episode_id = ? ORDER BY updated_at DESC LIMIT 1',
@@ -1387,10 +1339,6 @@ async clearWatchHistory(): Promise<void> {
       );
     }
 
-    async clearWatchLineProgressByMediaId(mediaId: string): Promise<void> {
-      await this.db!.execute('DELETE FROM watch_line_progress WHERE media_id = ?', [mediaId]);
-    }
-
   // —— SearchHistory DAO ——
   async addSearchHistory(keyword: string): Promise<void> {
     const now = new Date().toISOString();
@@ -1433,7 +1381,7 @@ async clearWatchHistory(): Promise<void> {
       params.push(item.mediaId, item.shownAt, item.shownAt);
     }
     await this.db!.execute(
-      `INSERT INTO impression (media_id, shown_count, first_shown_at, last_shown_at)
+      `INSERT INTO impression (media_id, shown_count, last_shown_at)
        VALUES ${placeholders}
        ON CONFLICT(media_id) DO UPDATE SET
          shown_count = impression.shown_count + 1,
@@ -1498,11 +1446,6 @@ async clearWatchHistory(): Promise<void> {
     await this.db!.execute('DELETE FROM user_interest_tag');
     await this.db!.execute('DELETE FROM recommend_snapshot');
     await this.db!.execute('UPDATE media SET personal_score = 0');
-  }
-
-  async getDislikedMediaIds(): Promise<string[]> {
-    const rows = await this.db!.select<{ media_id: string }[]>('SELECT media_id FROM dislike');
-    return rows.map((r) => r.media_id);
   }
 
   async getDislikedMediaDetail(): Promise<{ mediaId: string; title: string; createdAt: string }[]> {
@@ -1692,19 +1635,6 @@ async clearWatchHistory(): Promise<void> {
     return affected;
   }
 
-  async cancelCollectTask(taskId: string): Promise<void> {
-    const now = new Date().toISOString();
-    await this.db!.execute(
-      `UPDATE collect_task SET
-         status = 'FAILED',
-         error_message = '用户已取消',
-         error_type = 'CANCELLED',
-         completed_at = ?
-       WHERE task_id = ?`,
-      [now, taskId]
-    );
-  }
-
   async createReprobeTask(task: CollectTask): Promise<void> {
     await this.db!.execute(
       'INSERT INTO collect_task (id, task_id, source_code, source_name, type, status, current_page, total_pages, collected_count, failed_count, probed_count, short_drama_count, long_drama_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -1800,15 +1730,6 @@ async clearWatchHistory(): Promise<void> {
     }));
   }
 
-  async clearCollectionLogs(beforeDays?: number): Promise<void> {
-    if (beforeDays) {
-      const cutoff = new Date(Date.now() - beforeDays * 86400000).toISOString();
-      await this.db!.execute('DELETE FROM collection_log WHERE timestamp < ?', [cutoff]);
-    } else {
-      await this.db!.execute('DELETE FROM collection_log');
-    }
-  }
-
   async getVoiceConfig(key: string): Promise<string | null> {
     const rows = await this.db!.select<any[]>('SELECT value FROM voice_config WHERE key = ?', [key]);
     return rows[0] ? rows[0].value : null;
@@ -1820,19 +1741,6 @@ async clearWatchHistory(): Promise<void> {
       'INSERT OR REPLACE INTO voice_config (key, value, value_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
       [key, value, valueType, now, now]
     );
-  }
-
-  async deleteVoiceConfig(key: string): Promise<void> {
-    await this.db!.execute('DELETE FROM voice_config WHERE key = ?', [key]);
-  }
-
-  async getAllVoiceConfig(): Promise<Record<string, string>> {
-    const rows = await this.db!.select<any[]>('SELECT key, value FROM voice_config');
-    const config: Record<string, string> = {};
-    for (const row of rows) {
-      config[row.key] = row.value;
-    }
-    return config;
   }
 
   async select<T>(sql: string, params?: any[]): Promise<T[]> {

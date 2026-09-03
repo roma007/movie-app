@@ -1,6 +1,6 @@
 {
   "name": "@movie-app/mobile",
-  "version": "1.0.92",
+  "version": "1.0.93",
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
@@ -22,11 +22,11 @@
     "expo-image": "~57.0.1",
     "expo-modules-core": "57.0.6",
     "expo-screen-orientation": "~57.0.1",
-    "expo-speech-transcriber": "^0.1.9",
     "expo-sqlite": "~57.0.1",
     "expo-status-bar": "~57.0.1",
     "expo-video": "~57.0.1",
     "expo-video-cache": "2.1.0",
+    "lucide-react-native": "^1.23.0",
     "react": "19.2.3",
     "react-airplay": "^2.0.2",
     "react-native": "0.86.0",

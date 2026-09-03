@@ -63,19 +63,6 @@ export type VoiceControlSystemState =
   | 'command_executed'
   | 'error';
 
-/** 语音控制系统状态 */
-export interface VoiceControlState {
-  enabled: boolean;
-  wakeWord: string;
-  wakeWordState: WakeWordState;
-  systemState: VoiceControlSystemState;
-  sensitivity: number;  // 0.0 - 1.0
-  feedbackEnabled: boolean;
-  offlineEnabled: boolean;
-  lastCommand?: string;
-  lastError?: string;
-}
-
 /** 唤醒词检测结果 */
 export interface WakeWordDetectionResult {
   detected: boolean;
@@ -90,14 +77,6 @@ export interface AudioConfig {
   bitDepth: number;        // 16
   bufferSize: number;      // 帧大小
 }
-
-/** 默认音频配置 */
-export const DEFAULT_AUDIO_CONFIG: AudioConfig = {
-  sampleRate: 16000,
-  channels: 1,
-  bitDepth: 16,
-  bufferSize: 1280,  // 80ms at 16kHz
-};
 
 /** 语音控制配置 */
 export interface VoiceControlConfig {
@@ -118,25 +97,6 @@ export interface VoiceControlConfig {
   audioConfig: AudioConfig;
 }
 
-/** 默认语音控制配置 */
-export const DEFAULT_VOICE_CONTROL_CONFIG: VoiceControlConfig = {
-  enabled: false,
-  wakeWordEnabled: true,
-  wakeWord: '小MM',
-  wakeWordThreshold: 0.7,
-  sensitivity: 0.7,
-  ttsEnabled: true,
-  ttsLanguage: 'zh-CN',
-  ttsRate: 1.0,
-  ttsPitch: 1.0,
-  ttsVolume: 1.0,
-  recognitionTimeout: 10000,
-  wakeWordTimeout: 5000,
-  feedbackEnabled: true,
-  offlineEnabled: true,
-  audioConfig: DEFAULT_AUDIO_CONFIG,
-};
-
 /** 语音命令解析结果 */
 export interface ParsedVoiceCommand {
   command: VoiceCommand;
@@ -144,22 +104,3 @@ export interface ParsedVoiceCommand {
   confidence: number;
   rawText: string;
 }
-
-/** 语音控制事件类型 */
-export type VoiceControlEventType = 
-  | 'state_changed'
-  | 'wakeword_detected'
-  | 'command_recognized'
-  | 'command_executed'
-  | 'error'
-  | 'feedback_played';
-
-/** 语音控制事件 */
-export interface VoiceControlEvent {
-  type: VoiceControlEventType;
-  timestamp: number;
-  data?: any;
-}
-
-/** 语音控制事件监听器 */
-export type VoiceControlEventListener = (event: VoiceControlEvent) => void;

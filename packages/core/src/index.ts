@@ -8,16 +8,12 @@ export { DEAD_IMAGE_HOSTS, extractImageHost, isKnownDeadPosterUrl, isUsablePoste
 export {
   isAiDrama,
   mapType,
-  needsSeason,
   needsShortDramaCheck,
   isVersionTitle,
   refineTypeByEpisodes,
 } from './utils/typeMapper';
-export { TokenBucket } from './utils/tokenBucket';
 export {
   defaultSources,
-  BLACKLIST_KEYWORDS,
-  MIN_YEAR,
   MEDIA_FILE_EXTENSIONS,
   isPlayableMediaUrl,
   AI_SOURCE_PROMPT,
@@ -25,13 +21,6 @@ export {
   type DefaultSourceConfig,
 } from './utils/constants';
 export { getHttpClient, setHttpClient, type HttpClient } from './utils/httpClient';
-export {
-  probeHlsStream,
-  probeMultipleHlsStreams,
-  summarizeProbeResults,
-  type HlsProbeResult,
-  type HlsStreamType,
-} from './utils/hlsProbe';
 
 // 服务
 export { CMSAdapter } from './services/cmsAdapter';
@@ -59,12 +48,6 @@ export { VoiceCommandParser, createDefaultParser } from './services/voiceCommand
 export { InMemoryWakeWordService, type IWakeWordService } from './services/wakeWordService';
 export { InMemorySpeechRecognitionService, type ISpeechRecognitionService } from './services/speechRecognitionService';
 export { InMemoryTTSService, VOICE_FEEDBACK_MESSAGES, type ITTSService } from './services/ttsService';
-export { 
-  VoicePowerOptimizer, 
-  createPowerOptimizer, 
-  getPowerOptimizer,
-  type UsageScene 
-} from './services/voicePowerOptimizer';
 
 // 数据库抽象层
 export { PRAGMA_SQL, SCHEMA_SQL, DROP_SYNC_REMNANTS_SQL, INSERT_DEFAULT_SOURCE_SQL, COUNT_VIDEO_SOURCE_SQL, splitSqlStatements } from './db/schema';

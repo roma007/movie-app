@@ -49,7 +49,6 @@ export interface DatabaseProvider {
     }
   ): Promise<void>;
   incrementViewCount(id: string): Promise<void>;
-  incrementSearchCount(id: string): Promise<void>;
   searchMedia(
     keyword: string,
     params?: {
@@ -75,14 +74,12 @@ export interface DatabaseProvider {
   upsertEpisode(episode: Episode): Promise<void>;
   /** 写入单集已探测到的视频时长（秒），供播放页剧集列表复用，避免重复探测。 */
   updateEpisodeDuration(episodeId: string, duration: number | null): Promise<void>;
-  deleteEpisodesByMediaId(mediaId: string): Promise<void>;
   deleteEpisodesByMediaIdAndSourceId(mediaId: string, sourceId: string): Promise<void>;
   getSeasonsByMediaId(mediaId: string): Promise<number[]>;
 
   // —— Media 批量操作 ——
   deleteAllMedia(): Promise<void>;
   deletePlaySourcesBySourceId(sourceId: string): Promise<void>;
-  getMediaCountBySourceId(sourceId: string): Promise<number>;
   getMediaCountBySourceIdMap(): Promise<Map<string, number>>;
   deleteMediaCompletely(mediaId: string): Promise<void>;
   deleteMediaWithoutPlaySource(): Promise<number>;
@@ -97,10 +94,7 @@ export interface DatabaseProvider {
 
   // —— PlaySource DAO ——
   getPlaySourcesByEpisodeId(episodeId: string): Promise<PlaySource[]>;
-  getPlaySourcesByMediaId(mediaId: string): Promise<PlaySource[]>;
   upsertPlaySource(playSource: PlaySource): Promise<void>;
-  deletePlaySourcesByMediaId(mediaId: string): Promise<void>;
-  deletePlaySourcesByMediaIdAndSourceId(mediaId: string, sourceId: string): Promise<void>;
 
   // —— VideoSource DAO ——
   getAllVideoSources(): Promise<VideoSource[]>;
@@ -133,7 +127,6 @@ export interface DatabaseProvider {
   // —— WatchHistory DAO ——
   getAllWatchHistory(page?: number, pageSize?: number): Promise<WatchHistory[]>;
   getWatchHistoryCount(): Promise<number>;
-  getWatchHistoryByMediaId(mediaId: string): Promise<WatchHistory | null>;
   getAllWatchHistoryByMediaId(mediaId: string): Promise<WatchHistory[]>;
   getWatchHistoryByEpisodeId(mediaId: string, episodeId: string): Promise<WatchHistory | null>;
   upsertWatchHistory(
@@ -163,8 +156,6 @@ export interface DatabaseProvider {
     duration: number,
     sourceId?: string | null,
   ): Promise<void>;
-  /** 删除该媒体全部线路进度（配合清历史/删单条）。 */
-  clearWatchLineProgressByMediaId(mediaId: string): Promise<void>;
 
   // —— SearchHistory DAO ——
   addSearchHistory(keyword: string): Promise<void>;
@@ -195,8 +186,6 @@ export interface DatabaseProvider {
   resetRecommendationData(): Promise<void>;
 
   // —— Dislike DAO（不感兴趣） ——
-  /** 返回全部已标记不感兴趣的 mediaId。 */
-  getDislikedMediaIds(): Promise<string[]>;
   /** 不感兴趣列表详情（含影片标题，供设置页展示）。 */
   getDislikedMediaDetail(): Promise<{ mediaId: string; title: string; createdAt: string }[]>;
   addDislike(mediaId: string): Promise<void>;
@@ -216,7 +205,6 @@ export interface DatabaseProvider {
   deleteCollectTask(taskId: string): Promise<void>;
   deleteOldTasks(days: number): Promise<void>;
   resetStaleTasks(): Promise<number>;
-  cancelCollectTask(taskId: string): Promise<void>;
 
   // —— Reprobe Task DAO ——
   createReprobeTask(task: CollectTask): Promise<void>;
@@ -231,13 +219,10 @@ export interface DatabaseProvider {
   // —— CollectionLog DAO ——
   addCollectionLog(log: CollectionLog): Promise<void>;
   getCollectionLogs(filter?: { taskId?: string; sourceCode?: string; level?: string; limit?: number; offset?: number }): Promise<CollectionLog[]>;
-  clearCollectionLogs(beforeDays?: number): Promise<void>;
 
   // —— VoiceConfig DAO ——
   getVoiceConfig(key: string): Promise<string | null>;
   setVoiceConfig(key: string, value: string, valueType?: string): Promise<void>;
-  deleteVoiceConfig(key: string): Promise<void>;
-  getAllVoiceConfig(): Promise<Record<string, string>>;
 
   // —— 通用 SQL ——
   select<T>(sql: string, params?: any[]): Promise<T[]>;
@@ -246,5 +231,4 @@ export interface DatabaseProvider {
 
   // —— 生命周期 ——
   init(): Promise<void>;
-  close?(): Promise<void>;
 }

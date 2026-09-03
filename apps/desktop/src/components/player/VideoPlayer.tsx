@@ -148,6 +148,101 @@ export function VideoPlayer({
       if (skipNoticeTimerRef.current) clearTimeout(skipNoticeTimerRef.current);
     };
   }, []);
+
+  /** 蓝牙/系统音源被占用（报时等）发来 pause 中断时，记录「被中断前在播」，用于中断结束自动续播。 */
+  const wantResumeRef = useRef(false);
+  /** 报时短窗口定时器：置 wantResume 后 ~3s 无 play 则清掉，防「系统媒体键手动暂停」被误判为中断而误播。 */
+  const wantResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * 蓝牙/系统音源（如音箱报时）经 AVRCP → Windows SMTC → Chromium Media Session 派发 play/pause。
+   * 报时开始系统发 pause 会暂停 `<video>`（默认行为，保留）；报时结束系统发 play，但 Chromium
+   * 收系统 play 时不会自动恢复暂停的 `<video>`（已知缺陷族）。故在此注册 play/pause 处理器：
+   * - pause：若此前在播则记 wantResume，启动短窗口；并确保真正暂停（注册 handler 后默认暂停被覆盖）。
+   * - play：仅在「被中断前在播且非用户手动暂停」（wantResume）时显式恢复，带 300ms 状态纠正兜底。
+   * 挂载一次（组件级 useEffect([])），handler 内实时 querySelector('video')，源切换/重试重挂后仍有效。
+   */
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    const mediaSession = navigator.mediaSession;
+
+    const getVideo = () => playerContainerRef.current?.querySelector('video') ?? null;
+
+    const syncPlaybackState = (state: MediaSessionPlaybackState) => {
+      try {
+        mediaSession.playbackState = state;
+      } catch {
+        /* noop */
+      }
+    };
+
+    mediaSession.setActionHandler('pause', () => {
+      const video = getVideo();
+      if (!video) return;
+      const wasPlaying = !video.paused;
+      try {
+        video.pause();
+      } catch {
+        /* noop */
+      }
+      if (wasPlaying && !wantResumeRef.current) {
+        wantResumeRef.current = true;
+        if (wantResumeTimerRef.current) clearTimeout(wantResumeTimerRef.current);
+        wantResumeTimerRef.current = setTimeout(() => {
+          wantResumeRef.current = false;
+          wantResumeTimerRef.current = null;
+        }, 3000);
+      }
+      syncPlaybackState('paused');
+    });
+
+    mediaSession.setActionHandler('play', () => {
+      if (!wantResumeRef.current) {
+        syncPlaybackState('paused');
+        return;
+      }
+      wantResumeRef.current = false;
+      if (wantResumeTimerRef.current) {
+        clearTimeout(wantResumeTimerRef.current);
+        wantResumeTimerRef.current = null;
+      }
+      const tryPlay = () => {
+        const video = getVideo();
+        if (!video) return;
+        if (video.paused) {
+          try {
+            const p = video.play();
+            if (p) p.catch(() => {});
+          } catch {
+            /* noop */
+          }
+        }
+      };
+      tryPlay();
+      syncPlaybackState('playing');
+      setTimeout(() => {
+        const video = getVideo();
+        if (video && video.paused) {
+          console.warn('[VideoPlayer] mediaSession play 后仍 paused，状态纠正重试');
+          tryPlay();
+        }
+      }, 300);
+    });
+
+    return () => {
+      if (wantResumeTimerRef.current) {
+        clearTimeout(wantResumeTimerRef.current);
+        wantResumeTimerRef.current = null;
+      }
+      try {
+        mediaSession.setActionHandler('play', null);
+        mediaSession.setActionHandler('pause', null);
+      } catch {
+        /* noop */
+      }
+    };
+  }, []);
+
   useEffect(() => {
     currentIndexRef.current = currentIndex;
   }, [currentIndex]);
@@ -233,6 +328,44 @@ export function VideoPlayer({
       clearTimeout(timer);
       if (videoEl && handler) {
         videoEl.removeEventListener('timeupdate', handler);
+      }
+    };
+  }, [currentIndex, retryNonce]);
+
+  /** 同步 navigator.mediaSession.playbackState，保持系统 SMTC 会话状态与 `<video>` 实际一致（spec 级必须：
+   *  系统按 playbackState 决定派发 play 还是 pause，不同步会发错方向，破坏报时恢复）。此 listener 只同步状态、
+   *  不触碰 wantResume（系统 pause 与用户手动 pause 都会触发 video 的 pause 事件，不能在此清 wantResume）。 */
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    const mediaSession = navigator.mediaSession;
+    const container = playerContainerRef.current;
+    if (!container) return;
+    let videoEl: HTMLVideoElement | null = null;
+    const onPlay = () => {
+      try {
+        mediaSession.playbackState = 'playing';
+      } catch {
+        /* noop */
+      }
+    };
+    const onPause = () => {
+      try {
+        mediaSession.playbackState = 'paused';
+      } catch {
+        /* noop */
+      }
+    };
+    const timer = setTimeout(() => {
+      videoEl = container.querySelector('video');
+      if (!videoEl) return;
+      videoEl.addEventListener('play', onPlay);
+      videoEl.addEventListener('pause', onPause);
+    }, 1000);
+    return () => {
+      clearTimeout(timer);
+      if (videoEl) {
+        videoEl.removeEventListener('play', onPlay);
+        videoEl.removeEventListener('pause', onPause);
       }
     };
   }, [currentIndex, retryNonce]);

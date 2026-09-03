@@ -64,8 +64,6 @@ export const SCHEMA_SQL = `
     rating_count INTEGER,
     rating_source TEXT,
     rating_updated_at TEXT,
-    favorite_count INTEGER DEFAULT 0,
-    search_count INTEGER DEFAULT 0,
     hidden INTEGER DEFAULT 0,
     personal_score INTEGER DEFAULT 0,
     series_group TEXT,
@@ -77,7 +75,6 @@ export const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS impression (
     media_id TEXT PRIMARY KEY,
     shown_count INTEGER DEFAULT 1,
-    first_shown_at TEXT,
     last_shown_at TEXT
   );
 
