@@ -6,7 +6,7 @@ import { register as registerGlobalShortcut, unregister as unregisterGlobalShort
 import { getCurrentWebviewWindow, WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { currentMonitor } from '@tauri-apps/api/window';
 import { emit, listen } from '@tauri-apps/api/event';
-import { PictureInPicture2, Maximize2, ChevronsUpDown, ChevronsDownUp, X, ExternalLink } from 'lucide-react';
+import { PictureInPicture2, Maximize2, ChevronsUpDown, ChevronsDownUp, X, ExternalLink, Loader2 } from 'lucide-react';
 import { VideoPlayer } from './VideoPlayer';
 import { PlayerOverlays } from './PlayerOverlays';
 import { usePlayerStore, buildPipPayload, isPipSwitching } from '../../stores/playerStore';
@@ -342,7 +342,7 @@ export function PlayerHost() {
   if (mode === 'mini' && (!miniPlayerEnabled || reachedOutroRef.current || pipActive)) return null;
 
   const activeSources = session.sources;
-  const showPlayer = !session.loading && activeSources.length > 0;
+  const showPlayer = activeSources.length > 0;
   const canPiP = typeof document !== 'undefined' && !!document.pictureInPictureEnabled;
 
   const title = session.media?.title ?? '';
@@ -711,6 +711,12 @@ export function PlayerHost() {
           {mode === 'full' && pipActive && (
             <div className="absolute inset-0 z-50 flex items-center justify-center bg-black text-white/70 text-sm pointer-events-none">
               正在画中画窗口播放，关闭画中画后恢复此处控制
+            </div>
+          )}
+          {session.loading && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black text-white/70 text-sm pointer-events-none">
+              <Loader2 className="size-5 animate-spin mr-2" />
+              正在加载...
             </div>
           )}
           <VideoPlayer
