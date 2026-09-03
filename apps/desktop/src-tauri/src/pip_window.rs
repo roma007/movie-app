@@ -18,10 +18,7 @@ pub fn apply_pip_style(window: &tauri::WebviewWindow) -> Result<(), String> {
     use objc2::runtime::{AnyObject, Bool, NSObject};
     use objc2_app_kit::{NSColor, NSWindow, NSWindowStyleMask, NSWindowTitleVisibility};
 
-    let ptr = window.ns_window().map_err(|e| {
-        eprintln!("[pip_style] ns_window 获取失败: {e}");
-        e.to_string()
-    })?;
+    let ptr = window.ns_window().map_err(|e| e.to_string())?;
     let ns_window: &NSWindow = unsafe { &*(ptr as *const NSWindow) };
 
     unsafe {
@@ -57,12 +54,7 @@ pub fn apply_pip_style(window: &tauri::WebviewWindow) -> Result<(), String> {
                 let layer = layer.as_ref() as *const AnyObject as *mut AnyObject;
                 let _: () = msg_send![layer, setCornerRadius: 10.0_f64];
                 let _: () = msg_send![layer, setMasksToBounds: true];
-                println!("[pip_style] mask/corner/osShadow 完成, 含红绿灯隐藏");
-            } else {
-                eprintln!("[pip_style] contentView.layer() 返回 None");
             }
-        } else {
-            eprintln!("[pip_style] contentView() 返回 None");
         }
     }
 
