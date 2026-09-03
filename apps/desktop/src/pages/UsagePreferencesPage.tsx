@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
-import { Input } from '@/components/ui/input';
-import { ArrowLeft, Clock, Home, KeyRound, PictureInPicture2, Waypoints, Video } from 'lucide-react';
+import { ArrowLeft, Clock, Home, PictureInPicture2, Waypoints, Video } from 'lucide-react';
 import { useAppStore } from '../useAppStore';
 import { useThemeStore } from '../themes/store';
 import { usePlayerStore } from '../stores/playerStore';
@@ -33,8 +32,6 @@ export default function UsagePreferencesPage() {
   const [playbackThreshold, setPlaybackThreshold] = useState(10);
   const [prefetchConcurrency, setPrefetchConcurrency] = useState(3);
   const [miniPlayerEnabled, setMiniPlayerEnabled] = useState(true);
-  const [tmdbApiKey, setTmdbApiKey] = useState('');
-  const [tmdbKeyDirty, setTmdbKeyDirty] = useState(false);
   const { userUsageTypes, loadUserUsageTypes, setUserUsageTypes } = useAppStore();
   const { maxBufferSize, setMaxBufferSize } = useThemeStore();
 
@@ -51,18 +48,9 @@ export default function UsagePreferencesPage() {
         setPlaybackThreshold(config.outroThresholdMinutes);
         setPrefetchConcurrency(config.prefetchConcurrency);
         setMiniPlayerEnabled(config.miniPlayerEnabled);
-        setTmdbApiKey(await configService.getString('rating.tmdbApiKey', ''));
       } catch {}
     })();
   }, []);
-
-  const handleSaveTmdbKey = async () => {
-    try {
-      const configService = new SystemConfigService(getProvider());
-      await configService.setString('rating.tmdbApiKey', tmdbApiKey.trim());
-      setTmdbKeyDirty(false);
-    } catch {}
-  };
 
   const handleTogglePlayback = async () => {
     const next = !playbackEnabled;
@@ -240,35 +228,6 @@ export default function UsagePreferencesPage() {
               className={sliderClasses + ' w-56'}
             />
             <span className="text-sm text-muted-foreground w-12 text-right shrink-0">{maxBufferSize}MB</span>
-          </div>
-        </div>
-      </Card>
-
-      <Card className="p-5 mb-8">
-        <div className="flex items-start gap-6">
-          <div className="w-80 shrink-0">
-            <div className="flex items-center gap-3">
-              <KeyRound className="size-4 text-muted-foreground shrink-0" />
-              <span className="font-medium">TMDB API Key（评分回退）</span>
-            </div>
-            <p className="text-sm text-muted-foreground mt-1">当豆瓣查不到评分时，用 TMDB 作为补充评分来源。到 themoviedb.org 免费申请 Key；留空则只使用豆瓣</p>
-          </div>
-          <div className="flex items-center gap-3 flex-1 min-w-0 flex-wrap justify-end">
-            <Input
-              type="text"
-              placeholder="填入 TMDB API Key（可选）"
-              value={tmdbApiKey}
-              onChange={(e) => { setTmdbApiKey(e.target.value); setTmdbKeyDirty(true); }}
-              className="w-72"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!tmdbKeyDirty}
-              onClick={handleSaveTmdbKey}
-            >
-              保存
-            </Button>
           </div>
         </div>
       </Card>

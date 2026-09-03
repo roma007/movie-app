@@ -44,7 +44,7 @@ export interface DatabaseProvider {
     data: {
       rating: number | null;
       ratingCount: number | null;
-      source: 'DOUBAN' | 'TMDB';
+      source: 'DOUBAN';
       updatedAt: string;
     }
   ): Promise<void>;

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity } from 'react-native';
 import Slider from '@react-native-community/slider';
-import { ArrowLeft, Check, KeyRound } from 'lucide-react-native';
+import { ArrowLeft, Check } from 'lucide-react-native';
 import { useAppStore, getProvider } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
 import { Button } from '../components/ui/Button';
@@ -34,8 +34,6 @@ export default function UsagePreferencesScreen({ navigation }: Props) {
   const [playbackEnabled, setPlaybackEnabled] = useState(true);
   const [playbackThreshold, setPlaybackThreshold] = useState(10);
   const [prefetchConcurrency, setPrefetchConcurrency] = useState(3);
-  const [tmdbApiKey, setTmdbApiKey] = useState('');
-  const [tmdbKeyDirty, setTmdbKeyDirty] = useState(false);
 
   useEffect(() => {
     loadUserUsageTypes();
@@ -44,14 +42,7 @@ export default function UsagePreferencesScreen({ navigation }: Props) {
       setPlaybackThreshold(cfg.outroThresholdMinutes);
       setPrefetchConcurrency(cfg.prefetchConcurrency);
     }).catch(() => {});
-    new SystemConfigService(provider).getString('rating.tmdbApiKey', '').then(setTmdbApiKey).catch(() => {});
   }, []);
-
-  const handleSaveTmdbKey = async () => {
-    const configService = new SystemConfigService(provider);
-    await configService.setString('rating.tmdbApiKey', tmdbApiKey.trim());
-    setTmdbKeyDirty(false);
-  };
 
   const handleToggleUsage = (type: UserUsageType) => {
     const next = userUsageTypes.includes(type)
@@ -149,27 +140,6 @@ export default function UsagePreferencesScreen({ navigation }: Props) {
       justifyContent: 'center',
       height: 40,
     },
-    tmdbRow: {
-      paddingHorizontal: 15,
-      paddingBottom: 15,
-      gap: 10,
-    },
-    tmdbInputWrap: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-    },
-    tmdbInput: {
-      flex: 1,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: radius.md,
-      paddingHorizontal: 10,
-      paddingVertical: 8,
-      color: colors.text,
-      fontSize: s(13),
-      backgroundColor: colors.input,
-    },
   }), [colors, cardBg, s, cardOpacity]);
 
   return (
@@ -259,36 +229,6 @@ export default function UsagePreferencesScreen({ navigation }: Props) {
                   maximumTrackTintColor={colors.trackBg}
                   thumbTintColor={colors.text}
                 />
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.card}>
-            <View style={styles.menuItem}>
-              <KeyRound size={16} color={colors.mutedForeground} />
-              <Text style={[styles.menuText, { flex: 1, marginLeft: 8 }]}>TMDB API Key（评分回退）</Text>
-            </View>
-            <View style={styles.tmdbRow}>
-              <Text style={styles.thresholdLabel}>豆瓣查不到评分时用 TMDB 补充。到 themoviedb.org 免费申请；留空则只使用豆瓣</Text>
-              <View style={styles.tmdbInputWrap}>
-                <TextInput
-                  style={styles.tmdbInput}
-                  value={tmdbApiKey}
-                  onChangeText={(t) => { setTmdbApiKey(t); setTmdbKeyDirty(true); }}
-                  placeholder="填入 TMDB API Key（可选）"
-                  placeholderTextColor={colors.mutedForeground}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  active={!tmdbKeyDirty}
-                  onPress={handleSaveTmdbKey}
-                  style={{ opacity: tmdbKeyDirty ? 1 : 0.5 }}
-                >
-                  保存
-                </Button>
               </View>
             </View>
           </View>

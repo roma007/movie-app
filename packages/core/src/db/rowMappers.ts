@@ -60,7 +60,7 @@ export function rowToMedia(row: any): Media {
     viewCount: row.view_count || 0,
     rating: row.rating ?? null,
     ratingCount: row.rating_count ?? null,
-    ratingSource: (row.rating_source || null) as 'DOUBAN' | 'TMDB' | null,
+    ratingSource: (row.rating_source || null) as 'DOUBAN' | null,
     ratingUpdatedAt: row.rating_updated_at || null,
     hidden: row.hidden === 1,
     personalScore: row.personal_score ?? 0,
