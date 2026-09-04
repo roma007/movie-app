@@ -819,7 +819,7 @@ export class TauriSqlProvider implements DatabaseProvider {
   }
 
   async getAreasByType(type?: string): Promise<string[]> {
-    let whereClause = 'WHERE area IS NOT NULL';
+    let whereClause = 'WHERE area IS NOT NULL AND (hidden IS NULL OR hidden = 0)';
     const params: any[] = [];
     if (type) {
       whereClause += ' AND type = ?';
