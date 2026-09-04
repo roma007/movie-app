@@ -28,8 +28,7 @@ import { useThemeStore } from '../../themes/store';
 const SKIP_SECONDS = 30;
 /** 「已跳过」提示展示时长（ms）。 */
 const SKIP_NOTICE_MS = 4000;
-/** macOS 系统 PiP 窗口尺寸受系统硬限制，改用原生子窗口方案时隐藏引擎自带画中画入口。 */
-const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent);
+/** 所有平台统一使用原生子窗口方案（Tauri WebviewWindow）实现画中画，隐藏引擎自带画中画入口。 */
 
 /** 键盘快捷键：与引擎默认一致，但播放/暂停仅保留 k，空格由 PlayerHost 统一接管。 */
 const KEY_SHORTCUTS = {
@@ -607,24 +606,20 @@ export function VideoPlayer({
           smallLayoutWhen={false}
           translations={ZH_TRANSLATIONS}
           slots={{
-            ...(IS_MAC
-              ? {
-                  pipButton: onPipOpen ? (
-                    <button
-                      type="button"
-                      className="vds-button"
-                      aria-label="画中画"
-                      title="画中画"
-                      onClick={() => onPipOpen()}
-                    >
-                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="2" y="4" width="20" height="16" rx="2" />
-                        <rect x="12" y="12" width="8" height="6" rx="1" fill="currentColor" stroke="none" />
-                      </svg>
-                    </button>
-                  ) : null,
-                }
-              : {}),
+            pipButton: onPipOpen ? (
+              <button
+                type="button"
+                className="vds-button"
+                aria-label="画中画"
+                title="画中画"
+                onClick={() => onPipOpen()}
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="4" width="20" height="16" rx="2" />
+                  <rect x="12" y="12" width="8" height="6" rx="1" fill="currentColor" stroke="none" />
+                </svg>
+              </button>
+            ) : null,
             settingsMenuItemsStart: (
               <>
                 <ColorControls

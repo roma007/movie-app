@@ -16,7 +16,6 @@ const COLLAPSED_W = 240;
 const RESIZE_MIN_W = 240;
 const RESIZE_MIN_H = 160;
 const PIP_GEO_KEY = 'movie_app_pip_geo';
-const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent);
 
 interface PipGeometry {
   x?: number;
@@ -343,7 +342,7 @@ export function PlayerHost() {
 
   const activeSources = session.sources;
   const showPlayer = activeSources.length > 0;
-  const canPiP = typeof document !== 'undefined' && !!document.pictureInPictureEnabled;
+  const canPiP = true;
 
   const title = session.media?.title ?? '';
   const episodeLabel = session.episode ? session.episode.title || `第${session.episode.episodeNumber}集` : '';
@@ -436,16 +435,6 @@ export function PlayerHost() {
   };
 
   const handlePiP = async () => {
-    if (!IS_MAC) {
-      const p = playerRef.current;
-      if (!p) return;
-      if (document.pictureInPictureElement) {
-        p.exitPictureInPicture().catch(() => {});
-      } else {
-        p.enterPictureInPicture().catch(() => {});
-      }
-      return;
-    }
     await openNativePipWindow();
   };
 
@@ -723,7 +712,7 @@ export function PlayerHost() {
             playerRef={playerRef}
             keyTarget={mode === 'full' ? 'document' : 'player'}
             autoPlay={!pipActive && (mode === 'full' || !pipStartPaused)}
-            onPipOpen={IS_MAC && mode === 'full' ? () => void openNativePipWindow() : undefined}
+            onPipOpen={mode === 'full' ? () => void openNativePipWindow() : undefined}
             sources={session.sources}
             initialSourceId={session.playSourceId ?? undefined}
             initialCurrentTime={session.currentTime}
