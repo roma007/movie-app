@@ -66,7 +66,6 @@ export interface VideoSource {
   baseUrl: string;
   type: string;
   isEnabled: boolean;
-  rateLimit: number;
   healthStatus?: string | null;
   lastCheckAt?: string | null;
   lastCollectedAt?: string | null;
@@ -227,7 +226,6 @@ export interface ImportSourceItem {
   name: string;
   code: string;
   baseUrl: string;
-  rateLimit?: number;
 }
 
 export type SourceImportStatus =

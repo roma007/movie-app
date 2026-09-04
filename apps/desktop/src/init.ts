@@ -1,5 +1,5 @@
 import { TauriSqlProvider } from './db/tauriSqlProvider';
-import { createAppStore, setHttpClient, setVideoFetchFn, backfillSeriesGroup, reclassifyShortDramaMovies, repairDeadPosterUrls, mergeDuplicateSeriesMedia, getCurrentStoreApiVersion, getStoreApiVersion, type AppStore, type AppState, type HttpClient } from '@movie-app/core';
+import { createAppStore, setHttpClient, setVideoFetchFn, getCurrentStoreApiVersion, getStoreApiVersion, type AppStore, type AppState, type HttpClient } from '@movie-app/core';
 
 let _provider: TauriSqlProvider | null = null;
 let _store: AppStore | null = null;
@@ -186,46 +186,6 @@ export async function initApp(onProgress?: (step: string) => void): Promise<void
       await _provider.init();
       report('Step 3: TauriSqlProvider 初始化完成');
       await logToDb('Initialized TauriSqlProvider');
-
-      try {
-        const updated = await backfillSeriesGroup(_provider);
-        if (updated > 0) await logToDb(`Backfilled series_group for ${updated} media`);
-        report(`Step 3b: 回填系列字段完成（${updated} 条）`);
-      } catch (err) {
-        const errMsg = `回填系列字段失败: ${err instanceof Error ? err.message : String(err)}`;
-        console.error(errMsg);
-        await logToDb(errMsg, 'error');
-      }
-
-      try {
-        const reclassified = await reclassifyShortDramaMovies(_provider);
-        if (reclassified > 0) await logToDb(`Reclassified ${reclassified} short-drama media to TV`);
-        report(`Step 3d: 短剧类型修复完成（${reclassified} 条）`);
-      } catch (err) {
-        const errMsg = `短剧类型修复失败: ${err instanceof Error ? err.message : String(err)}`;
-        console.error(errMsg);
-        await logToDb(errMsg, 'error');
-      }
-
-      try {
-        const { replaced } = await repairDeadPosterUrls(_provider);
-        if (replaced > 0) await logToDb(`Repaired ${replaced} dead poster urls`);
-        report(`Step 3e: 失效封面修复完成（${replaced} 条）`);
-      } catch (err) {
-        const errMsg = `失效封面修复失败: ${err instanceof Error ? err.message : String(err)}`;
-        console.error(errMsg);
-        await logToDb(errMsg, 'error');
-      }
-
-      try {
-        const { merged, removed } = await mergeDuplicateSeriesMedia(_provider);
-        if (merged > 0) await logToDb(`Merged ${merged} duplicate series (removed ${removed} rows)`);
-        report(`Step 3f: 同系列重复合并完成（${merged} 组 / 删除 ${removed} 条）`);
-      } catch (err) {
-        const errMsg = `同系列重复合并失败: ${err instanceof Error ? err.message : String(err)}`;
-        console.error(errMsg);
-        await logToDb(errMsg, 'error');
-      }
       
       report('Step 4: 创建 AppStore...');
       _store = createAppStore(_provider);

@@ -454,7 +454,6 @@ export class CollectorService {
   async collectFromSource(
     sourceId: string,
     baseUrl: string,
-    rateLimit: number,
     page: number = 1,
     pageSize: number = 20,
     hours?: number,
@@ -463,10 +462,10 @@ export class CollectorService {
     const configService = new SystemConfigService(this.db);
     const config = await configService.getCollectConfig();
 
-    console.log(`[Collector] collectFromSource: sourceId=${sourceId}, baseUrl=${baseUrl}, rateLimit=${rateLimit}, page=${page}, pageSize=${pageSize}`);
+    console.log(`[Collector] collectFromSource: sourceId=${sourceId}, baseUrl=${baseUrl}, page=${page}, pageSize=${pageSize}`);
     console.log(`[Collector] config: minYear=${config.minYear}, concurrency=${config.concurrency}`);
 
-    const adapter = new CMSAdapter(baseUrl, rateLimit);
+    const adapter = new CMSAdapter(baseUrl);
     console.log(`[Collector] CMSAdapter created, calling getList...`);
 
     let response;
@@ -485,7 +484,6 @@ export class CollectorService {
         sourceId,
         page,
         url: baseUrl,
-        rateLimit,
         stack: errInstance.stack,
       });
       
@@ -659,7 +657,7 @@ export class CollectorService {
     for (const source of sources) {
       try {
         await this.assertSourceReachable(source);
-        const adapter = new CMSAdapter(source.baseUrl, source.rateLimit);
+        const adapter = new CMSAdapter(source.baseUrl);
         await this.db.incrementSourceRequestCount(source.id);
         const response = await adapter.search(keyword, 1);
 
@@ -706,7 +704,7 @@ export class CollectorService {
       const source = sources[si];
       const batch: CollectPreviewItem[] = [];
       try {
-        const adapter = new CMSAdapter(source.baseUrl, source.rateLimit);
+        const adapter = new CMSAdapter(source.baseUrl);
         await this.db.incrementSourceRequestCount(source.id);
         const response = await adapter.search(keyword, 1);
 
@@ -873,7 +871,7 @@ export class CollectorService {
 
         while (hasMore && currentPage <= maxPages) {
           console.log(`[Collector] Processing source ${source.name} page ${currentPage}${hours ? ` hours=${hours}` : ` (定额)`}`);
-          const { media, pagecount } = await this.collectFromSource(source.id, source.baseUrl, source.rateLimit, currentPage, pageSize, hours);
+          const { media, pagecount } = await this.collectFromSource(source.id, source.baseUrl, currentPage, pageSize, hours);
 
           totalPages = Math.min(pagecount, config.incrementalMaxPages);
           collected += media.length;
@@ -935,7 +933,6 @@ export class CollectorService {
           sourceCode: source.code,
           taskId,
           url: source.baseUrl,
-          rateLimit: source.rateLimit,
           stack: errInstance.stack,
         });
         this.emitLog('error', `批采失败 [${source.name}]: ${errorMsg}`, source.code, source.name, taskId, JSON.stringify({ errorType: errType, url: source.baseUrl }));
@@ -984,7 +981,7 @@ export class CollectorService {
 
       while (hasMore && page <= config.maxPages) {
         try {
-          const { media, pagecount } = await this.collectFromSource(source.id, source.baseUrl, source.rateLimit, page, pageSize);
+          const { media, pagecount } = await this.collectFromSource(source.id, source.baseUrl, page, pageSize);
           totalCollected += media.length;
           totalPages += 1;
 
@@ -1005,10 +1002,9 @@ export class CollectorService {
   async getMediaDetailFromSource(
     sourceId: string,
     baseUrl: string,
-    rateLimit: number,
     vodId: string
   ): Promise<Media | null> {
-    const adapter = new CMSAdapter(baseUrl, rateLimit);
+    const adapter = new CMSAdapter(baseUrl);
     const response = await adapter.getDetail(vodId);
 
     if (response.list.length === 0) return null;
@@ -1021,7 +1017,7 @@ export class CollectorService {
     const source = await this.db.getVideoSourceById(sourceId);
     if (!source) return { healthy: false, responseTime: 0 };
 
-    const adapter = new CMSAdapter(source.baseUrl, source.rateLimit);
+    const adapter = new CMSAdapter(source.baseUrl);
     const startTime = Date.now();
 
     try {
@@ -1150,7 +1146,7 @@ export class CollectorService {
         }
 
         try {
-          const result = await this.collectFromSource(source.id, source.baseUrl, source.rateLimit, page, 20, hours, controller.signal);
+          const result = await this.collectFromSource(source.id, source.baseUrl, page, 20, hours, controller.signal);
 
           if (result.error) {
             throw new Error(result.error);
@@ -1187,7 +1183,6 @@ export class CollectorService {
             taskId,
             page,
             url: source.baseUrl,
-            rateLimit: source.rateLimit,
             stack: errInstance.stack,
           });
           this.emitLog('error', `第${page}页失败: ${errMsg}`, sourceCode, source.name, taskId, JSON.stringify({ errorType: errType, page, url: source.baseUrl }));
@@ -1236,7 +1231,6 @@ export class CollectorService {
         taskId,
         page,
         url: source.baseUrl,
-        rateLimit: source.rateLimit,
         stack: errInstance.stack,
       });
       await this.db.updateCollectTask(taskId, {
@@ -1322,7 +1316,7 @@ export class CollectorService {
         }
 
         try {
-          const result = await this.collectFromSource(source.id, source.baseUrl, source.rateLimit, page, 20, undefined, controller.signal);
+          const result = await this.collectFromSource(source.id, source.baseUrl, page, 20, undefined, controller.signal);
 
           if (result.error) {
             throw new Error(result.error);
@@ -1357,7 +1351,6 @@ export class CollectorService {
             taskId,
             page,
             url: source.baseUrl,
-            rateLimit: source.rateLimit,
             stack: errInstance.stack,
           });
           this.emitLog('error', `第${page}页失败: ${errMsg}`, sourceCode, source.name, taskId, JSON.stringify({ errorType: errType, page, url: source.baseUrl }));
@@ -1406,7 +1399,6 @@ export class CollectorService {
         taskId,
         page,
         url: source.baseUrl,
-        rateLimit: source.rateLimit,
         stack: errInstance.stack,
       });
       await this.db.updateCollectTask(taskId, {

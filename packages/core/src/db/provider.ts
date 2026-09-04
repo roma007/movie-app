@@ -104,7 +104,6 @@ export interface DatabaseProvider {
   upsertVideoSource(source: VideoSource): Promise<void>;
   deleteVideoSource(id: string): Promise<void>;
   setVideoSourceEnabled(id: string, enabled: boolean): Promise<void>;
-  updateSourceRateLimit(id: string, rateLimit: number): Promise<void>;
   updateSourceHealth(id: string, data: {
     healthStatus: string;
     lastCheckAt?: string;

@@ -57,7 +57,6 @@ export default function SourceManagerPage() {
     removeVideoSource,
     toggleSourceEnabled,
     deletePlaySourcesBySourceId,
-    updateSourceRateLimit,
     checkVideoSource,
     previewResults,
     previewLoading,
@@ -75,7 +74,7 @@ export default function SourceManagerPage() {
   const [editingSource, setEditingSource] = useState<VideoSource | null>(null);
   const [editForm, setEditForm] = useState({ name: '', baseUrl: '' });
   const [showAddDialog, setShowAddDialog] = useState(false);
-  const [addForm, setAddForm] = useState({ code: '', name: '', baseUrl: '', rateLimit: '5' });
+  const [addForm, setAddForm] = useState({ code: '', name: '', baseUrl: '' });
 
   const [isLoading, setIsLoading] = useState(true);
   const [showKeywordDialog, setShowKeywordDialog] = useState(false);
@@ -331,12 +330,11 @@ export default function SourceManagerPage() {
       baseUrl: addForm.baseUrl.trim(),
       type: 'CMS',
       isEnabled: true,
-      rateLimit: Number(addForm.rateLimit) || 5,
       healthStatus: null,
       lastCheckAt: null,
     };
     addVideoSource(source);
-    setAddForm({ code: '', name: '', baseUrl: '', rateLimit: '5' });
+    setAddForm({ code: '', name: '', baseUrl: '' });
     setShowAddDialog(false);
     toast('视频源已添加');
   };
@@ -435,15 +433,12 @@ export default function SourceManagerPage() {
       return { label: '不可用，请检查', color: '#ef4444' };
     }
     if (failRate > 20) {
-      return { label: '失败多，需降速', color: '#ef4444' };
+      return { label: '失败率较高', color: '#ef4444' };
     }
     if (status === 'DEGRADED' || status === 'degraded' || failRate > 10) {
-      return { label: '不稳定，需降速', color: '#eab308' };
+      return { label: '不稳定', color: '#eab308' };
     }
-    if (failRate < 5 && (source.rateLimit || 0) < 5) {
-      return { label: '非常好，可加速', color: '#22c55e' };
-    }
-    return { label: '很稳定，可保持', color: '#22c55e' };
+    return { label: '稳定', color: '#22c55e' };
   };
 
   return (
@@ -513,12 +508,6 @@ export default function SourceManagerPage() {
               <Label>API 地址</Label>
               <Input value={addForm.baseUrl} onChange={(e) => setAddForm({ ...addForm, baseUrl: e.target.value })} placeholder="https://example.com/api.php/provide/vod" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>速率限制（1-10）</Label>
-                <Input type="number" value={addForm.rateLimit} onChange={(e) => setAddForm({ ...addForm, rateLimit: e.target.value })} />
-              </div>
-            </div>
           </div>
           <div className="flex justify-end gap-3 mt-4">
             <Button variant="outline" onClick={() => setShowAddDialog(false)}>取消</Button>
@@ -570,6 +559,9 @@ export default function SourceManagerPage() {
                         {!source.isEnabled && (
                           <Badge variant="secondary" className="text-xs">已禁用</Badge>
                         )}
+                        <Badge variant="outline" className="text-xs" style={{ color: health.color }}>
+                          {health.label}
+                        </Badge>
                       </div>
                     </div>
 
@@ -595,41 +587,6 @@ export default function SourceManagerPage() {
                         上次增量采集: {source.lastIncrementalCollectedAt ? new Date(source.lastIncrementalCollectedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '从未'}
                       </span>
                     </div>
-                  </div>
-
-                  <div className="px-4 py-2 flex items-center justify-end gap-6">
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 w-7 p-0 text-lg font-bold"
-                        disabled={(source.rateLimit || 0) <= 1}
-                        onClick={() => updateSourceRateLimit(source.id, Math.max(1, (source.rateLimit || 5) - 1))}
-                      >
-                        -
-                      </Button>
-                      {[2, 4, 6, 8, 10].map((threshold) => (
-                        <div
-                          key={threshold}
-                          className="w-2 h-2 rounded-full"
-                          style={{ backgroundColor: (source.rateLimit || 0) >= threshold ? '#22c55e' : '#4b5563' }}
-                        />
-                      ))}
-                      <span className="text-xs text-muted-foreground ml-1">{source.rateLimit || 0}</span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 w-7 p-0 text-lg font-bold"
-                        disabled={(source.rateLimit || 0) >= 10}
-                        onClick={() => updateSourceRateLimit(source.id, Math.min(10, (source.rateLimit || 5) + 1))}
-                      >
-                        +
-                      </Button>
-                    </div>
-
-                    <Badge variant="outline" className="text-xs" style={{ color: health.color }}>
-                      {health.label}
-                    </Badge>
                   </div>
 
                   <div className="px-4 pb-3 flex items-center justify-end gap-2 flex-wrap">

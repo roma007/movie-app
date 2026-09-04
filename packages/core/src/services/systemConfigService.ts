@@ -10,7 +10,6 @@ export interface SystemConfig {
 
 export interface CollectConfig {
   minYear: number;
-  rateLimitPerSecond: number;
   retryTimes: number;
   pageSize: number;
   maxPages: number;
@@ -64,7 +63,6 @@ const DEFAULT_SHORT_DRAMA_CONFIG: ShortDramaConfig = {
 
 const DEFAULT_COLLECT_CONFIG: CollectConfig = {
   minYear: 2025,
-  rateLimitPerSecond: 2,
   retryTimes: 3,
   pageSize: 20,
   maxPages: 100,
@@ -79,7 +77,6 @@ const DEFAULT_COLLECT_CONFIG: CollectConfig = {
 
 const CONFIG_REMARKS: Record<string, string> = {
   'collect.minYear': '最小年份过滤（低于此年份的内容将被跳过）',
-  'collect.rateLimitPerSecond': '采集请求速率限制（每秒请求数）',
   'collect.retryTimes': '采集失败重试次数',
   'collect.pageSize': '每页大小',
   'collect.maxPages': '全量采集最大页数',
@@ -169,7 +166,6 @@ export class SystemConfigService {
   async getCollectConfig(): Promise<CollectConfig> {
     return {
       minYear: await this.getNumber('collect.minYear', DEFAULT_COLLECT_CONFIG.minYear),
-      rateLimitPerSecond: await this.getNumber('collect.rateLimitPerSecond', DEFAULT_COLLECT_CONFIG.rateLimitPerSecond),
       retryTimes: await this.getNumber('collect.retryTimes', DEFAULT_COLLECT_CONFIG.retryTimes),
       pageSize: await this.getNumber('collect.pageSize', DEFAULT_COLLECT_CONFIG.pageSize),
       maxPages: await this.getNumber('collect.maxPages', DEFAULT_COLLECT_CONFIG.maxPages),

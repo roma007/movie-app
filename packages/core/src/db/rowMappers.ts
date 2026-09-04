@@ -103,7 +103,6 @@ export function rowToVideoSource(row: any): VideoSource {
     baseUrl: row.base_url,
     type: row.type,
     isEnabled: row.is_enabled === 1,
-    rateLimit: row.rate_limit,
     healthStatus: row.health_status,
     lastCheckAt: row.last_check_at,
     lastCollectedAt: row.last_collected_at || null,

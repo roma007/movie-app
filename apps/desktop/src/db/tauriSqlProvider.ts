@@ -246,6 +246,9 @@ export class TauriSqlProvider implements DatabaseProvider {
     await this.addColumnIfMissing('watch_history', 'source_id', 'TEXT');
     await this.addColumnIfMissing('watch_history', 'play_source_id', 'TEXT');
 
+    // 删除 video_source 表的 rate_limit 列（重建表）
+    await this.dropColumnIfExists('video_source', 'rate_limit');
+
     // 始终重建 FTS5：确保虚拟表和辅助表状态一致，不受历史损坏影响
     await this.rebuildFts5();
 
@@ -347,6 +350,55 @@ export class TauriSqlProvider implements DatabaseProvider {
   }
 
   /**
+   * 若表存在且包含指定列，则通过重建表删除该列。
+   * SQLite 不支持 ALTER TABLE DROP COLUMN，需走重建表流程。
+   * 当前仅用于 video_source 表删除 rate_limit 列，重建时显式还原表结构（含主键/唯一约束）。
+   */
+  private async dropColumnIfExists(table: string, column: string): Promise<void> {
+    const cols = await this.db!.select<{ name: string }[]>(
+      `PRAGMA table_info(${table})`
+    );
+    if (!cols.some(c => c.name === column)) return;
+
+    // 1. 禁用外键约束
+    await this.db!.execute('PRAGMA foreign_keys=OFF');
+
+    // 2. 显式重建 video_source 表（保留主键/唯一约束，移除 rate_limit 列）
+    await this.db!.execute(`CREATE TABLE ${table}_new (
+      id TEXT PRIMARY KEY,
+      code TEXT UNIQUE,
+      name TEXT NOT NULL,
+      base_url TEXT NOT NULL,
+      type TEXT DEFAULT 'CMS',
+      is_enabled INTEGER DEFAULT 1,
+      health_status TEXT,
+      last_check_at TEXT,
+      last_success_at TEXT,
+      avg_response_time INTEGER,
+      last_collected_at TEXT,
+      last_incremental_collected_at TEXT,
+      created_at TEXT,
+      fail_count INTEGER DEFAULT 0,
+      total_requests INTEGER DEFAULT 0
+    )`);
+
+    // 3. 复制数据（跳过被删列）
+    await this.db!.execute(
+      `INSERT INTO ${table}_new (id, code, name, base_url, type, is_enabled, health_status, last_check_at, last_success_at, avg_response_time, last_collected_at, last_incremental_collected_at, created_at, fail_count, total_requests)
+       SELECT id, code, name, base_url, type, is_enabled, health_status, last_check_at, last_success_at, avg_response_time, last_collected_at, last_incremental_collected_at, created_at, fail_count, total_requests FROM ${table}`
+    );
+
+    // 4. 删除旧表
+    await this.db!.execute(`DROP TABLE ${table}`);
+
+    // 5. 重命名新表
+    await this.db!.execute(`ALTER TABLE ${table}_new RENAME TO ${table}`);
+
+    // 6. 恢复外键约束
+    await this.db!.execute('PRAGMA foreign_keys=ON');
+  }
+
+  /**
    * Drop 并重建 media_fts 虚拟表及其触发器，然后从 media 表重建索引。
    * 每次启动时调用，确保 FTS5 虚拟表和辅助表状态一致。
    *
@@ -434,7 +486,6 @@ export class TauriSqlProvider implements DatabaseProvider {
           source.code,
           source.name,
           source.baseUrl,
-          source.rateLimit,
           now,
         ]);
       }
@@ -1132,17 +1183,16 @@ export class TauriSqlProvider implements DatabaseProvider {
 
   async upsertVideoSource(source: VideoSource): Promise<void> {
     await this.db!.execute(
-      `INSERT INTO video_source (id, code, name, base_url, type, is_enabled, rate_limit, health_status, last_check_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO video_source (id, code, name, base_url, type, is_enabled, health_status, last_check_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(code) DO UPDATE SET
          name = excluded.name,
          base_url = excluded.base_url,
          type = excluded.type,
          is_enabled = excluded.is_enabled,
-         rate_limit = excluded.rate_limit,
          health_status = excluded.health_status,
          last_check_at = excluded.last_check_at`,
-      [source.id, source.code, source.name, source.baseUrl, source.type, source.isEnabled ? 1 : 0, source.rateLimit, source.healthStatus || null, source.lastCheckAt || null]
+      [source.id, source.code, source.name, source.baseUrl, source.type, source.isEnabled ? 1 : 0, source.healthStatus || null, source.lastCheckAt || null]
     );
   }
 
@@ -1152,10 +1202,6 @@ export class TauriSqlProvider implements DatabaseProvider {
 
   async setVideoSourceEnabled(id: string, enabled: boolean): Promise<void> {
     await this.db!.execute('UPDATE video_source SET is_enabled = ? WHERE id = ?', [enabled ? 1 : 0, id]);
-  }
-
-  async updateSourceRateLimit(id: string, rateLimit: number): Promise<void> {
-    await this.db!.execute('UPDATE video_source SET rate_limit = ? WHERE id = ?', [rateLimit, id]);
   }
 
   async updateSourceHealth(id: string, data: {

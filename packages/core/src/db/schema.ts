@@ -109,7 +109,6 @@ export const SCHEMA_SQL = `
     base_url TEXT NOT NULL,
     type TEXT DEFAULT 'CMS',
     is_enabled INTEGER DEFAULT 1,
-    rate_limit INTEGER DEFAULT 5,
     health_status TEXT,
     last_check_at TEXT,
     last_success_at TEXT,
@@ -285,7 +284,7 @@ export const SCHEMA_SQL = `
 /**
  * 插入默认视频源（两端共享逻辑，调用方需自行执行 SQL）
  */
-export const INSERT_DEFAULT_SOURCE_SQL = `INSERT INTO video_source (id, code, name, base_url, type, is_enabled, rate_limit, created_at) VALUES (?, ?, ?, ?, 'CMS', 1, ?, ?)`;
+export const INSERT_DEFAULT_SOURCE_SQL = `INSERT INTO video_source (id, code, name, base_url, type, is_enabled, created_at) VALUES (?, ?, ?, ?, 'CMS', 1, ?)`;
 export const COUNT_VIDEO_SOURCE_SQL = 'SELECT COUNT(*) as count FROM video_source';
 
 /**

@@ -131,7 +131,6 @@ export interface AppState {
   toggleSourceEnabled: (id: string, enabled: boolean) => Promise<void>;
   addVideoSource: (source: VideoSource) => Promise<void>;
   removeVideoSource: (id: string) => Promise<void>;
-  updateSourceRateLimit: (id: string, rateLimit: number) => Promise<void>;
   batchImportSources: (items: ImportSourceItem[]) => Promise<{ imported: number; skipped: number; errors: { index: number; message: string }[] }>;
   validateImportSources: (items: ImportSourceItem[]) => Promise<ParsedImportSource[]>;
 
@@ -517,15 +516,6 @@ export function createAppStore(db: DatabaseProvider) {
     removeVideoSource: async (id: string) => {
       try {
         await db.deleteVideoSource(id);
-        await get().loadVideoSources();
-      } catch (err: any) {
-        set({ error: err.message });
-      }
-    },
-
-    updateSourceRateLimit: async (id: string, rateLimit: number) => {
-      try {
-        await db.updateSourceRateLimit(id, rateLimit);
         await get().loadVideoSources();
       } catch (err: any) {
         set({ error: err.message });

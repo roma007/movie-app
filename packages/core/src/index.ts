@@ -25,9 +25,6 @@ export { getHttpClient, setHttpClient, type HttpClient } from './utils/httpClien
 // 服务
 export { CMSAdapter } from './services/cmsAdapter';
 export { CollectorService } from './services/collectorService';
-export { backfillSeriesGroup } from './services/backfillService';
-export { reclassifyShortDramaMovies } from './services/reclassifyService';
-export { repairDeadPosterUrls, mergeDuplicateSeriesMedia } from './services/posterRepairService';
 export { SystemConfigService, type CollectConfig, type ShortDramaConfig } from './services/systemConfigService';
 export { AutoCollectScheduler } from './services/autoCollectScheduler';
 export { VideoDurationService, setVideoFetchFn, getVideoFetchFn } from './services/videoDurationService';

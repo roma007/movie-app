@@ -18,8 +18,6 @@ interface Props {
   navigation: any;
 }
 
-const RATE_BARS = [2, 4, 6, 8, 10];
-
 function formatCheckTime(timestamp: string): string {
   try {
     const d = new Date(timestamp);
@@ -37,7 +35,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
   const {
     videoSources, loadVideoSources,
     toggleSourceEnabled, removeVideoSource, addVideoSource,
-    updateSourceRateLimit,
     checkVideoSource, collectSourceLatest, collectSourceAll,
     collectTasks, loadRunningCollectTasks,
     previewResults, previewLoading,
@@ -62,17 +59,10 @@ export default function SourceManagerScreen({ navigation }: Props) {
     navPlaceholder: { width: 40 },
     list: { paddingHorizontal: 15, paddingBottom: 30, gap: 12 },
     sourceCard: { backgroundColor: cardBg, borderRadius: radius.lg, padding: 12 },
-    sourceHeader: { marginBottom: 6 },
-    sourceName: { fontSize: sf(16), fontWeight: '600', color: colors.text },
+    sourceHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+    sourceName: { fontSize: sf(16), fontWeight: '600', color: colors.text, flexShrink: 1 },
     sourceControls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 },
     checkTimeText: { fontSize: sf(11), color: colors.disabledForeground },
-    rateRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
-    ratePrefix: { fontSize: sf(12), color: colors.mutedForeground },
-    rateButton: { padding: 4 },
-    rateButtonText: { color: colors.textSecondary, fontSize: sf(14) },
-    rateBars: { flexDirection: 'row', gap: 3 },
-    rateBar: { width: 8, height: 16, borderRadius: radius.progress },
-    rateLabel: { fontSize: sf(14), color: colors.textSecondary, width: 24, textAlign: 'center' },
     healthBadge: { fontSize: sf(10), paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm, borderWidth: StyleSheet.hairlineWidth, marginLeft: 8 },
     sourceDeleteBtn: { paddingVertical: 4, paddingHorizontal: 8 },
     sourceActions: { flexDirection: 'row', gap: 6 },
@@ -87,7 +77,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 },
     modalContent: { width: '100%', backgroundColor: colors.background, borderRadius: radius.xl, padding: 24, gap: 16 },
     modalTitle: { fontSize: sf(20), fontWeight: 'bold', color: colors.text, textAlign: 'center' },
-    inputRow: { flexDirection: 'row', gap: 12 },
     modalButtons: { flexDirection: 'row', gap: 12, marginTop: 8 },
     modalButton: { flex: 1 },
     keywordModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', paddingTop: 60 },
@@ -133,12 +122,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
     aiResultSubtext: { fontSize: sf(14), color: colors.mutedForeground },
   }), [colors, cardBg, surfaceBg, surfaceElevatedBg, sf]);
 
-  const getBarColor = (level: number, threshold: number): string => {
-    if (level >= threshold) return colors.success;
-    if (level >= threshold - 1) return colors.warning;
-    return colors.disabledForeground;
-  };
-
   const getHealthLabel = (source: VideoSource): { label: string; color: string } => {
     const failCount = source.failCount || 0;
     const totalRequests = source.totalRequests || 0;
@@ -149,19 +132,16 @@ export default function SourceManagerScreen({ navigation }: Props) {
       return { label: '不可用，请检查', color: colors.error };
     }
     if (failRate > 20) {
-      return { label: '失败多，需降速', color: colors.error };
+      return { label: '失败率较高', color: colors.error };
     }
     if (status === 'DEGRADED' || status === 'degraded' || failRate > 10) {
-      return { label: '不稳定，需降速', color: colors.warning };
+      return { label: '不稳定', color: colors.warning };
     }
-    if (failRate < 5 && (source.rateLimit || 0) < 5) {
-      return { label: '非常好，可加速', color: colors.success };
-    }
-    return { label: '很稳定，可保持', color: colors.success };
+    return { label: '稳定', color: colors.success };
   };
 
   const [modalVisible, setModalVisible] = useState(false);
-  const [form, setForm] = useState({ code: '', name: '', baseUrl: '', rateLimit: '5' });
+  const [form, setForm] = useState({ code: '', name: '', baseUrl: '' });
 
   const [editingSource, setEditingSource] = useState<VideoSource | null>(null);
   const [editForm, setEditForm] = useState({ name: '', baseUrl: '' });
@@ -271,11 +251,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
     ]);
   };
 
-  const handleAdjustRate = async (source: VideoSource, delta: number) => {
-    const newRate = Math.max(1, Math.min(10, source.rateLimit + delta));
-    await updateSourceRateLimit(source.id, newRate);
-  };
-
   const handleAdd = () => {
     const code = form.code.trim();
     if (!code || !form.name.trim() || !form.baseUrl.trim()) {
@@ -289,12 +264,11 @@ export default function SourceManagerScreen({ navigation }: Props) {
       baseUrl: form.baseUrl.trim(),
       type: 'CMS',
       isEnabled: true,
-      rateLimit: Number(form.rateLimit) || 5,
       healthStatus: null,
       lastCheckAt: null,
     };
     addVideoSource(source);
-    setForm({ code: '', name: '', baseUrl: '', rateLimit: '5' });
+    setForm({ code: '', name: '', baseUrl: '' });
     setModalVisible(false);
   };
 
@@ -492,6 +466,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
               <View key={source.id} style={styles.sourceCard}>
                 <View style={styles.sourceHeader}>
                   <Text style={styles.sourceName} numberOfLines={1}>{source.name}</Text>
+                  <Text style={[styles.healthBadge, { color: health.color, borderColor: health.color }]} numberOfLines={1}>{health.label}</Text>
                 </View>
                 <View style={styles.sourceControls}>
                   <Button
@@ -534,36 +509,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
                   >
                     删视频
                   </Button>
-                </View>
-
-                <View style={styles.rateRow}>
-                  <Text style={styles.ratePrefix}>速率：</Text>
-                  <Button
-                    variant="icon"
-                    size="sm"
-                    style={styles.rateButton}
-                    onPress={() => handleAdjustRate(source, -1)}
-                  >
-                    <Text style={styles.rateButtonText}>▼</Text>
-                  </Button>
-                  <View style={styles.rateBars}>
-                    {RATE_BARS.map((threshold, idx) => (
-                      <View
-                        key={idx}
-                        style={[styles.rateBar, { backgroundColor: getBarColor(source.rateLimit, threshold) }]}
-                      />
-                    ))}
-                  </View>
-                  <Text style={styles.rateLabel}>{source.rateLimit}</Text>
-                  <Button
-                    variant="icon"
-                    size="sm"
-                    style={styles.rateButton}
-                    onPress={() => handleAdjustRate(source, 1)}
-                  >
-                    <Text style={styles.rateButtonText}>▲</Text>
-                  </Button>
-                  <Text style={[styles.healthBadge, { color: health.color, borderColor: health.color }]} numberOfLines={1}>{health.label}</Text>
                 </View>
 
                 <View style={styles.sourceActions}>
@@ -656,16 +601,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
               value={form.baseUrl}
               onChangeText={(text) => setForm({ ...form, baseUrl: text })}
             />
-            <View style={styles.inputRow}>
-              <Input
-                size="lg"
-                style={{ flex: 1 }}
-                placeholder="速率限制"
-                keyboardType="numeric"
-                value={form.rateLimit}
-                onChangeText={(text) => setForm({ ...form, rateLimit: text })}
-              />
-            </View>
             <View style={styles.modalButtons}>
               <Button variant="secondary" size="md" style={styles.modalButton} onPress={() => setModalVisible(false)}>
                 取消

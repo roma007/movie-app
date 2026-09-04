@@ -347,6 +347,35 @@ const MIGRATIONS: Migration[] = [
     description: 'drop_sync_remnants_after_revert',
     sql: DROP_SYNC_REMNANTS_SQL,
   },
+  {
+    version: 40,
+    description: 'drop_rate_limit_column_from_video_source',
+    sql: `
+      PRAGMA foreign_keys=OFF;
+      CREATE TABLE video_source_new (
+        id TEXT PRIMARY KEY,
+        code TEXT UNIQUE,
+        name TEXT NOT NULL,
+        base_url TEXT NOT NULL,
+        type TEXT DEFAULT 'CMS',
+        is_enabled INTEGER DEFAULT 1,
+        health_status TEXT,
+        last_check_at TEXT,
+        last_success_at TEXT,
+        avg_response_time INTEGER,
+        last_collected_at TEXT,
+        last_incremental_collected_at TEXT,
+        created_at TEXT,
+        fail_count INTEGER DEFAULT 0,
+        total_requests INTEGER DEFAULT 0
+      );
+      INSERT INTO video_source_new (id, code, name, base_url, type, is_enabled, health_status, last_check_at, last_success_at, avg_response_time, last_collected_at, last_incremental_collected_at, created_at, fail_count, total_requests)
+        SELECT id, code, name, base_url, type, is_enabled, health_status, last_check_at, last_success_at, avg_response_time, last_collected_at, last_incremental_collected_at, created_at, fail_count, total_requests FROM video_source;
+      DROP TABLE video_source;
+      ALTER TABLE video_source_new RENAME TO video_source;
+      PRAGMA foreign_keys=ON;
+    `,
+  },
 ];
 
 /**
@@ -491,7 +520,6 @@ export class ExpoSqliteProvider implements DatabaseProvider {
           source.code,
           source.name,
           source.baseUrl,
-          source.rateLimit,
           now,
         ]);
       }
@@ -1188,17 +1216,16 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async upsertVideoSource(source: VideoSource): Promise<void> {
     await this.db!.runAsync(
-      `INSERT INTO video_source (id, code, name, base_url, type, is_enabled, rate_limit, health_status, last_check_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO video_source (id, code, name, base_url, type, is_enabled, health_status, last_check_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(code) DO UPDATE SET
          name = excluded.name,
          base_url = excluded.base_url,
          type = excluded.type,
          is_enabled = excluded.is_enabled,
-         rate_limit = excluded.rate_limit,
          health_status = excluded.health_status,
          last_check_at = excluded.last_check_at`,
-      [source.id, source.code, source.name, source.baseUrl, source.type, source.isEnabled ? 1 : 0, source.rateLimit, source.healthStatus || null, source.lastCheckAt || null]
+      [source.id, source.code, source.name, source.baseUrl, source.type, source.isEnabled ? 1 : 0, source.healthStatus || null, source.lastCheckAt || null]
     );
   }
 
@@ -1208,10 +1235,6 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async setVideoSourceEnabled(id: string, enabled: boolean): Promise<void> {
     await this.db!.runAsync('UPDATE video_source SET is_enabled = ? WHERE id = ?', [enabled ? 1 : 0, id]);
-  }
-
-  async updateSourceRateLimit(id: string, rateLimit: number): Promise<void> {
-    await this.db!.runAsync('UPDATE video_source SET rate_limit = ? WHERE id = ?', [rateLimit, id]);
   }
 
   async updateSourceHealth(id: string, data: {

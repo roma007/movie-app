@@ -121,7 +121,7 @@ export default function CollectGuidePage() {
           </h3>
           <ol className="text-sm text-muted-foreground space-y-2">
             <Step index={1}>打开「设置」页面，点击「视频源管理」</Step>
-            <Step index={2}>点击「手动添加」，填写视频源信息：编码（唯一标识）、名称、API 地址、速率限制（1-10）</Step>
+            <Step index={2}>点击「手动添加」，填写视频源信息：编码（唯一标识）、名称、API 地址</Step>
             <Step index={3}>点击「保存」，视频源出现在列表中</Step>
             <Step index={4}>点击「检测」确认源可用，用开关启用/禁用源</Step>
           </ol>

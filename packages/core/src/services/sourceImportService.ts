@@ -43,7 +43,6 @@ export class SourceImportService {
         name: raw.name,
         code: raw.code,
         baseUrl: raw.baseUrl,
-        rateLimit: raw.rateLimit,
       });
     }
 
@@ -76,13 +75,6 @@ export class SourceImportService {
       }
     }
 
-    if (item.rateLimit != null) {
-      const rl = Number(item.rateLimit);
-      if (!Number.isInteger(rl) || rl < 1 || rl > 5) {
-        errors.push('速率限制(rateLimit)须为 1-5 的整数');
-      }
-    }
-
     return errors;
   }
 
@@ -91,7 +83,6 @@ export class SourceImportService {
       ...item,
       code: item.code.trim(),
       baseUrl: item.baseUrl.trim(),
-      rateLimit: item.rateLimit ?? 2,
     };
   }
 
@@ -195,7 +186,6 @@ export class SourceImportService {
           baseUrl: item.baseUrl,
           type: 'CMS',
           isEnabled: true,
-          rateLimit: item.rateLimit ?? 2,
           healthStatus: null,
           lastCheckAt: null,
         };

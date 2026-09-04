@@ -1,6 +1,6 @@
 import { ExpoSqliteProvider } from './db/expoSqliteProvider';
 import { DevSettings } from 'react-native';
-import { createAppStore, CollectorService, backfillSeriesGroup, reclassifyShortDramaMovies, repairDeadPosterUrls, mergeDuplicateSeriesMedia, getCurrentStoreApiVersion, getStoreApiVersion, type AppStore, type AppState } from '@movie-app/core';
+import { createAppStore, CollectorService, getCurrentStoreApiVersion, getStoreApiVersion, type AppStore, type AppState } from '@movie-app/core';
 import { initializeMobileVoiceControl } from './services/mobileVoiceControlSystem';
 
 /**
@@ -37,30 +37,6 @@ export async function initApp(): Promise<void> {
     const provider = new ExpoSqliteProvider();
     await provider.init();
     s.provider = provider;
-    try {
-      const updated = await backfillSeriesGroup(provider);
-      if (updated > 0) console.log(`[INIT] 回填了 ${updated} 个 media 的系列字段`);
-    } catch (err) {
-      console.error('[INIT] 回填系列字段失败:', err);
-    }
-    try {
-      const reclassified = await reclassifyShortDramaMovies(provider);
-      if (reclassified > 0) console.log(`[INIT] 修复了 ${reclassified} 个误分类短剧`);
-    } catch (err) {
-      console.error('[INIT] 短剧类型修复失败:', err);
-    }
-    try {
-      const { replaced } = await repairDeadPosterUrls(provider);
-      if (replaced > 0) console.log(`[INIT] 修复了 ${replaced} 条失效封面`);
-    } catch (err) {
-      console.error('[INIT] 失效封面修复失败:', err);
-    }
-    try {
-      const { merged, removed } = await mergeDuplicateSeriesMedia(provider);
-      if (merged > 0) console.log(`[INIT] 合并了 ${merged} 组同系列重复（删除 ${removed} 条）`);
-    } catch (err) {
-      console.error('[INIT] 同系列重复合并失败:', err);
-    }
     const store = createAppStore(provider);
     const collector = new CollectorService(provider);
     s.store = store;
