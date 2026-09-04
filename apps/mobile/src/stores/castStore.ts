@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type CastProtocol = 'chromecast' | 'airplay' | 'dlna';
+export type CastProtocol = 'airplay' | 'dlna';
 export type CastState = 'idle' | 'connecting' | 'playing' | 'paused' | 'buffering' | 'error' | 'disconnected';
 
 export interface CastDevice {
@@ -23,7 +23,11 @@ interface CastState_ {
   castState: CastState;
   availableDevices: CastDevice[];
   localProgressBeforeCast: number;
+  isSearching: boolean;
+  castError: string | null;
 
+  setSearching: (searching: boolean) => void;
+  setCastError: (error: string | null) => void;
   setAvailableDevices: (devices: CastDevice[]) => void;
   addDevice: (device: CastDevice) => void;
   removeDevice: (deviceId: string) => void;
@@ -42,7 +46,11 @@ export const useCastStore = create<CastState_>((set) => ({
   castState: 'idle',
   availableDevices: [],
   localProgressBeforeCast: 0,
+  isSearching: false,
+  castError: null,
 
+  setSearching: (searching) => set({ isSearching: searching }),
+  setCastError: (error) => set({ castError: error }),
   setAvailableDevices: (devices) => set({ availableDevices: devices }),
 
   addDevice: (device) =>

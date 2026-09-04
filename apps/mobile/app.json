@@ -2,7 +2,7 @@
   "expo": {
     "name": "Movie App",
     "slug": "movie-app",
-    "version": "1.0.100",
+    "version": "1.0.101",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -21,7 +21,7 @@
         "NSMicrophoneUsageDescription": "语音控制需要使用麦克风来识别您的语音指令",
         "NSSpeechRecognitionUsageDescription": "语音控制需要使用语音识别来理解您的指令",
         "NSLocalNetworkUsageDescription": "需要访问本地网络以发现和连接投屏设备",
-        "NSBonjourServices": ["_googlecast._tcp", "_raop._tcp", "_upnp._tcp", "_airplay._tcp"]
+        "NSBonjourServices": ["_raop._tcp", "_upnp._tcp", "_airplay._tcp"]
       }
     },
     "android": {
@@ -44,7 +44,6 @@
       ["expo-video", { "supportsPictureInPicture": true }],
       "expo-screen-orientation",
       "expo-status-bar",
-      "react-native-google-cast",
       "react-native-vosk",
       "./plugins/withVoskModel.js",
       "./plugins/withLocalVendored.js"

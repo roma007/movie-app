@@ -22,20 +22,18 @@ interface Props {
 
 export function DevicePickerSheet({ visible, onClose, onSelect }: Props) {
   const colors = useThemeColors();
-  const { availableDevices } = useCastStore();
+  const { availableDevices, isSearching } = useCastStore();
 
-  const chromecastDevices = availableDevices.filter((d) => d.protocol === 'chromecast');
   const dlnaDevices = availableDevices.filter((d) => d.protocol === 'dlna');
   const airplayDevices = availableDevices.filter((d) => d.protocol === 'airplay');
 
-  const hasAnyDevices = chromecastDevices.length > 0 || dlnaDevices.length > 0 || airplayDevices.length > 0;
+  const hasAnyDevices = dlnaDevices.length > 0 || airplayDevices.length > 0;
 
   const handleDevicePress = (device: { id: string; name: string; protocol: string }) => {
     onSelect(device);
   };
 
   const protocolSections = [
-    { title: 'Chromecast', devices: chromecastDevices, icon: <Cast size={14} color={colors.mutedForeground} /> },
     { title: 'AirPlay', devices: airplayDevices, icon: <Monitor size={14} color={colors.mutedForeground} /> },
     { title: 'DLNA', devices: dlnaDevices, icon: <Wifi size={14} color={colors.mutedForeground} /> },
   ].filter((s) => s.devices.length > 0);
@@ -60,7 +58,14 @@ export function DevicePickerSheet({ visible, onClose, onSelect }: Props) {
                 </TouchableOpacity>
               </View>
 
-              {!hasAnyDevices ? (
+              {isSearching ? (
+                <View style={styles.emptyWrap}>
+                  <ActivityIndicator size="large" color={colors.success} />
+                  <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
+                    正在搜索投屏设备...
+                  </Text>
+                </View>
+              ) : !hasAnyDevices ? (
                 <View style={styles.emptyWrap}>
                   <Cast size={32} color={colors.mutedForeground} />
                   <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>

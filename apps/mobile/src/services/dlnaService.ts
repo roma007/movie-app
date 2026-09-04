@@ -33,10 +33,11 @@ export async function castToDlna(
   deviceId: string,
   videoUrl: string,
   title?: string,
+  startPositionMs?: number,
 ): Promise<void> {
   const mod = await getDlnaModule();
   if (!mod) throw new Error('DLNA module not available');
-  await mod.cast(deviceId, videoUrl, title || '');
+  await mod.cast(deviceId, videoUrl, title || '', startPositionMs || 0);
 }
 
 export async function stopDlna(deviceId: string): Promise<void> {

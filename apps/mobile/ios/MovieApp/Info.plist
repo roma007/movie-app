@@ -46,11 +46,9 @@
 	</dict>
 	<key>NSBonjourServices</key>
 	<array>
-		<string>_googlecast._tcp</string>
 		<string>_raop._tcp</string>
 		<string>_upnp._tcp</string>
 		<string>_airplay._tcp</string>
-		<string>_CC1AD845._googlecast._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>需要访问本地网络以发现和连接投屏设备</string>

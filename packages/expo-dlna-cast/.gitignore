@@ -1,0 +1,4 @@
+build/
+android/build/
+ios/build/
+ios/Pods/

@@ -4,13 +4,12 @@ const path = require('path');
 
 const TARBALLS = [
   'TensorFlowLiteC-2.14.0.tar.gz',
-  'GoogleCastSDK-ios-4.8.6_static_xcframework.tar.gz',
 ];
 
 /**
- * 离线注入 TFLiteC / google-cast-sdk 的 vendored xcframework。
- * 这两个 pod 从 dl.google.com 下载（被墙），CocoaPods 1.15+ 在 install 时因框架文件缺失
- * 而跳过了 vendored xcframework 的搜索路径注册，导致编译期找不到 <GoogleCast/GoogleCast.h>。
+ * 离线注入 TFLiteC 的 vendored xcframework。
+ * 该 pod 从 dl.google.com 下载（被墙），CocoaPods 1.15+ 在 install 时因框架文件缺失
+ * 而跳过了 vendored xcframework 的搜索路径注册，导致编译期找不到 TensorFlowLiteC 头文件。
  * 因此本插件在 prebuild 时：
  *  1) 把 tar 包拷入 ios/local_vendored/（prebuild 会清空 ios/，故源放在 plugins/ 下保留）
  *  2) 在 Podfile 的 post_install 钩子里把 xcframework 解包到 Pods 对应目录
@@ -41,7 +40,7 @@ function withLocalVendored(config) {
       }
 
       const snippet = `
-    # === Offline vendored frameworks (TFLiteC / google-cast-sdk) ===
+    # === Offline vendored frameworks (TFLiteC) ===
     require 'fileutils'
     local_dir = File.join(__dir__, 'local_vendored')
     tf_pod = File.join(__dir__, 'Pods/TensorFlowLiteC')
@@ -49,12 +48,6 @@ function withLocalVendored(config) {
     unless File.exist?(tf_fw)
       tf_tgz = File.join(local_dir, 'TensorFlowLiteC-2.14.0.tar.gz')
       system("tar -xzf '\#{tf_tgz}' -C '\#{tf_pod}'") if File.exist?(tf_tgz)
-    end
-    cast_pod = File.join(__dir__, 'Pods/google-cast-sdk')
-    cast_fw = File.join(cast_pod, 'GoogleCastSDK-ios-4.8.6_static_xcframework/GoogleCast.xcframework')
-    unless File.exist?(cast_fw)
-      cast_tgz = File.join(local_dir, 'GoogleCastSDK-ios-4.8.6_static_xcframework.tar.gz')
-      system("tar -xzf '\#{cast_tgz}' -C '\#{cast_pod}'") if File.exist?(cast_tgz)
     end
 
     # CocoaPods 1.15+ 在 install 时因框架文件缺失而跳过了 vendored xcframework 的搜索路径
@@ -64,7 +57,6 @@ function withLocalVendored(config) {
     # FRAMEWORK_SEARCH_PATHS。
     cands = [
       ['TensorFlowLiteC', File.join(__dir__, 'Pods/TensorFlowLiteC/Frameworks/TensorFlowLiteC.xcframework')],
-      ['GoogleCast', File.join(__dir__, 'Pods/google-cast-sdk/GoogleCastSDK-ios-4.8.6_static_xcframework/GoogleCast.xcframework')],
     ]
     xcframework_slices = {}
     cands.each do |fw_name, xc|

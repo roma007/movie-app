@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Cast } from 'lucide-react-native';
 import { useThemeColors } from '../../themes/useThemeColors';
@@ -14,8 +14,17 @@ interface Props {
 
 export function CastButton({ onDeviceSelect, onSearch, style }: Props) {
   const colors = useThemeColors();
-  const { isCasting, castDevice } = useCastStore();
+  const { isCasting, castDevice, availableDevices, isSearching } = useCastStore();
   const [pickerVisible, setPickerVisible] = useState(false);
+  const [searched, setSearched] = useState(false);
+
+  useEffect(() => {
+    onSearch?.();
+    setSearched(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const emptyState = searched && !isSearching && availableDevices.length === 0 && !isCasting;
 
   const handlePress = () => {
     onSearch?.();
@@ -35,7 +44,7 @@ export function CastButton({ onDeviceSelect, onSearch, style }: Props) {
         style={[styles.container, style]}
       >
         <View style={styles.iconWrap}>
-          <Cast size={18} color={isCasting ? '#4ade80' : '#fff'} />
+          <Cast size={18} color={emptyState ? '#777' : isCasting ? '#4ade80' : '#fff'} />
           {isCasting && (
             <View style={[styles.dot, { backgroundColor: '#4ade80' }]} />
           )}

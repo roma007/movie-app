@@ -11,13 +11,10 @@ Pod::Spec.new do |s|
   s.author         = 'movie-app'
   s.source         = { git: '' }
 
-  s.platform       = :ios, '15.0'
-  s.swift_version  = '5.9'
+  s.platform       = :ios, '13.0'
+  s.swift_version  = '5.5'
 
   s.dependency 'ExpoModulesCore'
 
-  s.source_files = 'ios/**/*.swift'
-
-  # TODO: Add SwiftUPnP SPM dependency
-  # s.dependency 'SwiftUPnP'
+  s.source_files = '**/*.swift'
 end

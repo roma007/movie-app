@@ -63,7 +63,7 @@ target 'MovieApp' do
       :mac_catalyst_enabled => false,
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
-    # === Offline vendored frameworks (TFLiteC / google-cast-sdk) ===
+    # === Offline vendored frameworks (TFLiteC) ===
     require 'fileutils'
     local_dir = File.join(__dir__, 'local_vendored')
     tf_pod = File.join(__dir__, 'Pods/TensorFlowLiteC')
@@ -71,12 +71,6 @@ target 'MovieApp' do
     unless File.exist?(tf_fw)
       tf_tgz = File.join(local_dir, 'TensorFlowLiteC-2.14.0.tar.gz')
       system("tar -xzf '#{tf_tgz}' -C '#{tf_pod}'") if File.exist?(tf_tgz)
-    end
-    cast_pod = File.join(__dir__, 'Pods/google-cast-sdk')
-    cast_fw = File.join(cast_pod, 'GoogleCastSDK-ios-4.8.6_static_xcframework/GoogleCast.xcframework')
-    unless File.exist?(cast_fw)
-      cast_tgz = File.join(local_dir, 'GoogleCastSDK-ios-4.8.6_static_xcframework.tar.gz')
-      system("tar -xzf '#{cast_tgz}' -C '#{cast_pod}'") if File.exist?(cast_tgz)
     end
 
     # CocoaPods 1.15+ 在 install 时因框架文件缺失而跳过了 vendored xcframework 的搜索路径
@@ -86,7 +80,6 @@ target 'MovieApp' do
     # FRAMEWORK_SEARCH_PATHS。
     cands = [
       ['TensorFlowLiteC', File.join(__dir__, 'Pods/TensorFlowLiteC/Frameworks/TensorFlowLiteC.xcframework')],
-      ['GoogleCast', File.join(__dir__, 'Pods/google-cast-sdk/GoogleCastSDK-ios-4.8.6_static_xcframework/GoogleCast.xcframework')],
     ]
     xcframework_slices = {}
     cands.each do |fw_name, xc|

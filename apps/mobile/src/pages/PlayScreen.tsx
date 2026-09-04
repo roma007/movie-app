@@ -154,14 +154,18 @@ export default function PlayScreen({ route, navigation }: Props) {
 
   const handleCastDeviceSelect = async (device: { id: string; name: string; protocol: string }) => {
     try {
+      const localPositionMs = playerRef.current ? (playerRef.current.currentTime || 0) * 1000 : 0;
+      try { playerRef.current?.pause(); } catch {}
       await castManager.connectToDevice(
         { ...device, protocol: device.protocol as any, isConnected: false },
         videoUrl,
         currentTitle,
         player?.duration || 0,
+        localPositionMs,
       );
-    } catch {
-      // error handled by castManager
+      lastPushedCastUrlRef.current = videoUrl;
+    } catch (e: any) {
+      Alert.alert('投屏失败', e?.message || '连接投屏设备失败，请检查设备是否在线');
     }
   };
 
@@ -550,6 +554,7 @@ export default function PlayScreen({ route, navigation }: Props) {
 
   const videoRef = useRef<VideoView>(null);
   const playerRef = useRef<any>(null);
+  const lastPushedCastUrlRef = useRef<string>('');
 
   // iOS: 经 expo-video-cache 本地代理改写 URL，使 HLS 分片走 N 并发下载
   // 用 VideoSource 对象显式控制 useCaching：iOS 走代理（代理自带缓存）故 false；Android 用 expo-video 缓存故 true
@@ -606,6 +611,12 @@ export default function PlayScreen({ route, navigation }: Props) {
   useEffect(() => {
     const p = playerRef.current;
     if (!p || !videoUrl) return;
+    // 投屏期间不要自动播放本地（避免与电视端重复发声）；source 替换后保持暂停，由切集 recast 推到电视
+    const casting = useCastStore.getState().isCasting && castManager.castDevice;
+    if (casting) {
+      try { p.pause(); } catch {}
+      return;
+    }
     let unmuted = false;
     const subs: { remove: () => void }[] = [];
     const unmute = () => {
@@ -623,7 +634,17 @@ export default function PlayScreen({ route, navigation }: Props) {
     tryPlay();
     const fallback = setTimeout(() => { unmute(); tryPlay(); }, 1500);
     return () => { clearTimeout(fallback); subs.forEach((s) => s.remove()); };
-  }, [player, videoUrl]);
+  }, [player, videoUrl, castManager.castDevice]);
+
+  // 切集/换线路期间若正在 DLNA 投屏，把新源同步推到电视端（从 0 起播），本地保持暂停不重复发声
+  useEffect(() => {
+    const device = castManager.castDevice;
+    const active = useCastStore.getState().isCasting;
+    if (!active || !device || device.protocol !== 'dlna') return;
+    if (!videoUrl || videoUrl === lastPushedCastUrlRef.current) return;
+    lastPushedCastUrlRef.current = videoUrl;
+    castManager.recast(videoUrl, currentTitle, 0).catch(() => {});
+  }, [videoUrl, currentTitle, castManager.castDevice, castManager.recast]);
 
   // 续播 seek 可靠性：source 加载/就绪后再应用恢复位置（首播与切线路共用），避免一次性赋值被丢弃
   // pendingSeekRef 先清零再被新线路记忆覆盖，防止换源的瞬间把旧位置误写到新线路
@@ -1196,10 +1217,14 @@ export default function PlayScreen({ route, navigation }: Props) {
           playSources[activePlayIdx]?.id ?? null,
         );
       }
-      try {
-        await castManager.disconnect();
-      } catch {
-        // ignore
+      // DLNA 投屏：保留投屏，由 recast effect 把新集推到电视（本地保持暂停）
+      // AirPlay 为系统路由无法编程重定向，退化为断开再本地播放新集
+      if (castManager.castDevice.protocol === 'airplay') {
+        try {
+          await castManager.disconnect();
+        } catch {
+          // ignore
+        }
       }
     }
     setCurrentEpisodeId(ep.id);

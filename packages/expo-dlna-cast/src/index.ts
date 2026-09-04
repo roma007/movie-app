@@ -18,7 +18,7 @@ class ExpoDlnaCastModule extends NativeModule<ExpoDlnaCastEvents> {
   disconnect(deviceId: string): Promise<void> {
     return Promise.resolve();
   }
-  cast(deviceId: string, url: string, title: string): Promise<boolean> {
+  cast(deviceId: string, url: string, title: string, startPositionMs?: number): Promise<boolean> {
     return Promise.resolve(false);
   }
   play(deviceId: string): Promise<void> {

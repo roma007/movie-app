@@ -25,8 +25,8 @@ android {
 
 dependencies {
     implementation project(':expo-modules-core')
-    // TODO: Add UPnPCast Maven dependency
-    // implementation "com.yinnho.upnpcast:upnpcast:1.1.2"
+    implementation "com.yinnho.upnpcast:upnpcast:1.1.2"
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
 }
 
 def safeExtGet(prop, fallback) {

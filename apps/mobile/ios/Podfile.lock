@@ -53,6 +53,8 @@ PODS:
     - ExpoModulesCore
   - ExpoBlur (57.0.2):
     - ExpoModulesCore
+  - ExpoDlnaCast (0.1.0):
+    - ExpoModulesCore
   - ExpoDomWebView (57.0.0):
     - ExpoModulesCore
   - ExpoFileSystem (57.0.1):
@@ -118,8 +120,6 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - ExpoSpeechTranscriber (0.1.9):
-    - ExpoModulesCore
   - ExpoSQLite (57.0.1):
     - ExpoModulesCore
   - ExpoVideo (57.0.2):
@@ -127,13 +127,6 @@ PODS:
   - ExpoVideoCache (2.1.0):
     - ExpoModulesCore
   - FBLazyVector (0.86.0)
-  - google-cast-sdk (4.8.6):
-    - GTMSessionFetcher
-  - GTMSessionFetcher (5.3.1):
-    - GTMSessionFetcher/Full (= 5.3.1)
-  - GTMSessionFetcher/Core (5.3.1)
-  - GTMSessionFetcher/Full (5.3.1):
-    - GTMSessionFetcher/Core
   - hermes-engine (250829098.0.14):
     - hermes-engine/Pre-built (= 250829098.0.14)
   - hermes-engine/Pre-built (250829098.0.14)
@@ -185,7 +178,6 @@ PODS:
     - ReactNativeDependencies
     - TensorFlowLiteC (= 2.14.0)
     - Yoga
-  - PromisesObjC (2.4.1)
   - RCTDeprecation (0.86.0)
   - RCTRequired (0.86.0)
   - RCTSwiftUI (0.86.0)
@@ -1609,10 +1601,6 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - react-native-google-cast (4.9.1):
-    - google-cast-sdk
-    - PromisesObjC
-    - React
   - react-native-safe-area-context (5.7.0):
     - hermes-engine
     - RCTRequired
@@ -2273,6 +2261,7 @@ DEPENDENCIES:
   - Expo (from `../../../node_modules/expo`)
   - ExpoAsset (from `../../../node_modules/expo-asset/ios`)
   - ExpoBlur (from `../../../node_modules/expo-blur/ios`)
+  - ExpoDlnaCast (from `../../../packages/expo-dlna-cast/ios`)
   - "ExpoDomWebView (from `../../../node_modules/@expo/dom-webview/ios`)"
   - ExpoFileSystem (from `../../../node_modules/expo-file-system/ios/ExpoFileSystem.podspec`)
   - ExpoFont (from `../../../node_modules/expo-font/ios/ExpoFont.podspec`)
@@ -2283,7 +2272,6 @@ DEPENDENCIES:
   - ExpoModulesJSI (from `../../../node_modules/expo-modules-jsi/apple`)
   - ExpoModulesWorklets (from `../../../node_modules/expo-modules-core/ExpoModulesWorklets.podspec`)
   - ExpoScreenOrientation (from `../../../node_modules/expo-screen-orientation/ios`)
-  - ExpoSpeechTranscriber (from `../../../node_modules/expo-speech-transcriber/ios`)
   - ExpoSQLite (from `../../../node_modules/expo-sqlite/ios`)
   - ExpoVideo (from `../../../node_modules/expo-video/ios/ExpoVideo.podspec`)
   - ExpoVideoCache (from `../../../node_modules/expo-video-cache/ios`)
@@ -2329,7 +2317,6 @@ DEPENDENCIES:
   - React-Mapbuffer (from `../../../node_modules/react-native/ReactCommon`)
   - React-microtasksnativemodule (from `../../../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
   - React-mutationobservernativemodule (from `../../../node_modules/react-native/ReactCommon/react/nativemodule/mutationobserver`)
-  - react-native-google-cast (from `../../../node_modules/react-native-google-cast`)
   - react-native-safe-area-context (from `../../../node_modules/react-native-safe-area-context`)
   - "react-native-slider (from `../../../node_modules/@react-native-community/slider`)"
   - react-native-vosk (from `../../../node_modules/react-native-vosk`)
@@ -2376,9 +2363,6 @@ DEPENDENCIES:
 
 SPEC REPOS:
   trunk:
-    - google-cast-sdk
-    - GTMSessionFetcher
-    - PromisesObjC
     - TensorFlowLiteC
 
 EXTERNAL SOURCES:
@@ -2392,6 +2376,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/expo-asset/ios"
   ExpoBlur:
     :path: "../../../node_modules/expo-blur/ios"
+  ExpoDlnaCast:
+    :path: "../../../packages/expo-dlna-cast/ios"
   ExpoDomWebView:
     :path: "../../../node_modules/@expo/dom-webview/ios"
   ExpoFileSystem:
@@ -2412,8 +2398,6 @@ EXTERNAL SOURCES:
     :podspec: "../../../node_modules/expo-modules-core/ExpoModulesWorklets.podspec"
   ExpoScreenOrientation:
     :path: "../../../node_modules/expo-screen-orientation/ios"
-  ExpoSpeechTranscriber:
-    :path: "../../../node_modules/expo-speech-transcriber/ios"
   ExpoSQLite:
     :path: "../../../node_modules/expo-sqlite/ios"
   ExpoVideo:
@@ -2503,8 +2487,6 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/react-native/ReactCommon/react/nativemodule/microtasks"
   React-mutationobservernativemodule:
     :path: "../../../node_modules/react-native/ReactCommon/react/nativemodule/mutationobserver"
-  react-native-google-cast:
-    :path: "../../../node_modules/react-native-google-cast"
   react-native-safe-area-context:
     :path: "../../../node_modules/react-native-safe-area-context"
   react-native-slider:
@@ -2598,6 +2580,7 @@ SPEC CHECKSUMS:
   Expo: af971fa66971775479d4d1c20b394b2ba5f94095
   ExpoAsset: c270900c121a250ceabbf692dfecc2f1564ec82f
   ExpoBlur: 69e67b4fbfed6f7325377af2aefa8aa4f00cd2af
+  ExpoDlnaCast: 99d8b56993e6d1e00f762ba21450d1546f283bd2
   ExpoDomWebView: 73ba90107a5acc0017a09b06e66d8eb238e089b8
   ExpoFileSystem: e441dae0ae671fc451640517550973d9e024fdf0
   ExpoFont: 59e1faf66ba9bcd232ae1e2ce58d202a48b6f65e
@@ -2608,17 +2591,13 @@ SPEC CHECKSUMS:
   ExpoModulesJSI: 4b5d68bf019c251c2c8b7246aa36306dc381fe7f
   ExpoModulesWorklets: 2ba73eabbbd0470e43f8998757f4cb8abff8355b
   ExpoScreenOrientation: 17fd81b2bdb7615b4b540335673aaf98a358281f
-  ExpoSpeechTranscriber: 429160b0766c7f2ec6122988e2d22e1c19b53e06
   ExpoSQLite: ddd65ed74bdebcff20f6766e682f9321ecb28ab8
   ExpoVideo: b1d9a325ddcd4f3ed8ccb374c01b688e98bc6a04
   ExpoVideoCache: 084e7322fd18d084e67063d560301bc9ae9be0f4
   FBLazyVector: b3e7ad108f0d882e30445c5527d774e3fd432f3d
-  google-cast-sdk: 1fdce1373a29b7a0472c0747addf4b664f1c5121
-  GTMSessionFetcher: a6d2b2aa203485893d4511ff64642dc811f7c09f
   hermes-engine: b3abb2f7735e72d21f8ffa91d3d1b00f4cb6b8ca
   NitroModules: 452230d9b63c6c3f59dd97eeaa27ec3449271d4a
   Openwakeword: 87ad118db6060b6ca9336457bc10df33b41491c8
-  PromisesObjC: 752c3227f599e3467650e47ea36f433eeb10c273
   RCTDeprecation: 2a74a2c57675e64419bd89078efde81f7c1de90b
   RCTRequired: 30451112e6fef4e6f31b4e7eee0845156e35e4b0
   RCTSwiftUI: 5aaf0b07e747ba749dc6acc94d8bd41eea4b570f
@@ -2656,7 +2635,6 @@ SPEC CHECKSUMS:
   React-Mapbuffer: ce449ccdf3b80384415b925606be8a4bdcfc65d3
   React-microtasksnativemodule: 2eb3f49d0d8e77b5343455eccd057010b8d38b6b
   React-mutationobservernativemodule: f0a0d5ae9b51caf7becbeabf836d716cfedb6bf2
-  react-native-google-cast: 7be68a5d0b7eeb95a5924c3ecef8d319ef6c0a44
   react-native-safe-area-context: 6b4966397ada0f7dd481e4486a2ef936834861a1
   react-native-slider: 08ecfc4e9cc16cc388a56dd9caeca51b55cd9bb7
   react-native-vosk: a5142fa7c82d1ed2de513b33a7e77ba5a358c1cd
@@ -2702,6 +2680,6 @@ SPEC CHECKSUMS:
   TextToSpeech: 89b239221ec378d213af422d14789a729705360b
   Yoga: fe50ab299e578f397fef753cf309c6703a4db29b
 
-PODFILE CHECKSUM: 960b5c85e188bb26764ffa24d70b4b1384858942
+PODFILE CHECKSUM: 9d1c2e3819c57351c3f2801406f2b51841d0dbaf
 
 COCOAPODS: 1.16.2
