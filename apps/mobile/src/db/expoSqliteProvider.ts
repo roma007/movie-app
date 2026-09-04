@@ -839,10 +839,10 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   }
 
   async getYearsByType(type?: string): Promise<number[]> {
-    let whereClause = '';
+    let whereClause = 'WHERE (hidden IS NULL OR hidden = 0)';
     const params: any[] = [];
     if (type) {
-      whereClause = 'WHERE type = ?';
+      whereClause += ' AND type = ?';
       params.push(type);
     }
     const rows = await this.db!.getAllAsync<{ year: number }>(
@@ -867,7 +867,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   }
 
   async hasShortDrama(type?: string): Promise<boolean> {
-    let whereClause = 'WHERE is_short_drama = 1';
+    let whereClause = 'WHERE is_short_drama = 1 AND (hidden IS NULL OR hidden = 0)';
     const params: any[] = [];
     if (type) {
       whereClause += ' AND type = ?';
