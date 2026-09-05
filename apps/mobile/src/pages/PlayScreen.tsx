@@ -61,6 +61,14 @@ export default function PlayScreen({ route, navigation }: Props) {
   const [playSources, setPlaySources] = useState<PlaySource[]>([]);
   const playSourcesRef = useRef<PlaySource[]>([]);
   playSourcesRef.current = playSources;
+  // 卸载期专用 ref：release effect 仅挂载一次（[] 依赖），cleanup 需读「最新」集/线路 state 存进度，
+  // 避免闭包取到第一帧的陈旧值导致存错集/线路
+  const currentEpisodeIdRef = useRef(currentEpisodeId);
+  currentEpisodeIdRef.current = currentEpisodeId;
+  const currentMediaIdRef = useRef<string | null>(mediaId);
+  currentMediaIdRef.current = mediaId;
+  const selectedSourceIdRef = useRef<string | null>(selectedSourceId);
+  selectedSourceIdRef.current = selectedSourceId;
   const [plotExpanded, setPlotExpanded] = useState(false);
   const [plotOverflow, setPlotOverflow] = useState(false);
   const [castExpanded, setCastExpanded] = useState(false);
@@ -73,6 +81,8 @@ export default function PlayScreen({ route, navigation }: Props) {
   const [selectedHideGenres, setSelectedHideGenres] = useState<string[]>([]);
   const [hiding, setHiding] = useState(false);
   const [activePlayIdx, setActivePlayIdx] = useState(0);
+  const activePlayIdxRef = useRef(activePlayIdx);
+  activePlayIdxRef.current = activePlayIdx;
   const [videoUrl, setVideoUrl] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -720,10 +730,30 @@ export default function PlayScreen({ route, navigation }: Props) {
   // iOS 上 release() 本身即崩溃（fatal abort 无法 try/catch 拦截），故跳过以规避闪退；
   // Android 上 release 安全，正常释放。未调 release 的原生实例由 Hermes GC 按
   // expo-modules-core 机制最终回收（SDK57 行为，见 issue #47568）。
+  // 顺序铁律：必须「先存进度 → 置空 playerRef → 再 release」。
+  // Android 上 release 后再读取 player（如后续声明在 release 之后的 flush effect 读
+  // currentTime/duration）会抛 ERR_USING_RELEASED_SHARED_OBJECT（shared object 已释放），
+  // 导致返回上一页时报错；置空引用后 flush effect 命中 !p 守卫直接返回。
   useEffect(() => {
     return () => {
       const p = playerRef.current;
+      const mediaIdNow = currentMediaIdRef.current;
+      const episodeIdNow = currentEpisodeIdRef.current;
+      if (mediaIdNow && episodeIdNow && p && (p.duration || 0) > 0) {
+        try {
+          saveWatchProgress(
+            mediaIdNow,
+            episodeIdNow,
+            Math.floor(p.currentTime || 0),
+            Math.floor(p.duration || 0),
+            selectedSourceIdRef.current ?? null,
+            playSourcesRef.current[activePlayIdxRef.current]?.id ?? null,
+          );
+          getStore().getState().scheduleRecommendationRecompute();
+        } catch {}
+      }
       try { p?.pause(); } catch {}
+      playerRef.current = null;
       if (Platform.OS !== 'ios') {
         try { p?.release(); } catch {}
       }
