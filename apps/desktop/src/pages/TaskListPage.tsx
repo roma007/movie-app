@@ -16,8 +16,10 @@ import {
   Trash2,
   RefreshCw,
   RotateCcw,
+  RefreshCcw,
+  ListX,
 } from 'lucide-react';
-import type { CollectTask } from '@movie-app/core';
+import type { CollectTask, FailedItem } from '@movie-app/core';
 
 function getStatusIcon(status: string) {
   switch (status) {
@@ -93,12 +95,24 @@ export default function TaskListPage() {
   const navigate = useNavigate();
   const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
   useEffect(() => { clearBgImage(); }, [clearBgImage]);
-  const { collectTasks, loadCollectTasks, deleteCollectTask, deleteOldTasks, resumeCollectTask } = useAppStore();
+  const { collectTasks, loadCollectTasks, deleteCollectTask, deleteOldTasks, resumeCollectTask, retryFailedItems } = useAppStore();
   const confirm = useConfirm();
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [resumingId, setResumingId] = useState<string | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+
+  function parseFailedItems(task: CollectTask): FailedItem[] {
+    if (!task.failedItems) return [];
+    try {
+      const parsed = JSON.parse(task.failedItems);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
 
   useEffect(() => {
     loadCollectTasks();
@@ -106,12 +120,12 @@ export default function TaskListPage() {
 
   useEffect(() => {
     const hasActive = collectTasks.some((t) => t.status === 'RUNNING' || t.status === 'PENDING');
-    if (!hasActive && !resumingId) return;
+    if (!hasActive && !resumingId && !retryingId) return;
     const id = setInterval(() => {
       loadCollectTasks();
     }, 2000);
     return () => clearInterval(id);
-  }, [collectTasks, resumingId, loadCollectTasks]);
+  }, [collectTasks, resumingId, retryingId, loadCollectTasks]);
 
   useEffect(() => {
     if (!resumingId) return;
@@ -120,6 +134,14 @@ export default function TaskListPage() {
       setResumingId(null);
     }
   }, [collectTasks, resumingId]);
+
+  useEffect(() => {
+    if (!retryingId) return;
+    const task = collectTasks.find((t) => t.taskId === retryingId);
+    if (task && (task.status === 'COMPLETED' || task.status === 'FAILED')) {
+      setRetryingId(null);
+    }
+  }, [collectTasks, retryingId]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -156,6 +178,29 @@ export default function TaskListPage() {
       .catch((err: any) => {
         toast(`续采失败: ${err.message || '未知错误'}`, 'error');
         setResumingId((cur) => (cur === task.taskId ? null : cur));
+      });
+    loadCollectTasks();
+  };
+
+  const handleRetryFailed = (task: CollectTask) => {
+    const items = parseFailedItems(task);
+    if (items.length === 0) {
+      toast('没有需要重试的失败条目', 'error');
+      return;
+    }
+    setRetryingId(task.taskId);
+    retryFailedItems(task.taskId)
+      .then((result) => {
+        if (!result.success) {
+          toast(`重试失败项失败: ${result.error || '未知错误'}`, 'error');
+        } else {
+          toast(`重试完成: 成功${result.successCount}条，仍失败${result.failed}条`, result.failed > 0 ? 'error' : 'success');
+        }
+        setRetryingId((cur) => (cur === task.taskId ? null : cur));
+      })
+      .catch((err: any) => {
+        toast(`重试失败项失败: ${err.message || '未知错误'}`, 'error');
+        setRetryingId((cur) => (cur === task.taskId ? null : cur));
       });
     loadCollectTasks();
   };
@@ -216,6 +261,7 @@ export default function TaskListPage() {
                   const progress = task.totalPages > 0 ? Math.round((task.currentPage / task.totalPages) * 100) : 0;
 
                   return (
+                    <>
                     <tr key={task.id} className="hover:bg-hover transition-colors">
                       <td className="p-3 text-sm font-mono text-muted-foreground max-w-[100px] truncate" title={task.taskId}>
                         {task.taskId}
@@ -273,13 +319,25 @@ export default function TaskListPage() {
                       </td>
                       <td className="p-3">
                         <div className="flex items-center gap-1">
+                          {task.failedItems && parseFailedItems(task).length > 0 && (task.status === 'COMPLETED' || task.status === 'FAILED') && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2"
+                              onClick={() => handleRetryFailed(task)}
+                              disabled={retryingId === task.taskId}
+                            >
+                              {retryingId === task.taskId ? <Loader2 className="size-3 animate-spin" /> : <RefreshCcw className="size-3" />}
+                              重试失败项({parseFailedItems(task).length})
+                            </Button>
+                          )}
                           {task.status === 'FAILED' && (task.type === 'INCREMENTAL' || task.type === 'FULL') && (
                             <Button
                               variant="ghost"
                               size="sm"
                               className="h-7 px-2"
                               onClick={() => handleResume(task)}
-                              disabled={resumingId === task.taskId}
+                              disabled={resumingId === task.taskId || retryingId === task.taskId}
                             >
                               {resumingId === task.taskId ? <Loader2 className="size-3 animate-spin" /> : <RotateCcw className="size-3" />} 继续
                             </Button>
@@ -289,13 +347,48 @@ export default function TaskListPage() {
                             size="sm"
                             className="h-7 px-2 text-error"
                             onClick={() => handleDelete(task)}
-                            disabled={deletingId === task.taskId || resumingId === task.taskId}
+                            disabled={deletingId === task.taskId || resumingId === task.taskId || retryingId === task.taskId}
                           >
                             {deletingId === task.taskId ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
                           </Button>
                         </div>
                       </td>
                     </tr>
+                    {(task.type === 'INCREMENTAL' || task.type === 'FULL') && (
+                      <tr key={`${task.id}-failed`} className="bg-secondary/40">
+                        <td colSpan={8} className="p-3 pt-0">
+                          {parseFailedItems(task).length > 0 ? (
+                            <div className="flex items-start gap-2">
+                              <button
+                                onClick={() => setExpandedTaskId(expandedTaskId === task.taskId ? null : task.taskId)}
+                                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-text shrink-0 mt-0.5"
+                              >
+                                <ListX className="size-3.5" />
+                                {expandedTaskId === task.taskId ? '收起失败明细' : `查看失败明细（${parseFailedItems(task).length}条）`}
+                              </button>
+                              {expandedTaskId === task.taskId && (
+                                <div className="flex-1 max-h-40 overflow-y-auto rounded border border-secondary bg-background/40 p-2 space-y-1">
+                                  {parseFailedItems(task).map((fi, idx) => (
+                                    <div key={`${fi.vodId}-${idx}`} className="flex items-start gap-2 text-xs">
+                                      <span className="text-muted-foreground shrink-0 mt-0.5">{idx + 1}.</span>
+                                      <span className="font-medium shrink-0">{fi.title}</span>
+                                      <span className="text-muted-foreground break-all" title={fi.error}>
+                                        {fi.error}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ) : task.failedItems && (
+                            <div className="text-xs text-success flex items-center gap-1">
+                              <CheckCircle2 className="size-3.5" /> 本次无失败条目
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                    </>
                   );
                 })
               )}

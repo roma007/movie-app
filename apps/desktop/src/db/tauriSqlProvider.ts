@@ -291,6 +291,9 @@ export class TauriSqlProvider implements DatabaseProvider {
       completed_at TEXT
     );`);
 
+    // 增量迁移：为已有 collect_task 表补齐失败条目记录列（精准重试用）
+    await this.addColumnIfMissing('collect_task', 'failed_items', 'TEXT');
+
     await this.fixGenreData();
     await this.backfillHiddenGenres();
     await this.syncHiddenByGenres();
@@ -629,7 +632,7 @@ export class TauriSqlProvider implements DatabaseProvider {
         view_count, rating, rating_count, rating_source, rating_updated_at,
         hidden, series_group, series_season,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(fingerprint) DO UPDATE SET
         title = excluded.title,
         original_title = excluded.original_title,
@@ -1534,7 +1537,7 @@ async clearWatchHistory(): Promise<void> {
 
   async createCollectTask(task: CollectTask): Promise<void> {
     await this.db!.execute(
-      'INSERT INTO collect_task (id, task_id, source_code, source_name, type, status, current_page, total_pages, collected_count, failed_count, error_message, error_type, last_error_page, failed_pages, created_at, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO collect_task (id, task_id, source_code, source_name, type, status, current_page, total_pages, collected_count, failed_count, error_message, error_type, last_error_page, failed_pages, failed_items, created_at, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         task.id,
         task.taskId,
@@ -1550,6 +1553,7 @@ async clearWatchHistory(): Promise<void> {
         task.errorType || null,
         task.lastErrorPage ?? null,
         task.failedPages || null,
+        task.failedItems || null,
         task.createdAt,
         task.startedAt || null,
         task.completedAt || null,
@@ -1620,6 +1624,10 @@ async clearWatchHistory(): Promise<void> {
     if (updates.failedPages !== undefined) {
       sqlParts.push('failed_pages = ?');
       params.push(updates.failedPages);
+    }
+    if (updates.failedItems !== undefined) {
+      sqlParts.push('failed_items = ?');
+      params.push(updates.failedItems);
     }
     if (updates.startedAt !== undefined) {
       sqlParts.push('started_at = ?');

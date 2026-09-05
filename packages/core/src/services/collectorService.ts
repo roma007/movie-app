@@ -5,7 +5,7 @@ import { SOURCE_ID_TO_NAME_MAP, PLAY_SOURCE_TYPE_MAP, isPlayableMediaUrl } from 
 import { isKnownDeadPosterUrl, isUsablePosterUrl } from '../utils/posterHost';
 import type { DatabaseProvider } from '../db/provider';
 import { UNCATEGORIZED_GENRE } from '../db/provider';
-import type { CMSMediaItem, Media, Episode, PlaySource, VideoSource, CollectTask, TaskStatus, TaskErrorType, CollectionLog, CollectPreviewItem, HiddenCollectItem, SavePreviewResult } from '../types';
+import type { CMSMediaItem, Media, Episode, PlaySource, VideoSource, CollectTask, TaskStatus, TaskErrorType, CollectionLog, CollectPreviewItem, HiddenCollectItem, SavePreviewResult, FailedItem } from '../types';
 import { SystemConfigService } from './systemConfigService';
 import type { ShortDramaConfig } from './systemConfigService';
 import { VideoDurationService } from './videoDurationService';
@@ -458,7 +458,7 @@ export class CollectorService {
     pageSize: number = 20,
     hours?: number,
     signal?: AbortSignal
-  ): Promise<{ media: Media[]; total: number; pagecount: number; failedCount: number; error?: string; errorType?: TaskErrorType }> {
+  ): Promise<{ media: Media[]; total: number; pagecount: number; failedCount: number; failedItems: FailedItem[]; error?: string; errorType?: TaskErrorType }> {
     const configService = new SystemConfigService(this.db);
     const config = await configService.getCollectConfig();
 
@@ -498,15 +498,18 @@ export class CollectorService {
 
       this.emitLog('error', detailedError, undefined, undefined, undefined, JSON.stringify({ errorType, url: baseUrl, page }));
       
-      return { media: [], total: 0, pagecount: 0, failedCount: 0, error: detailedError, errorType };
+      return { media: [], total: 0, pagecount: 0, failedCount: 0, failedItems: [], error: detailedError, errorType };
     }
 
     const list = response.list || [];
     const results: Media[] = [];
     let failedCount = 0;
+    const allFailedItems: FailedItem[] = [];
 
     if (config.concurrency > 1 && list.length > 0) {
-      failedCount = await this.processItemsWithConcurrency(adapter, list, sourceId, config, results, signal);
+      const { failedCount: fc, failedItems } = await this.processItemsWithConcurrency(adapter, list, sourceId, config, results, signal);
+      failedCount = fc;
+      allFailedItems.push(...failedItems);
     } else {
       for (const listItem of list) {
         try {
@@ -520,6 +523,7 @@ export class CollectorService {
             await this.db.incrementSourceFailCount(sourceId);
             console.warn(`[Collector] 获取详情失败: ${listItem.vod_name}`);
             failedCount++;
+            allFailedItems.push({ vodId: String(listItem.vod_id), title: listItem.vod_name, error: '获取详情返回空' });
             continue;
           }
 
@@ -549,6 +553,7 @@ export class CollectorService {
           
           await this.logToDb(errorMsg, 'error');
           failedCount++;
+          allFailedItems.push({ vodId: String(listItem.vod_id), title: listItem.vod_name, error: err instanceof Error ? err.message : String(err) });
         }
       }
     }
@@ -560,6 +565,7 @@ export class CollectorService {
       total: response.total,
       pagecount: response.pagecount || 0,
       failedCount,
+      failedItems: allFailedItems,
     };
   }
 
@@ -570,9 +576,10 @@ export class CollectorService {
     config: { minYear: number; concurrency: number },
     results: Media[],
     signal?: AbortSignal
-  ): Promise<number> {
+  ): Promise<{ failedCount: number; failedItems: FailedItem[] }> {
     let index = 0;
     let failedCount = 0;
+    const failedItems: FailedItem[] = [];
 
     const worker = async () => {
       while (index < items.length) {
@@ -591,6 +598,7 @@ export class CollectorService {
             await this.db.incrementSourceFailCount(sourceId);
             console.warn(`[Collector] 获取详情失败: ${listItem.vod_name}`);
             failedCount++;
+            failedItems.push({ vodId: String(listItem.vod_id), title: listItem.vod_name, error: '获取详情返回空' });
             continue;
           }
 
@@ -616,6 +624,7 @@ export class CollectorService {
           console.error(errorMsg);
           await this.logToDb(errorMsg, 'error');
           failedCount++;
+          failedItems.push({ vodId: String(listItem.vod_id), title: listItem.vod_name, error: err instanceof Error ? err.message : String(err) });
         }
       }
     };
@@ -626,7 +635,22 @@ export class CollectorService {
     );
 
     await Promise.all(workers);
-    return failedCount;
+    return { failedCount, failedItems };
+  }
+
+  /** 解析任务中记录的失败条目 JSON（容错损坏数据） */
+  private parseFailedItems(raw: string | null | undefined): FailedItem[] {
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter(
+        (x): x is FailedItem =>
+          x && typeof x === 'object' && typeof x.vodId === 'string' && typeof x.title === 'string'
+      );
+    } catch {
+      return [];
+    }
   }
 
   private async logToDb(message: string, level: 'info' | 'error' = 'info', details?: Record<string, unknown>): Promise<void> {
@@ -864,6 +888,7 @@ export class CollectorService {
       let hasMore = true;
       const maxPages = hours ? Number.MAX_SAFE_INTEGER : config.incrementalMaxPages;
       let totalPages = 0;
+      const currentFailedItems: FailedItem[] = [];
 
       try {
         await this.db.updateCollectTask(taskId, { status: 'RUNNING' as TaskStatus, startedAt: now, currentPage });
@@ -871,16 +896,19 @@ export class CollectorService {
 
         while (hasMore && currentPage <= maxPages) {
           console.log(`[Collector] Processing source ${source.name} page ${currentPage}${hours ? ` hours=${hours}` : ` (定额)`}`);
-          const { media, pagecount } = await this.collectFromSource(source.id, source.baseUrl, currentPage, pageSize, hours);
+          const { media, pagecount, failedCount, failedItems } = await this.collectFromSource(source.id, source.baseUrl, currentPage, pageSize, hours);
 
           totalPages = Math.min(pagecount, config.incrementalMaxPages);
           collected += media.length;
+          failed += failedCount;
+          currentFailedItems.push(...failedItems);
 
           await this.db.updateCollectTask(taskId, {
             currentPage,
             totalPages,
             collectedCount: collected,
             failedCount: failed,
+            failedItems: JSON.stringify(currentFailedItems),
           });
 
           onSourceProgress?.({
@@ -1077,14 +1105,15 @@ export class CollectorService {
     let taskId = `${sourceCode}-INCREMENTAL-${Date.now()}`;
     let initialCollected = 0;
     let initialFailed = 0;
+    let resumeTask: CollectTask | null = null;
 
     if (resumeTaskId) {
-      const existing = await this.db.getCollectTaskById(resumeTaskId);
-      if (!existing) throw new Error('任务不存在，可能已被删除');
-      if (existing.type !== 'INCREMENTAL') throw new Error('任务类型不匹配，无法续采');
-      taskId = existing.taskId;
-      initialCollected = existing.collectedCount || 0;
-      initialFailed = existing.failedCount || 0;
+      resumeTask = await this.db.getCollectTaskById(resumeTaskId);
+      if (!resumeTask) throw new Error('任务不存在，可能已被删除');
+      if (resumeTask.type !== 'INCREMENTAL') throw new Error('任务类型不匹配，无法续采');
+      taskId = resumeTask.taskId;
+      initialCollected = resumeTask.collectedCount || 0;
+      initialFailed = resumeTask.failedCount || 0;
     } else {
       const task: CollectTask = {
         id: generateId(),
@@ -1111,6 +1140,12 @@ export class CollectorService {
     let totalRuntimeMs = 0;
     const controller = new AbortController();
     this.activeAbortControllers.set(taskId, controller);
+
+    // 失败条目累计表（续采时沿用已有记录，新失败继续追加）
+    const currentFailedItems: FailedItem[] = [];
+    if (resumeTaskId && resumeTask) {
+      currentFailedItems.push(...this.parseFailedItems(resumeTask.failedItems));
+    }
 
     // 断点续采: 计算时间窗口
     let hours: number | undefined;
@@ -1152,14 +1187,16 @@ export class CollectorService {
             throw new Error(result.error);
           }
 
-          const { media, pagecount, failedCount } = result;
+          const { media, pagecount, failedCount, failedItems } = result;
           collected += media.length;
           failed += failedCount;
+          currentFailedItems.push(...failedItems);
           await this.db.updateCollectTask(taskId, {
             currentPage: page,
             totalPages: Math.min(pagecount, config.incrementalMaxPages),
             collectedCount: collected,
             failedCount: failed,
+            failedItems: JSON.stringify(currentFailedItems),
           });
 
           this.emitLog('info', `第${page}页完成: 新增${media.length}条${failedCount > 0 ? `，失败${failedCount}条` : ''}`, sourceCode, source.name, taskId);
@@ -1261,14 +1298,15 @@ export class CollectorService {
     let taskId = `${sourceCode}-FULL-${Date.now()}`;
     let initialCollected = 0;
     let initialFailed = 0;
+    let resumeTask: CollectTask | null = null;
 
     if (resumeTaskId) {
-      const existing = await this.db.getCollectTaskById(resumeTaskId);
-      if (!existing) throw new Error('任务不存在，可能已被删除');
-      if (existing.type !== 'FULL') throw new Error('任务类型不匹配，无法续采');
-      taskId = existing.taskId;
-      initialCollected = existing.collectedCount || 0;
-      initialFailed = existing.failedCount || 0;
+      resumeTask = await this.db.getCollectTaskById(resumeTaskId);
+      if (!resumeTask) throw new Error('任务不存在，可能已被删除');
+      if (resumeTask.type !== 'FULL') throw new Error('任务类型不匹配，无法续采');
+      taskId = resumeTask.taskId;
+      initialCollected = resumeTask.collectedCount || 0;
+      initialFailed = resumeTask.failedCount || 0;
     } else {
       const task: CollectTask = {
         id: generateId(),
@@ -1297,6 +1335,12 @@ export class CollectorService {
     const controller = new AbortController();
     this.activeAbortControllers.set(taskId, controller);
 
+    // 失败条目累计表（续采时沿用已有记录，新失败继续追加）
+    const currentFailedItems: FailedItem[] = [];
+    if (resumeTaskId && resumeTask) {
+      currentFailedItems.push(...this.parseFailedItems(resumeTask.failedItems));
+    }
+
     try {
       await this.db.updateCollectTask(taskId, {
         status: 'RUNNING' as TaskStatus,
@@ -1322,16 +1366,18 @@ export class CollectorService {
             throw new Error(result.error);
           }
 
-          const { media, pagecount, failedCount } = result;
+          const { media, pagecount, failedCount, failedItems } = result;
           collected += media.length;
           failed += failedCount;
           pages++;
+          currentFailedItems.push(...failedItems);
 
           await this.db.updateCollectTask(taskId, {
             currentPage: page,
             totalPages: Math.min(pagecount, config.maxPages),
             collectedCount: collected,
             failedCount: failed,
+            failedItems: JSON.stringify(currentFailedItems),
           });
 
           this.emitLog('info', `第${page}页完成: 新增${media.length}条${failedCount > 0 ? `，失败${failedCount}条` : ''}`, sourceCode, source.name, taskId);
@@ -1438,6 +1484,172 @@ export class CollectorService {
 
     const result = await this.collectSourceAll(task.sourceCode, startPage, taskId);
     return { taskId, collected: Math.max(0, result.collected - (task.collectedCount || 0)), pages: result.pages };
+  }
+
+  /**
+   * 重试失败条目：读取任务记录中采集失败的视频条目，逐个重新抓详情并入库。
+   * 成功后从失败列表移除，仍失败则更新错误信息后保留。
+   * 复用原任务行（状态 RUNNING → COMPLETED），支持取消。
+   */
+  async retryFailedItems(
+    taskId: string,
+    onProgress?: (progress: {
+      total: number;
+      processed: number;
+      success: number;
+      failed: number;
+      currentTitle: string;
+      status: 'running' | 'done' | 'failed';
+      error?: string;
+    }) => void,
+    externalSignal?: AbortSignal
+  ): Promise<{ taskId: string; retried: number; success: number; failed: number }> {
+    const task = await this.db.getCollectTaskById(taskId);
+    if (!task) throw new Error('任务不存在，可能已被删除');
+    if (task.status === 'RUNNING' || task.status === 'PENDING') throw new Error('该任务正在运行，请等待完成后再重试失败项');
+    if (task.type !== 'INCREMENTAL' && task.type !== 'FULL') throw new Error('该类型任务不支持条目重试');
+
+    const source = await this.db.getVideoSourceByCode(task.sourceCode);
+    if (!source || !source.isEnabled) throw new Error(`视频源「${task.sourceName || task.sourceCode}」不可用，无法重试`);
+
+    const failedItems = this.parseFailedItems(task.failedItems);
+    if (failedItems.length === 0) throw new Error('没有需要重试的失败条目');
+
+    const configService = new SystemConfigService(this.db);
+    const config = await configService.getCollectConfig();
+    const minYear = config.minYear;
+
+    const now = new Date().toISOString();
+    const controller = new AbortController();
+    this.activeAbortControllers.set(taskId, controller);
+    const signal = externalSignal ?? controller.signal;
+
+    let successCount = 0;
+    let failedDuringRetry = 0;
+    const remaining: FailedItem[] = [];
+
+    const total = failedItems.length;
+    let processed = 0;
+
+    try {
+      await this.db.updateCollectTask(taskId, {
+        status: 'RUNNING' as TaskStatus,
+        startedAt: now,
+        errorMessage: null,
+        errorType: null,
+        lastErrorPage: null,
+      });
+      this.emitLog('info', `开始重试失败条目 [${source.name}]: 共${total}条`, task.sourceCode, task.sourceName, taskId);
+
+      const adapter = new CMSAdapter(source.baseUrl);
+
+      for (let i = 0; i < failedItems.length; i++) {
+        const item = failedItems[i];
+        if (signal.aborted) {
+          for (let j = i; j < failedItems.length; j++) {
+            remaining.push(failedItems[j]);
+          }
+          onProgress?.({
+            total,
+            processed,
+            success: successCount,
+            failed: failedDuringRetry,
+            currentTitle: item.title,
+            status: 'failed',
+            error: '用户取消',
+          });
+          break;
+        }
+
+        onProgress?.({
+          total,
+          processed,
+          success: successCount,
+          failed: failedDuringRetry,
+          currentTitle: item.title,
+          status: 'running',
+        });
+
+        try {
+          await this.db.incrementSourceRequestCount(source.id);
+          const detailResponse = await adapter.getDetail(item.vodId, signal);
+          const detailItem = detailResponse.list?.[0];
+
+          if (!detailItem) {
+            remaining.push({ vodId: item.vodId, title: item.title, error: '获取详情返回空' });
+            failedDuringRetry++;
+            processed++;
+            continue;
+          }
+
+          const media = await this.processItem(detailItem, source.id, '', minYear);
+          if (media) {
+            successCount++;
+            this.emitLog('info', `重试成功: ${item.title}`, task.sourceCode, task.sourceName, taskId);
+          } else {
+            remaining.push({ vodId: item.vodId, title: item.title, error: '入库时被过滤（可能年份过旧或已隐藏）' });
+            failedDuringRetry++;
+          }
+        } catch (err) {
+          await this.db.incrementSourceFailCount(source.id);
+          const errMsg = err instanceof Error ? err.message : String(err);
+          this.emitLog('error', `重试失败: ${item.title}: ${errMsg}`, task.sourceCode, task.sourceName, taskId);
+          remaining.push({ vodId: item.vodId, title: item.title, error: errMsg });
+          failedDuringRetry++;
+        }
+
+        processed++;
+        await this.db.updateCollectTask(taskId, {
+          failedItems: JSON.stringify(remaining),
+          failedCount: remaining.length,
+        });
+      }
+
+      const alreadyCollected = task.collectedCount || 0;
+      if (!signal.aborted) {
+        await this.db.updateCollectTask(taskId, {
+          status: 'COMPLETED' as TaskStatus,
+          completedAt: new Date().toISOString(),
+          collectedCount: alreadyCollected + successCount,
+          failedItems: JSON.stringify(remaining),
+          failedCount: remaining.length,
+        });
+        await this.logToDb(`重试失败项完成: 共${total}条，成功${successCount}条，仍失败${remaining.length}条`, 'info', {
+          sourceCode: task.sourceCode,
+          sourceName: task.sourceName,
+          taskId,
+          retried: total,
+          success: successCount,
+          failed: remaining.length,
+        });
+        this.emitLog('info', `重试失败项完成 [${source.name}]: 成功${successCount}条，仍失败${remaining.length}条`, task.sourceCode, task.sourceName, taskId);
+        onProgress?.({
+          total,
+          processed,
+          success: successCount,
+          failed: failedDuringRetry,
+          currentTitle: '',
+          status: 'done',
+        });
+      } else {
+        await this.db.updateCollectTask(taskId, {
+          status: 'FAILED' as TaskStatus,
+          errorMessage: '重试失败项已取消',
+          errorType: 'CANCELLED' as TaskErrorType,
+          completedAt: new Date().toISOString(),
+          failedItems: JSON.stringify(remaining),
+          failedCount: remaining.length,
+        });
+      }
+
+      this.recommendationService.scheduleRecompute();
+      this.activeAbortControllers.delete(taskId);
+      return { taskId, retried: total, success: successCount, failed: remaining.length };
+    } catch (err) {
+      this.activeAbortControllers.delete(taskId);
+      const errInstance = err instanceof Error ? err : new Error(String(err));
+      throw errInstance;
+    }
   }
 
   /**

@@ -185,6 +185,7 @@ export interface AppState {
   collectSourceLatest: (sourceCode: string) => Promise<{ success: boolean; taskId: string; collected: number; error?: string }>;
   collectSourceAll: (sourceCode: string) => Promise<{ success: boolean; taskId: string; collected: number; pages: number; error?: string }>;
   resumeCollectTask: (taskId: string) => Promise<{ success: boolean; taskId: string; collected: number; pages: number; error?: string }>;
+  retryFailedItems: (taskId: string) => Promise<{ success: boolean; taskId: string; retried: number; successCount: number; failed: number; error?: string }>;
 
   startAutoCollect: () => Promise<void>;
   stopAutoCollect: () => void;
@@ -890,6 +891,21 @@ export function createAppStore(db: DatabaseProvider) {
         console.error(`[Store] resumeCollectTask 失败:`, errorMsg);
         set({ error: errorMsg });
         return { success: false, taskId: '', collected: 0, pages: 0, error: errorMsg };
+      }
+    },
+
+    retryFailedItems: async (taskId: string) => {
+      try {
+        const result = await collectorService.retryFailedItems(taskId);
+        await get().loadMediaList();
+        await get().loadVideoSources();
+        await get().loadCollectTasks();
+        return { success: true, taskId: result.taskId, retried: result.retried, successCount: result.success, failed: result.failed };
+      } catch (err: any) {
+        const errorMsg = err.message || String(err);
+        console.error(`[Store] retryFailedItems 失败:`, errorMsg);
+        set({ error: errorMsg });
+        return { success: false, taskId: '', retried: 0, successCount: 0, failed: 0, error: errorMsg };
       }
     },
 

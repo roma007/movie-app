@@ -151,6 +151,7 @@ export function rowToCollectTask(row: any): CollectTask {
     errorType: (row.error_type || null) as TaskErrorType | null,
     lastErrorPage: row.last_error_page ?? null,
     failedPages: row.failed_pages || null,
+    failedItems: row.failed_items || null,
     probedCount: row.probed_count || 0,
     shortDramaCount: row.short_drama_count || 0,
     longDramaCount: row.long_drama_count || 0,

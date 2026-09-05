@@ -163,6 +163,13 @@ export type TaskType = 'INCREMENTAL' | 'FULL' | 'KEYWORD' | 'REPROBE';
 
 export type TaskErrorType = 'NETWORK' | 'PARSE' | 'DB' | 'TIMEOUT' | 'RATE_LIMIT' | 'CANCELLED' | 'UNKNOWN';
 
+/** 采集失败的单个视频条目（用于任务完成后精准重试） */
+export interface FailedItem {
+  vodId: string;
+  title: string;
+  error: string;
+}
+
 export interface CollectTask {
   id: string;
   taskId: string;
@@ -178,6 +185,7 @@ export interface CollectTask {
   errorType?: TaskErrorType | null;
   lastErrorPage?: number | null;
   failedPages?: string | null;
+  failedItems?: string | null;
   probedCount?: number;
   shortDramaCount?: number;
   longDramaCount?: number;

@@ -11,7 +11,7 @@ import { radius } from '../themes/radiusTokens';
 import BlurredBackground from '../components/BlurredBackground';
 import Spinner from '../components/Spinner';
 import { Button } from '../components/ui/Button';
-import type { CollectTask } from '@movie-app/core';
+import type { CollectTask, FailedItem } from '@movie-app/core';
 
 interface Props {
   navigation: any;
@@ -28,7 +28,7 @@ function getTypeLabel(type: string): string {
 }
 
 export default function TaskListScreen({ navigation }: Props) {
-  const { collectTasks, loadCollectTasks, deleteCollectTask, deleteOldTasks, resumeCollectTask } = useAppStore();
+  const { collectTasks, loadCollectTasks, deleteCollectTask, deleteOldTasks, resumeCollectTask, retryFailedItems } = useAppStore();
   const colors = useThemeColors();
   const cardOpacity = useThemeStore((s) => s.cardOpacity);
   const cardBg = hexToRgba(colors.card, cardOpacity / 100);
@@ -36,6 +36,18 @@ export default function TaskListScreen({ navigation }: Props) {
   const s = useScaledFontSize();
   const [isLoading, setIsLoading] = useState(true);
   const [resumingId, setResumingId] = useState<string | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+
+  function parseFailedItems(task: CollectTask): FailedItem[] {
+    if (!task.failedItems) return [];
+    try {
+      const parsed = JSON.parse(task.failedItems);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
 
   function getStatusStyle(status: string) {
     switch (status) {
@@ -78,12 +90,12 @@ export default function TaskListScreen({ navigation }: Props) {
   useEffect(() => {
     if (!isFocused) return;
     const hasActive = collectTasks.some((t) => t.status === 'RUNNING' || t.status === 'PENDING');
-    if (!hasActive && !resumingId) return;
+    if (!hasActive && !resumingId && !retryingId) return;
     const id = setInterval(() => {
       loadCollectTasks();
     }, 2000);
     return () => clearInterval(id);
-  }, [isFocused, collectTasks, resumingId, loadCollectTasks]);
+  }, [isFocused, collectTasks, resumingId, retryingId, loadCollectTasks]);
 
   useEffect(() => {
     if (!resumingId) return;
@@ -92,6 +104,14 @@ export default function TaskListScreen({ navigation }: Props) {
       setResumingId(null);
     }
   }, [collectTasks, resumingId]);
+
+  useEffect(() => {
+    if (!retryingId) return;
+    const task = collectTasks.find((t) => t.taskId === retryingId);
+    if (task && (task.status === 'COMPLETED' || task.status === 'FAILED')) {
+      setRetryingId(null);
+    }
+  }, [collectTasks, retryingId]);
 
   const handleDelete = (task: CollectTask) => {
     if (task.status === 'RUNNING' || task.status === 'PENDING') {
@@ -116,6 +136,29 @@ export default function TaskListScreen({ navigation }: Props) {
       .catch((err: any) => {
         Alert.alert('续采失败', err.message || '未知错误');
         setResumingId((cur) => (cur === task.taskId ? null : cur));
+      });
+    loadCollectTasks().catch(() => {});
+  };
+
+  const handleRetryFailed = (task: CollectTask) => {
+    const items = parseFailedItems(task);
+    if (items.length === 0) {
+      Alert.alert('重试失败项', '没有需要重试的失败条目');
+      return;
+    }
+    setRetryingId(task.taskId);
+    retryFailedItems(task.taskId)
+      .then((result) => {
+        if (!result.success) {
+          Alert.alert('重试失败项失败', result.error || '未知错误');
+        } else {
+          Alert.alert('重试完成', `成功${result.successCount}条，仍失败${result.failed}条`);
+        }
+        setRetryingId((cur) => (cur === task.taskId ? null : cur));
+      })
+      .catch((err: any) => {
+        Alert.alert('重试失败项失败', err.message || '未知错误');
+        setRetryingId((cur) => (cur === task.taskId ? null : cur));
       });
     loadCollectTasks().catch(() => {});
   };
@@ -152,6 +195,13 @@ export default function TaskListScreen({ navigation }: Props) {
     taskStat: { fontSize: s(12), color: colors.mutedForeground },
     taskDate: { fontSize: s(11), color: colors.disabledForeground, marginLeft: 'auto' },
     taskRight: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 'auto' },
+    failedRow: { marginTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 8 },
+    failedToggle: { flexDirection: 'row', alignItems: 'center', fontSize: s(12), color: colors.mutedForeground, paddingVertical: 4 },
+    failedList: { marginTop: 6, maxHeight: 160 },
+    failedItem: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 3, gap: 6 },
+    failedTitle: { fontSize: s(12), color: colors.text, fontWeight: '500', flexShrink: 1 },
+    failedError: { fontSize: s(11), color: colors.mutedForeground, flexShrink: 1 },
+    failedEmpty: { fontSize: s(12), color: colors.success, paddingVertical: 2 },
   }), [colors, cardBg, surfaceBg, s]);
 
   return (
@@ -214,12 +264,25 @@ export default function TaskListScreen({ navigation }: Props) {
                         {task.status === 'RUNNING' && <Spinner size={10} color={statusStyle.color} strokeWidth={2} style={{ marginRight: 4 }} />}
                         <Text style={[styles.statusText, { color: statusStyle.color }]}>{statusStyle.label}</Text>
                       </View>
+                      {task.failedItems && parseFailedItems(task).length > 0 && (task.status === 'COMPLETED' || task.status === 'FAILED') && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onPress={() => handleRetryFailed(task)}
+                          disabled={retryingId === task.taskId || resumingId === task.taskId}
+                        >
+                          {retryingId === task.taskId ? (
+                            <Spinner size={12} color={colors.text} strokeWidth={2} style={{ marginRight: 4 }} />
+                          ) : null}
+                          {retryingId === task.taskId ? '重试中...' : `重试失败项(${parseFailedItems(task).length})`}
+                        </Button>
+                      )}
                       {task.status === 'FAILED' && (task.type === 'INCREMENTAL' || task.type === 'FULL') && (
                         <Button
                           variant="secondary"
                           size="sm"
                           onPress={() => handleResume(task)}
-                          disabled={resumingId === task.taskId}
+                          disabled={resumingId === task.taskId || retryingId === task.taskId}
                         >
                           {resumingId === task.taskId ? (
                             <Spinner size={12} color={colors.text} strokeWidth={2} style={{ marginRight: 4 }} />
@@ -227,11 +290,35 @@ export default function TaskListScreen({ navigation }: Props) {
                           {resumingId === task.taskId ? '续采中...' : '继续'}
                         </Button>
                       )}
-                      <Button variant="secondary" size="sm" onPress={() => handleDelete(task)} disabled={resumingId === task.taskId}>
+                      <Button variant="secondary" size="sm" onPress={() => handleDelete(task)} disabled={resumingId === task.taskId || retryingId === task.taskId}>
                         删除
                       </Button>
                     </View>
                 </View>
+
+                {(task.type === 'INCREMENTAL' || task.type === 'FULL') && (
+                  <View style={styles.failedRow}>
+                    {parseFailedItems(task).length > 0 ? (
+                      <>
+                        <Text style={styles.failedToggle} onPress={() => setExpandedTaskId(expandedTaskId === task.taskId ? null : task.taskId)}>
+                          {expandedTaskId === task.taskId ? '▾ 收起失败明细' : `▸ 查看失败明细（${parseFailedItems(task).length}条）`}
+                        </Text>
+                        {expandedTaskId === task.taskId && (
+                          <ScrollView style={styles.failedList} nestedScrollEnabled>
+                            {parseFailedItems(task).map((fi, idx) => (
+                              <View key={`${fi.vodId}-${idx}`} style={styles.failedItem}>
+                                <Text style={[styles.failedTitle, { color: colors.text }]}>{idx + 1}. {fi.title}</Text>
+                                <Text style={styles.failedError}>{fi.error}</Text>
+                              </View>
+                            ))}
+                          </ScrollView>
+                        )}
+                      </>
+                    ) : task.failedItems ? (
+                      <Text style={styles.failedEmpty}>本次无失败条目</Text>
+                    ) : null}
+                  </View>
+                )}
               </View>
             );
           })}

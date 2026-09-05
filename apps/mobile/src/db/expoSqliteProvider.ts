@@ -376,6 +376,11 @@ const MIGRATIONS: Migration[] = [
       PRAGMA foreign_keys=ON;
     `,
   },
+  {
+    version: 41,
+    description: 'add_failed_items_to_collect_task',
+    sql: `ALTER TABLE collect_task ADD COLUMN failed_items TEXT;`,
+  },
 ];
 
 /**
@@ -663,7 +668,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
         view_count, rating, rating_count, rating_source, rating_updated_at,
         hidden, series_group, series_season,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(fingerprint) DO UPDATE SET
         title = excluded.title,
         original_title = excluded.original_title,
@@ -1569,7 +1574,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async createCollectTask(task: CollectTask): Promise<void> {
     await this.db!.runAsync(
-      'INSERT INTO collect_task (id, task_id, source_code, source_name, type, status, current_page, total_pages, collected_count, failed_count, error_message, error_type, last_error_page, created_at, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO collect_task (id, task_id, source_code, source_name, type, status, current_page, total_pages, collected_count, failed_count, error_message, error_type, last_error_page, failed_items, created_at, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         task.id,
         task.taskId,
@@ -1584,6 +1589,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
         task.errorMessage || null,
         task.errorType || null,
         task.lastErrorPage ?? null,
+        task.failedItems || null,
         task.createdAt,
         task.startedAt || null,
         task.completedAt || null,
@@ -1650,6 +1656,10 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     if (updates.lastErrorPage !== undefined) {
       sqlParts.push('last_error_page = ?');
       params.push(updates.lastErrorPage);
+    }
+    if (updates.failedItems !== undefined) {
+      sqlParts.push('failed_items = ?');
+      params.push(updates.failedItems);
     }
     if (updates.startedAt !== undefined) {
       sqlParts.push('started_at = ?');
