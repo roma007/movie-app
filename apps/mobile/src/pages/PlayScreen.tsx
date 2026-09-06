@@ -86,6 +86,8 @@ export default function PlayScreen({ route, navigation }: Props) {
   activePlayIdxRef.current = activePlayIdx;
   const [videoUrl, setVideoUrl] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  // 高频真实播放态（playingChange 驱动）：渲染层强不变量「在播即不显示转圈」，兜底 isLoading 残留
+  const [isActuallyPlaying, setIsActuallyPlaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [initialCurrentTime, setInitialCurrentTime] = useState(0);
 
@@ -295,7 +297,7 @@ export default function PlayScreen({ route, navigation }: Props) {
       position: 'absolute',
       left: 15,
       width: screenW * 0.68,
-      bottom: insets.bottom + 96,
+      bottom: insets.bottom + 148,
       zIndex: 15,
       backgroundColor: 'rgba(0,0,0,0.5)',
       borderRadius: radius.lg,
@@ -338,12 +340,12 @@ export default function PlayScreen({ route, navigation }: Props) {
     verticalSectionText: { fontSize: sf(12), color: 'rgba(255,255,255,0.85)', lineHeight: sf(19) },
     verticalExpandLink: { fontSize: sf(12), color: '#fff', marginLeft: 6 },
     verticalCollapsedRow: { flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0, gap: 8 },
-    // 底部选集横条（红果式）：视频底部独立水平条，默认常显，点击弹选集列表
+    // 底部选集横条（红果式）：视频底部独立水平条，默认常显，点击弹选集列表，位于进度条上方
     episodeBar: {
       position: 'absolute',
       left: 12,
       right: 12,
-      bottom: insets.bottom + 10,
+      bottom: insets.bottom + 90,
       zIndex: 17,
       flexDirection: 'row' as const,
       alignItems: 'center',
@@ -354,12 +356,12 @@ export default function PlayScreen({ route, navigation }: Props) {
     },
     episodeBarTitle: { fontSize: sf(15), fontWeight: '700', color: '#fff' },
     episodeBarSub: { fontSize: sf(13), color: 'rgba(255,255,255,0.7)', marginLeft: 4 },
-    // 红果式底部进度条 + 中央播放/暂停（信息卡与选集横条之间）
+    // 红果式底部进度条 + 中央播放/暂停（预读进度条与选集横条之间）
     progressWrap: {
       position: 'absolute',
       left: 0,
       right: 0,
-      bottom: insets.bottom + 56,
+      bottom: insets.bottom + 46,
       zIndex: 16,
       height: 34,
       flexDirection: 'row' as const,
@@ -816,7 +818,14 @@ export default function PlayScreen({ route, navigation }: Props) {
     const tryPlay = () => { try { p.play(); } catch {} };
     p.muted = true;
     try {
-      subs.push(p.addListener('playingChange', (e: { isPlaying: boolean }) => { if (e.isPlaying) unmute(); }));
+      subs.push(p.addListener('playingChange', (e: { isPlaying: boolean }) => {
+        setIsActuallyPlaying(e.isPlaying);
+        if (e.isPlaying) {
+          // 已在播即熄灭加载遮罩（兜底 iOS readyToPlay 时序差异，对齐桌面端 onPlaying）
+          unmute();
+          setIsLoading(false);
+        }
+      }));
       subs.push(p.addListener('sourceLoad', tryPlay));
       subs.push(p.addListener('statusChange', (e: { status: string }) => {
         if (e.status === 'readyToPlay') {
@@ -1612,7 +1621,7 @@ export default function PlayScreen({ route, navigation }: Props) {
 
       {!isImmersive && <View style={styles.spacerTop} />}
       <View style={isImmersive ? styles.videoContainerImm : styles.videoContainer}>
-        {isLoading && (
+        {isLoading && !isActuallyPlaying && (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#fff" />
             <Text style={styles.loadingText}>加载中...</Text>
@@ -2180,7 +2189,7 @@ export default function PlayScreen({ route, navigation }: Props) {
               />
             </>
           )}
-          {isLoading && (
+          {isLoading && !isActuallyPlaying && (
             <View style={[fsStyles.msg, { top: 0 }]}>
               <ActivityIndicator size="large" color="#fff" />
               <Text style={fsStyles.msgText}>加载中...</Text>
