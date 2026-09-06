@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Modal, Platform, Switch, AppState, BackHandler, Animated, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Modal, Platform, Switch, AppState, BackHandler, Animated, useWindowDimensions, PanResponder } from 'react-native';
 import { VideoView, createVideoPlayer, isPictureInPictureSupported } from 'expo-video';
 import { StatusBar } from 'expo-status-bar';
 import { Paths, File } from 'expo-file-system';
@@ -79,6 +79,9 @@ export default function PlayScreen({ route, navigation }: Props) {
   const [hideModalVisible, setHideModalVisible] = useState(false);
   const [episodesSheetVisible, setEpisodesSheetVisible] = useState(false);
   const [playStat, setPlayStat] = useState({ playing: true, cur: 0, dur: 0 });
+  // 进度条拖动 seek：null 表示未拖动；拖动中存 0~1 比例，松开后 seek 并复位
+  const [dragProgress, setDragProgress] = useState<number | null>(null);
+  const progressTrackWidthRef = useRef(0);
   const [selectedHideGenres, setSelectedHideGenres] = useState<string[]>([]);
   const [hiding, setHiding] = useState(false);
   const [activePlayIdx, setActivePlayIdx] = useState(0);
@@ -292,6 +295,8 @@ export default function PlayScreen({ route, navigation }: Props) {
     videoHiddenInFullscreen: { opacity: 0 },
     // 红果式沉浸（竖屏视频）：播放器区域占满整屏（视频自带 contain 上下留窄黑边，观感贴近短剧沉浸页）
     videoContainerImm: { width: '100%', flex: 1, backgroundColor: colors.playerBg },
+    // 沉浸态点击视频区 = 播放/暂停（替代已移除的中央圆形按钮，红果式惯例）
+    videoTapLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 5 },
     // 底部悬浮信息卡：红果式左下窄卡（非全宽），叠加在视频上（非弹窗，不受弹窗不透明度规则限制），底部给选集横条留位
     verticalCard: {
       position: 'absolute',
@@ -356,13 +361,13 @@ export default function PlayScreen({ route, navigation }: Props) {
     },
     episodeBarTitle: { fontSize: sf(15), fontWeight: '700', color: '#fff' },
     episodeBarSub: { fontSize: sf(13), color: 'rgba(255,255,255,0.7)', marginLeft: 4 },
-    // 红果式底部进度条 + 中央播放/暂停（预读进度条与选集横条之间）
+    // 红果式底部进度条（紧贴预读进度条上方，对齐原生控件位置）；可拖动 seek，白点 thumb 标记当前进度
     progressWrap: {
       position: 'absolute',
       left: 0,
       right: 0,
-      bottom: insets.bottom + 46,
-      zIndex: 16,
+      bottom: 40,
+      zIndex: 26,
       height: 34,
       flexDirection: 'row' as const,
       alignItems: 'center',
@@ -375,17 +380,18 @@ export default function PlayScreen({ route, navigation }: Props) {
       marginHorizontal: 14,
     },
     progressFill: { height: 3, borderRadius: 1.5, backgroundColor: '#fff' },
-    centerPlayBtn: {
-      position: 'absolute',
-      left: '50%',
-      marginLeft: -21,
-      alignSelf: 'center',
-      width: 42,
-      height: 42,
-      borderRadius: 21,
-      backgroundColor: 'rgba(0,0,0,0.4)',
-      alignItems: 'center' as const,
-      justifyContent: 'center' as const,
+    progressThumb: {
+      position: 'absolute' as const,
+      top: -3.5,
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      marginLeft: -5,
+      backgroundColor: '#fff',
+      shadowColor: '#000',
+      shadowOpacity: 0.3,
+      shadowRadius: 2,
+      shadowOffset: { width: 0, height: 1 },
     },
     // 五个按钮从视频下方实心行改为悬浮在播放器左上角（压在视频上层）
     toolbarOverlay: {
@@ -1048,6 +1054,55 @@ export default function PlayScreen({ route, navigation }: Props) {
     }
   };
 
+  // 进度条拖动 seek：拖动中实时预览，松开按比例跳转并写回播放器与落库
+  const commitDragSeek = useCallback((ratio: number) => {
+    const p = playerRef.current;
+    const dur = p?.duration || 0;
+    if (!p || !isFinite(ratio)) {
+      setDragProgress(null);
+      return;
+    }
+    const target = Math.max(0, Math.min(dur, ratio * dur));
+    try { p.currentTime = target; } catch {}
+    setPlayStat((s) => ({ ...s, cur: target, dur: dur || s.dur }));
+    if (mediaId && currentEpisodeId) {
+      saveWatchProgress(
+        mediaId,
+        currentEpisodeId,
+        Math.floor(target),
+        Math.floor(dur),
+        selectedSourceId ?? null,
+        playSources[activePlayIdx]?.id ?? null,
+      );
+    }
+    setDragProgress(null);
+  }, [mediaId, currentEpisodeId, selectedSourceId, playSources, activePlayIdx]);
+
+  const progressPanResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: (e) => {
+      const w = progressTrackWidthRef.current;
+      const x = e.nativeEvent.locationX;
+      if (w > 0) setDragProgress(Math.max(0, Math.min(1, x / w)));
+    },
+    onPanResponderMove: (e, g) => {
+      const w = progressTrackWidthRef.current;
+      const x = e.nativeEvent.locationX;
+      if (w > 0) {
+        const ratio = Math.max(0, Math.min(1, x / w));
+        if (g.dx !== 0 || g.dy !== 0) setDragProgress(ratio);
+      }
+    },
+    onPanResponderRelease: (e) => {
+      const w = progressTrackWidthRef.current;
+      const x = e.nativeEvent.locationX;
+      if (w > 0) commitDragSeek(Math.max(0, Math.min(1, x / w)));
+      else setDragProgress(null);
+    },
+    onPanResponderTerminate: () => setDragProgress(null),
+  }), [commitDragSeek]);
+
   const handlePlaySourceChange = async (idx: number) => {
     const src = playSourcesRef.current[idx];
     if (!src) return;
@@ -1644,8 +1699,19 @@ export default function PlayScreen({ route, navigation }: Props) {
             player={player}
             contentFit={(isImmersive && isVerticalVideo) ? 'cover' : 'contain'}
             allowsPictureInPicture={isPictureInPictureSupported()}
+            nativeControls={!isImmersive}
             fullscreenOptions={{ enable: false }}
           />
+        )}
+        {isImmersive && !appFullscreen && (
+          <View style={styles.videoTapLayer}>
+            <TouchableOpacity
+              style={StyleSheet.absoluteFill}
+              activeOpacity={1}
+              onPress={togglePlayPause}
+              accessibilityLabel="播放/暂停"
+            />
+          </View>
         )}
         <NextEpisodeOverlay
           show={overlayVisible}
@@ -1848,17 +1914,18 @@ export default function PlayScreen({ route, navigation }: Props) {
                 </TouchableOpacity>
               )}
             </View>
-            {/* 红果式底部进度条 + 中央播放/暂停 */}
-            {media && playStat.dur > 0 && (
-              <View style={styles.progressWrap}>
-                <View style={styles.progressTrack}>
-                  <View style={[styles.progressFill, { width: `${Math.min(1, Math.max(0, playStat.cur / playStat.dur)) * 100}%` }]} />
+            {/* 红果式底部进度条（紧贴预读条上方，可拖动 seek，白点 thumb 标记当前进度） */}
+            {media && videoUrl && !error && (
+              <View style={styles.progressWrap} {...progressPanResponder.panHandlers}>
+                <View
+                  style={styles.progressTrack}
+                  onLayout={(e) => { progressTrackWidthRef.current = e.nativeEvent.layout.width; }}
+                >
+                  <View style={[styles.progressFill, { width: `${(dragProgress != null ? dragProgress : (playStat.dur > 0 ? Math.min(1, Math.max(0, playStat.cur / playStat.dur)) : 0)) * 100}%` }]} />
+                  <View
+                    style={[styles.progressThumb, { left: `${(dragProgress != null ? dragProgress : (playStat.dur > 0 ? Math.min(1, Math.max(0, playStat.cur / playStat.dur)) : 0)) * 100}%` }]}
+                  />
                 </View>
-                <TouchableOpacity style={styles.centerPlayBtn} activeOpacity={0.8} onPress={togglePlayPause} hitSlop={10}>
-                  {playStat.playing
-                    ? <Pause size={18} color="#fff" />
-                    : <Play size={18} color="#fff" />}
-                </TouchableOpacity>
               </View>
             )}
             {/* 右侧竖排功能键（红果式：悬浮视频右侧、屏高 55% 起、距右缘 8） */}
