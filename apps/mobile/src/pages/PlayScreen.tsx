@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Modal, Platform, Switch, AppState, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Modal, Platform, Switch, AppState, BackHandler, useWindowDimensions } from 'react-native';
 import { VideoView, createVideoPlayer, isPictureInPictureSupported } from 'expo-video';
 import { StatusBar } from 'expo-status-bar';
 import { Paths, File } from 'expo-file-system';
@@ -9,7 +9,7 @@ import { Paths, File } from 'expo-file-system';
 const VideoCache: any = (() => { try { return require('expo-video-cache'); } catch { return null; } })();
 import { getProvider } from '../init';
 import { useAppStore, getStore } from '../useAppStore';
-import { ArrowLeft, Mic, EyeOff, Heart, ThumbsDown, Star, Settings, PictureInPicture2, ChevronUp, ChevronDown, ChevronRight, MoreHorizontal, Play, Pause, X } from 'lucide-react-native';
+import { ArrowLeft, Mic, EyeOff, Heart, ThumbsDown, Star, Settings, PictureInPicture2, Maximize, ChevronUp, ChevronDown, ChevronRight, MoreHorizontal, Play, Pause, X } from 'lucide-react-native';
 import { SystemConfigService, getVoiceControlSystem, UNCATEGORIZED_GENRE, VideoDurationService } from '@movie-app/core';
 import { clearCategoryFilterCache } from '../categoryFilterCache';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -31,6 +31,7 @@ import type { PlaySource, VideoSource, Episode, Media } from '@movie-app/core';
 import { radius } from '../themes/radiusTokens';
 import { SegmentProgress } from '../components/SegmentProgress';
 import { createSegmentSnapshotBuilder, type SegmentProgressSnapshot } from '../services/segmentProgress';
+import { FullscreenControlBar } from '../components/FullscreenControlBar';
 
 interface Props {
   route: any;
@@ -113,6 +114,18 @@ export default function PlayScreen({ route, navigation }: Props) {
   // 功能10: 播放设置菜单（倍速/清晰度/字幕）
   const [settingsVisible, setSettingsVisible] = useState(false);
 
+  // 自绘全屏（应用内全屏，对齐桌面端全屏浮窗/设置）：appFullscreen 驱动全屏覆盖层渲染与方向锁定
+  const [appFullscreen, setAppFullscreen] = useState(false);
+  const appFullscreenRef = useRef(false);
+  appFullscreenRef.current = appFullscreen;
+  // 全屏控制层显隐：进入后自动隐藏，tap 切换，进度用高频 timeUpdate（独立于 5s 粒度 playStat）
+  const [fullscreenControlsVisible, setFullscreenControlsVisible] = useState(true);
+  const [fsTime, setFsTime] = useState(0);
+  const [fsDuration, setFsDuration] = useState(0);
+  const [fsPlaying, setFsPlaying] = useState(false);
+  const fsHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appFullVideoRef = useRef<VideoView>(null);
+
   // 功能2: 已看剧集
   const [watchedEpisodes, setWatchedEpisodes] = useState<Set<string>>(new Set());
 
@@ -189,7 +202,6 @@ export default function PlayScreen({ route, navigation }: Props) {
   const [bgImageUrl, setBgImageUrl] = useState<string | null>(null);
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [episodeListSwitching, setEpisodeListSwitching] = useState(false);
-  const isLandscapeRef = useRef(false);
   /** 当前播放视频的真实宽高比（width/height）。null=未探测，沿用默认 16:9；<1 视为竖屏。 */
   const [videoRatio, setVideoRatio] = useState<number | null>(null);
   /** 最近一次成功探测到的宽高比：换源/换集时 videoRatio 被清空（null），用此值保持沉浸布局不闪烁（不设状态避免重渲染） */
@@ -226,7 +238,6 @@ export default function PlayScreen({ route, navigation }: Props) {
   const isVerticalVideo = effectiveRatio != null && effectiveRatio > 0 && effectiveRatio < 1;
   /** 红果式沉浸：仅竖屏视频启用「全屏沉浸 + 底部悬浮信息卡 + 左下竖排功能键」布局 */
   const isImmersiveVertical = isVerticalVideo;
-  const fullscreenOrientation = isVerticalVideo ? 'portrait' : 'landscape';
 
   // 红果式沉浸信息卡：展开（显示选集/简介/导演演员等全部信息）与收起（仅标题+选集）两态
   const [verticalCardExpanded, setVerticalCardExpanded] = useState(false);
@@ -257,6 +268,8 @@ export default function PlayScreen({ route, navigation }: Props) {
     headerRightText: { fontSize: sf(13), color: '#fff' },
     videoContainer: { width: '100%', height: videoHeight, backgroundColor: colors.playerBg },
     video: { width: '100%', height: '100%' },
+    // 应用内全屏时隐藏非全屏 VideoView（避免原 native 全屏 view 透出/重复渲染）
+    videoHiddenInFullscreen: { opacity: 0 },
     // 红果式沉浸（竖屏视频）：播放器区域占满整屏（视频自带 contain 上下留窄黑边，观感贴近短剧沉浸页）
     videoContainerImm: { width: '100%', flex: 1, backgroundColor: colors.playerBg },
     // 底部悬浮信息卡：红果式左下窄卡（非全宽），叠加在视频上（非弹窗，不受弹窗不透明度规则限制），底部给选集横条留位
@@ -1193,6 +1206,123 @@ export default function PlayScreen({ route, navigation }: Props) {
     try { videoRef.current?.startPictureInPicture(); } catch {}
   };
 
+  // ===== 自绘全屏（应用内全屏覆盖层，对齐桌面端全屏浮窗/设置）=====
+  const enterAppFullscreen = useCallback(() => {
+    if (!videoUrl || error) return;
+    setAppFullscreen(true);
+  }, [videoUrl, error]);
+
+  const exitAppFullscreen = useCallback(() => {
+    setAppFullscreen(false);
+    if (fsHideTimerRef.current) { clearTimeout(fsHideTimerRef.current); fsHideTimerRef.current = null; }
+  }, []);
+
+  const showFsControlsTemporarily = useCallback(() => {
+    setFullscreenControlsVisible(true);
+    if (fsHideTimerRef.current) { clearTimeout(fsHideTimerRef.current); }
+    fsHideTimerRef.current = setTimeout(() => {
+      if (appFullscreenRef.current) setFullscreenControlsVisible(false);
+    }, 3000);
+  }, []);
+
+  const toggleFsControls = useCallback(() => {
+    setFullscreenControlsVisible((v) => {
+      const next = !v;
+      if (fsHideTimerRef.current) { clearTimeout(fsHideTimerRef.current); fsHideTimerRef.current = null; }
+      if (next) {
+        fsHideTimerRef.current = setTimeout(() => {
+          if (appFullscreenRef.current) setFullscreenControlsVisible(false);
+        }, 3000);
+      }
+      return next;
+    });
+  }, []);
+
+  // 进入全屏时按竖/横片锁定方向（横片强制横屏，对齐现状原生全屏 orientation 行为）；
+  // 退出时仅当曾进过全屏才锁回竖屏（避免页面挂载即锁竖屏，保持现状挂载自由旋转）
+  const wasFullscreenRef = useRef(false);
+  useEffect(() => {
+    if (appFullscreen) {
+      wasFullscreenRef.current = true;
+      try {
+        if (isVerticalVideo) {
+          ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
+        } else {
+          ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+        }
+      } catch {}
+    } else if (wasFullscreenRef.current) {
+      try {
+        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
+      } catch {}
+    }
+  }, [appFullscreen, isVerticalVideo]);
+
+  // 偏差 2 修复：全屏中出错（error 置位）统一退出全屏回非全屏错误层，方向随 appFullscreen 解锁，避免层卸载但状态/方向锁滞留
+  useEffect(() => {
+    if (appFullscreen && error) exitAppFullscreen();
+  }, [appFullscreen, error, exitAppFullscreen]);
+
+  // 全屏进度/时长/播放态：timeUpdate 0.5s 粒度 + playingChange 实时，不依赖 5s playStat
+  useEffect(() => {
+    if (!appFullscreen) return;
+    const p = playerRef.current;
+    if (!p) return;
+    try { p.timeUpdateEventInterval = 0.5; } catch {}
+    try { setFsTime(p.currentTime || 0); setFsDuration(p.duration || 0); setFsPlaying(!!p.playing); } catch {}
+    const subs: { remove: () => void }[] = [];
+    try {
+      subs.push(p.addListener('timeUpdate', (e: any) => {
+        setFsTime(typeof e?.currentTime === 'number' ? e.currentTime : 0);
+        try { setFsDuration(p.duration || 0); } catch {}
+      }));
+      subs.push(p.addListener('playingChange', (e: any) => {
+        setFsPlaying(!!e?.isPlaying);
+      }));
+    } catch {}
+    return () => { subs.forEach((s) => { try { s.remove(); } catch {} }); };
+  }, [appFullscreen, player]);
+
+  // 进入全屏显示控制层并 3s 自动隐藏
+  useEffect(() => {
+    if (appFullscreen) showFsControlsTemporarily();
+  }, [appFullscreen, showFsControlsTemporarily]);
+
+  // Android 系统返回键：全屏优先退出全屏（浮层/弹窗打开时先交给弹窗自己处理）
+  useEffect(() => {
+    if (!appFullscreen) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (settingsVisible || episodesSheetVisible || hideModalVisible || voiceControlVisible) return false;
+      exitAppFullscreen();
+      return true;
+    });
+    return () => sub.remove();
+  }, [appFullscreen, settingsVisible, episodesSheetVisible, hideModalVisible, voiceControlVisible, exitAppFullscreen]);
+
+  const handleFullscreenSeek = (t: number) => {
+    const p = playerRef.current;
+    if (!p || !isFinite(t)) return;
+    try { p.currentTime = t; } catch {}
+  };
+
+  const handleFullscreenPiP = () => {
+    try { appFullVideoRef.current?.startPictureInPicture(); } catch {}
+  };
+
+  // 自绘全屏层的独立样式：不并入主 styles useMemo，避免与屏宽布局耦合重算
+  const fsStyles = useMemo(() => StyleSheet.create({
+    wrap: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 20, backgroundColor: '#000' },
+    video: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+    tapLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+    topBar: { position: 'absolute', left: 0, right: 0, flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 10, zIndex: 30 },
+    topTitle: { flex: 1, fontSize: sf(16), fontWeight: '600', color: '#fff', marginLeft: 8, marginRight: 40 },
+    backBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
+    controlBar: { position: 'absolute', left: 0, right: 0, zIndex: 30 },
+    fullscreenCastWrap: { position: 'absolute', left: 0, right: 0, bottom: 150, alignItems: 'center', zIndex: 40 },
+    msg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', zIndex: 25 },
+    msgText: { color: '#fff', fontSize: sf(14), marginTop: 8 },
+  }), [sf]);
+
   // 功能13: 显示预读分片进度开关（持久化到 playbackConfig.showSegmentProgress）
   const handleToggleSegmentProgress = async (next: boolean) => {
     setShowSegmentProgress(next);
@@ -1324,10 +1454,10 @@ export default function PlayScreen({ route, navigation }: Props) {
         aliases: ['全屏', '全屏幕', '切换全屏'],
         category: 'playback',
         execute: async () => {
-          if (isLandscapeRef.current) {
-            videoRef.current?.exitFullscreen();
+          if (appFullscreenRef.current) {
+            exitAppFullscreen();
           } else {
-            videoRef.current?.enterFullscreen();
+            enterAppFullscreen();
           }
         },
       },
@@ -1361,7 +1491,7 @@ export default function PlayScreen({ route, navigation }: Props) {
     return () => {
       // 清理命令
     };
-  }, [voiceControl, playerRef, nextEpisode, filteredEpisodes, currentEpisodeId]);
+  }, [voiceControl, playerRef, nextEpisode, filteredEpisodes, currentEpisodeId, enterAppFullscreen, exitAppFullscreen]);
 
   // 功能9: 退出播放页时断开投屏
   useEffect(() => {
@@ -1470,28 +1600,14 @@ export default function PlayScreen({ route, navigation }: Props) {
             )}
           </View>
         )}
-        {videoUrl && !error && (
+{videoUrl && !error && (
           <VideoView
             ref={videoRef}
-            style={styles.video}
+            style={[styles.video, appFullscreen ? styles.videoHiddenInFullscreen : null]}
             player={player}
-contentFit={isImmersiveVertical ? 'cover' : 'contain'}
+            contentFit={isImmersiveVertical ? 'cover' : 'contain'}
             allowsPictureInPicture={isPictureInPictureSupported()}
-            fullscreenOptions={{ enable: true, orientation: fullscreenOrientation as any }}
-            onFullscreenEnter={async () => {
-              isLandscapeRef.current = true;
-              try {
-                if (isVerticalVideo) {
-                  await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
-                } else {
-                  await ScreenOrientation.unlockAsync();
-                }
-              } catch {}
-            }}
-            onFullscreenExit={async () => {
-              isLandscapeRef.current = false;
-              try { await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT); } catch {}
-            }}
+            fullscreenOptions={{ enable: false }}
           />
         )}
         <NextEpisodeOverlay
@@ -1543,6 +1659,14 @@ contentFit={isImmersiveVertical ? 'cover' : 'contain'}
               onSearch={castManager.searchDevices}
               style={styles.toolbarButton}
             />
+            <TouchableOpacity
+              style={styles.toolbarButton}
+              activeOpacity={0.7}
+              onPress={enterAppFullscreen}
+              testID="fullscreen-enter"
+            >
+              <Maximize size={18} color="#fff" />
+            </TouchableOpacity>
           </View>
         )}
         {videoUrl && !error && isImmersiveVertical && (() => {
@@ -2014,6 +2138,97 @@ contentFit={isImmersiveVertical ? 'cover' : 'contain'}
       </ScrollView>
       )}
     </View>
+    {/* ===== 自绘全屏覆盖层（应用内全屏，对齐桌面端全屏浮窗/设置）===== */}
+    {appFullscreen && videoUrl && !error && (() => {
+      const fsEpIdx = currentEpisodeId ? filteredEpisodes.findIndex((e: Episode) => e.id === currentEpisodeId) : -1;
+      const fsPrevEpisode = fsEpIdx > 0 ? (filteredEpisodes[fsEpIdx - 1] as Episode) : null;
+      const fsTogglePlayPause = () => {
+        const p = playerRef.current;
+        if (!p) return;
+        try { if (p.playing) p.pause(); else p.play(); } catch {}
+      };
+      const fsCastOnDeviceSelect = (device: { id: string; name: string; protocol: string }) => {
+        handleCastDeviceSelect(device);
+      };
+      return (
+        <View style={fsStyles.wrap} pointerEvents="box-none">
+          <StatusBar hidden style="light" />
+          <VideoView
+            ref={appFullVideoRef}
+            style={fsStyles.video}
+            player={player}
+            contentFit={isVerticalVideo ? 'cover' : 'contain'}
+            allowsPictureInPicture={isPictureInPictureSupported()}
+            nativeControls={false}
+            onPictureInPictureStart={() => {
+              if (appFullscreenRef.current) exitAppFullscreen();
+            }}
+          />
+          <TouchableOpacity style={fsStyles.tapLayer} activeOpacity={1} onPress={toggleFsControls} />
+          {fullscreenControlsVisible && (
+            <>
+              <View style={[fsStyles.topBar, { top: insets.top + 6, paddingLeft: insets.left + 10, paddingRight: insets.right + 10 }]}>
+                <TouchableOpacity style={fsStyles.backBtn} activeOpacity={0.7} onPress={exitAppFullscreen} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <ArrowLeft size={22} color="#fff" />
+                </TouchableOpacity>
+                <Text style={fsStyles.topTitle} numberOfLines={1}>{currentTitle || '正在播放'}</Text>
+              </View>
+              <FullscreenControlBar
+                style={[fsStyles.controlBar, { bottom: 8, paddingBottom: insets.bottom + 8, paddingLeft: insets.left > 0 ? insets.left + 8 : 10, paddingRight: insets.right > 0 ? insets.right + 8 : 10 }]}
+                visible={fullscreenControlsVisible}
+                playing={fsPlaying}
+                currentTime={fsTime}
+                duration={fsDuration}
+                onSeek={handleFullscreenSeek}
+                onTogglePlayPause={fsTogglePlayPause}
+                onPrev={fsPrevEpisode ? () => handleEpisodePress(fsPrevEpisode) : undefined}
+                onNext={nextEpisode ? handleNextEpisode : undefined}
+                onOpenSettings={() => setSettingsVisible(true)}
+                onPiP={isPictureInPictureSupported() ? handleFullscreenPiP : undefined}
+                onVoice={voiceControl?.getConfig().enabled ? handleVoiceControl : undefined}
+                onCastDeviceSelect={fsCastOnDeviceSelect}
+                onCastSearch={castManager.searchDevices}
+                onInteract={showFsControlsTemporarily}
+              />
+            </>
+          )}
+          {isLoading && (
+            <View style={[fsStyles.msg, { top: 0 }]}>
+              <ActivityIndicator size="large" color="#fff" />
+              <Text style={fsStyles.msgText}>加载中...</Text>
+            </View>
+          )}
+          <NextEpisodeOverlay
+            show={overlayVisible}
+            nextEpisodeTitle={nextEpisodeTitle}
+            onNext={handleNextEpisode}
+            onClose={handleOverlayClose}
+          />
+          <SkipForwardOverlay
+            show={skipForwardVisible}
+            onSkip={handleSkipForward}
+            onClose={handleSkipForwardClose}
+          />
+          {showSegmentProgress && (
+            <SegmentProgress
+              snapshot={segmentSnapshot}
+              onClose={() => setShowSegmentProgress(false)}
+            />
+          )}
+          {isCasting && (
+            <View style={fsStyles.fullscreenCastWrap}>
+              <CastRemoteControl
+                onPause={castManager.pause}
+                onResume={castManager.play}
+                onStop={castManager.stop}
+                onSeek={castManager.seek}
+                onVolume={castManager.setVolume}
+              />
+            </View>
+          )}
+        </View>
+      );
+    })()}
     </BlurredBackground>
     <Modal
       visible={episodesSheetVisible}
