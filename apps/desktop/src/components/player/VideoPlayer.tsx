@@ -542,6 +542,10 @@ export function VideoPlayer({
           retryPendingRef.current = false;
           setLoading(true);
         }}
+        onPlaying={() => {
+          // 实际开始播放即熄灭自定义加载遮罩（在播期间禁止残留转圈）
+          setLoading(false);
+        }}
         onCanPlay={() => {
           setLoading(false);
           applyColorFilter();

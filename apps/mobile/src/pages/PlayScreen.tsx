@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Modal, Platform, Switch, AppState, BackHandler, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Modal, Platform, Switch, AppState, BackHandler, Animated, useWindowDimensions } from 'react-native';
 import { VideoView, createVideoPlayer, isPictureInPictureSupported } from 'expo-video';
 import { StatusBar } from 'expo-status-bar';
 import { Paths, File } from 'expo-file-system';
@@ -113,6 +113,24 @@ export default function PlayScreen({ route, navigation }: Props) {
 
   // 功能10: 播放设置菜单（倍速/清晰度/字幕）
   const [settingsVisible, setSettingsVisible] = useState(false);
+  // 播放设置内联底部弹层动画（替换 RN Modal：iOS 全屏方向锁定下 present 会因 supportedInterfaceOrientations
+  // 混合方向冲突闪退，改页面内覆盖层；Android/iOS 行为一致）
+  const settingsAnim = useRef(new Animated.Value(0)).current;
+  const settingsSlide = settingsAnim.interpolate({ inputRange: [0, 1], outputRange: [300, 0] });
+  useEffect(() => {
+    if (!settingsVisible) return;
+    settingsAnim.setValue(0);
+    Animated.timing(settingsAnim, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+  }, [settingsVisible, settingsAnim]);
+  // Android 硬件返回：设置面板打开时优先关闭面板（替代原 Modal onRequestClose）
+  useEffect(() => {
+    if (!settingsVisible) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setSettingsVisible(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [settingsVisible]);
 
   // 自绘全屏（应用内全屏，对齐桌面端全屏浮窗/设置）：appFullscreen 驱动全屏覆盖层渲染与方向锁定
   const [appFullscreen, setAppFullscreen] = useState(false);
@@ -236,8 +254,8 @@ export default function PlayScreen({ route, navigation }: Props) {
    *  探测未就绪/换源期间回退到最近一次已知比例，避免沉浸布局在换集/换源时瞬时闪烁。 */
   const effectiveRatio = videoRatio ?? lastRatioRef.current;
   const isVerticalVideo = effectiveRatio != null && effectiveRatio > 0 && effectiveRatio < 1;
-  /** 红果式沉浸：仅竖屏视频启用「全屏沉浸 + 底部悬浮信息卡 + 左下竖排功能键」布局 */
-  const isImmersiveVertical = isVerticalVideo;
+  /** 红果式沉浸：竖屏（cover 铺满）或横屏（contain 居中留黑边）视频均启用「全屏沉浸 + 底部悬浮信息卡 + 右侧竖排功能键」布局 */
+  const isImmersive = effectiveRatio != null && effectiveRatio > 0;
 
   // 红果式沉浸信息卡：展开（显示选集/简介/导演演员等全部信息）与收起（仅标题+选集）两态
   const [verticalCardExpanded, setVerticalCardExpanded] = useState(false);
@@ -253,7 +271,7 @@ export default function PlayScreen({ route, navigation }: Props) {
     // header 悬浮在播放器上层（半透明）
     header: {
       position: 'absolute',
-      top: isImmersiveVertical ? 44 : (insets.top + 6),
+      top: isImmersive ? 44 : (insets.top + 6),
       left: 0,
       right: 0,
       zIndex: 20,
@@ -315,7 +333,7 @@ export default function PlayScreen({ route, navigation }: Props) {
     verticalTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
     verticalTitle: { flex: 1, fontSize: sf(15), fontWeight: '700', color: '#fff' },
     verticalSubText: { fontSize: sf(11), color: 'rgba(255,255,255,0.75)', marginBottom: 6 },
-    verticalBtnRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+    verticalBtnRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 8 },
     verticalSection: { marginTop: 6 },
     verticalSectionText: { fontSize: sf(12), color: 'rgba(255,255,255,0.85)', lineHeight: sf(19) },
     verticalExpandLink: { fontSize: sf(12), color: '#fff', marginLeft: 6 },
@@ -411,6 +429,8 @@ export default function PlayScreen({ route, navigation }: Props) {
     genreChipText: { fontSize: sf(13), color: colors.text },
     modalButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
     modalButton: { minWidth: 90 },
+    settingsOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'flex-end', zIndex: 10000, elevation: 30 },
+    settingsBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.5)' },
     settingsSheet: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: 18, maxHeight: '75%' },
     settingsTitle: { fontSize: sf(16), fontWeight: '600', marginBottom: 14 },
     settingsLabel: { fontSize: sf(13), marginBottom: 8 },
@@ -422,6 +442,8 @@ export default function PlayScreen({ route, navigation }: Props) {
     episodesSheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
     episodesSheet: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: 18, maxHeight: '75%' },
     episodesSheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+    seasonTabRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+    seasonTabBtn: { minWidth: 64 },
     episodesSheetTitle: { fontSize: sf(16), fontWeight: '600' },
     episodesSheetBody: { paddingBottom: 8 },
     row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -444,7 +466,7 @@ export default function PlayScreen({ route, navigation }: Props) {
     episodeBtnTextActive: { color: colors.cardDim },
     episodeDuration: { color: colors.disabledForeground, fontSize: sf(11), marginTop: 4 },
     });
-  }, [colors, cardBg, surfaceBg, accentBg, dimBg, sf, videoHeight, insets, screenH]);
+  }, [colors, cardBg, surfaceBg, accentBg, dimBg, sf, videoHeight, insets, screenH, isImmersive]);
 
   useEffect(() => {
     if (!mediaId) return;
@@ -796,7 +818,13 @@ export default function PlayScreen({ route, navigation }: Props) {
     try {
       subs.push(p.addListener('playingChange', (e: { isPlaying: boolean }) => { if (e.isPlaying) unmute(); }));
       subs.push(p.addListener('sourceLoad', tryPlay));
-      subs.push(p.addListener('statusChange', (e: { status: string }) => { if (e.status === 'readyToPlay') tryPlay(); }));
+      subs.push(p.addListener('statusChange', (e: { status: string }) => {
+        if (e.status === 'readyToPlay') {
+          // 新源真正就绪才开始播放，此时熄灭加载遮罩（覆盖换线路/重试/投屏恢复/失败自动换源四条路径）
+          setIsLoading(false);
+          tryPlay();
+        }
+      }));
     } catch {}
     tryPlay();
     const fallback = setTimeout(() => { unmute(); tryPlay(); }, 1500);
@@ -1563,7 +1591,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   return (
     <>
     {/* 红果式沉浸：竖屏视频时隐藏系统状态栏，让视频真正延伸到屏幕最顶端；退出/横屏自动恢复全局样式 */}
-    {isImmersiveVertical && <StatusBar hidden style="light" />}
+    {isImmersive && <StatusBar hidden style="light" />}
     <BlurredBackground imageUrl={bgImageUrl}>
     <View style={styles.container}>
       <View style={styles.header}>
@@ -1582,8 +1610,8 @@ export default function PlayScreen({ route, navigation }: Props) {
         </TouchableOpacity>
       </View>
 
-      {!isImmersiveVertical && <View style={styles.spacerTop} />}
-      <View style={isImmersiveVertical ? styles.videoContainerImm : styles.videoContainer}>
+      {!isImmersive && <View style={styles.spacerTop} />}
+      <View style={isImmersive ? styles.videoContainerImm : styles.videoContainer}>
         {isLoading && (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#fff" />
@@ -1605,7 +1633,7 @@ export default function PlayScreen({ route, navigation }: Props) {
             ref={videoRef}
             style={[styles.video, appFullscreen ? styles.videoHiddenInFullscreen : null]}
             player={player}
-            contentFit={isImmersiveVertical ? 'cover' : 'contain'}
+            contentFit={(isImmersive && isVerticalVideo) ? 'cover' : 'contain'}
             allowsPictureInPicture={isPictureInPictureSupported()}
             fullscreenOptions={{ enable: false }}
           />
@@ -1627,7 +1655,7 @@ export default function PlayScreen({ route, navigation }: Props) {
             onClose={() => setShowSegmentProgress(false)}
           />
         )}
-        {videoUrl && !error && !isImmersiveVertical && (
+        {videoUrl && !error && !isImmersive && (
           <View style={styles.toolbarOverlay}>
             <TouchableOpacity
               style={styles.toolbarButton}
@@ -1669,7 +1697,7 @@ export default function PlayScreen({ route, navigation }: Props) {
             </TouchableOpacity>
           </View>
         )}
-        {videoUrl && !error && isImmersiveVertical && (() => {
+        {videoUrl && !error && isImmersive && (() => {
           const vCastText =
             `${media?.directors.length ? `导演：${media?.directors.join('、')}` : ''}` +
             `${media?.actors.length ? `${media?.directors.length ? '\n' : ''}主演：${media?.actors.join('、')}` : ''}`;
@@ -1690,8 +1718,50 @@ export default function PlayScreen({ route, navigation }: Props) {
                     <Text style={styles.verticalSubText} numberOfLines={1}>{vmEpName}</Text>
                   ) : null}
                   {media && (
-                    <Text style={styles.verticalSubText}>{media.year}{media.area ? ` · ${media.area}` : ''}</Text>
+                    <Text style={styles.verticalSubText}>
+                      {media.year}{media.area ? ` · ${media.area}` : ''}{media.alias ? ` · 又名：${media.alias}` : ''}
+                    </Text>
                   )}
+                  {media?.updatedAt && (
+                    <Text style={styles.verticalSubText}>更新时间：{new Date(media.updatedAt).toISOString().split('T')[0]}</Text>
+                  )}
+                  {media && (() => {
+                    const ratingMedia = currentMedia && currentMedia.id === mediaId ? currentMedia : media;
+                    return (
+                      <>
+                        {ratingMedia.rating != null && ratingMedia.rating > 0 ? (
+                          <View style={styles.ratingRow}>
+                            <Star size={14} color={colors.warning} fill={colors.warning} />
+                            <Text style={styles.ratingValue}>{ratingMedia.rating.toFixed(1)}</Text>
+                            {ratingMedia.ratingCount != null && ratingMedia.ratingCount > 0 && (
+                              <Text style={styles.ratingCount}>
+                                {ratingMedia.ratingCount >= 10000 ? `${(ratingMedia.ratingCount / 10000).toFixed(1)}万人` : `${ratingMedia.ratingCount}人`}评分 (豆瓣)
+                              </Text>
+                            )}
+                          </View>
+                        ) : isRatingLoading ? (
+                          <View style={styles.ratingRow}>
+                            <ActivityIndicator size="small" color={colors.mutedForeground} />
+                            <Text style={styles.ratingLoading}>正在获取评分...</Text>
+                          </View>
+                        ) : null}
+                        <View style={styles.genreRow}>
+                          {(media.genres.length > 0 ? media.genres : [UNCATEGORIZED_GENRE]).map((g: string, i: number) => (
+                            <TouchableOpacity
+                              key={i}
+                              activeOpacity={0.7}
+                              onPress={() => {
+                                const screen = typeScreenMap[media.type];
+                                if (screen) navigation.navigate(screen, { subType: g });
+                              }}
+                            >
+                              <Text style={styles.genre}>{g}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </>
+                    );
+                  })()}
                   {media && (
                     <View style={styles.verticalBtnRow}>
                       <Button
@@ -1711,6 +1781,14 @@ export default function PlayScreen({ route, navigation }: Props) {
                         onPress={handleDislike}
                       >
                         {isDisliked ? '已不感兴趣' : '不感兴趣'}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        leftIcon={<EyeOff size={14} color="rgba(255,255,255,0.8)" />}
+                        onPress={openHideModal}
+                      >
+                        隐藏
                       </Button>
                     </View>
                   )}
@@ -1794,6 +1872,11 @@ export default function PlayScreen({ route, navigation }: Props) {
                 onSearch={castManager.searchDevices}
                 style={styles.toolbarButton}
               />
+              {!isVerticalVideo && (
+                <TouchableOpacity style={styles.toolbarButton} activeOpacity={0.7} onPress={enterAppFullscreen}>
+                  <Maximize size={20} color="#fff" />
+                </TouchableOpacity>
+              )}
             </View>
             {/* 底部选集横条（红果式：视频底部独立水平条，默认常显） */}
             <TouchableOpacity style={styles.episodeBar} activeOpacity={0.7} onPress={() => setEpisodesSheetVisible(true)}>
@@ -1809,102 +1892,7 @@ export default function PlayScreen({ route, navigation }: Props) {
         })()}
       </View>
 
-      <Modal visible={settingsVisible} transparent animationType="slide" onRequestClose={() => setSettingsVisible(false)}>
-        <TouchableOpacity
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
-          activeOpacity={1}
-          onPress={() => setSettingsVisible(false)}
-        >
-          <TouchableOpacity
-            style={[styles.settingsSheet, { backgroundColor: cardBg }]}
-            activeOpacity={1}
-            onPress={() => {}}
-          >
-            <Text style={[styles.settingsTitle, { color: colors.text }]}>播放设置</Text>
 
-            <Text style={[styles.settingsLabel, { color: colors.mutedForeground }]}>倍速</Text>
-            <View style={styles.settingsRow}>
-              {SPEED_OPTIONS.map((rate) => (
-                <Button
-                  key={rate}
-                  variant="secondary"
-                  size="sm"
-                  active={Math.abs(currentSpeed - rate) < 0.01}
-                  style={styles.settingsChip}
-                  onPress={() => handleSpeedChange(rate)}
-                >
-                  {rate}x
-                </Button>
-              ))}
-            </View>
-
-            {videoTracks.length > 1 && (
-              <>
-                <Text style={[styles.settingsLabel, { color: colors.mutedForeground }]}>清晰度</Text>
-                <View style={styles.settingsRow}>
-                  {videoTracks.map((t: any) => {
-                    const label = t.height ? `${t.height}p` : (t.displayName || t.name || '未知');
-                    return (
-                      <Button
-                        key={t.id}
-                        variant="secondary"
-                        size="sm"
-                        active={currentVideoTrackId === t.id}
-                        style={styles.settingsChip}
-                        onPress={() => handleQualityChange(t.id)}
-                      >
-                        {label}
-                      </Button>
-                    );
-                  })}
-                </View>
-              </>
-            )}
-
-            {subtitleTracks.length > 0 && (
-              <>
-                <Text style={[styles.settingsLabel, { color: colors.mutedForeground }]}>字幕</Text>
-                <View style={styles.settingsRow}>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    active={currentSubtitleId === null}
-                    style={styles.settingsChip}
-                    onPress={() => handleSubtitleChange(null)}
-                  >
-                    关闭
-                  </Button>
-                  {subtitleTracks.map((t: any) => {
-                    const label = t.label || t.language || t.name || '字幕';
-                    return (
-                      <Button
-                        key={t.id}
-                        variant="secondary"
-                        size="sm"
-                        active={currentSubtitleId === t.id}
-                        style={styles.settingsChip}
-                        onPress={() => handleSubtitleChange(t.id)}
-                      >
-                        {label}
-                      </Button>
-                    );
-                  })}
-                </View>
-              </>
-            )}
-
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-              <Text style={[styles.settingsLabel, { color: colors.text, marginBottom: 0 }]}>显示预读分片进度</Text>
-              <Switch
-                value={showSegmentProgress}
-                onValueChange={handleToggleSegmentProgress}
-                trackColor={{ false: colors.swiftTrack, true: colors.swiftActiveTrack }}
-                thumbColor={showSegmentProgress ? colors.swiftThumb : colors.disabledForeground}
-              />
-            </View>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
 
       {isCasting && (
         <CastRemoteControl
@@ -1916,7 +1904,7 @@ export default function PlayScreen({ route, navigation }: Props) {
         />
       )}
 
-      {!isImmersiveVertical && (
+      {!isImmersive && (
       <ScrollView style={styles.body}>
         {/* 影片信息 */}
         {media && (() => {
@@ -2229,6 +2217,101 @@ export default function PlayScreen({ route, navigation }: Props) {
         </View>
       );
     })()}
+    {/* 播放设置内联底部弹层（替换 RN Modal：iOS 全屏方向锁 Landscape 下 Modal present 因 supportedInterfaceOrientations
+        混合方向冲突 SIGABRT 闪退，改页面内覆盖层，Android/iOS 行为一致） */}
+    {settingsVisible && (
+      <View style={styles.settingsOverlay}>
+        <Animated.View style={[styles.settingsBackdrop, { opacity: settingsAnim }]}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setSettingsVisible(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} />
+        </Animated.View>
+        <Animated.View
+          style={[styles.settingsSheet, { backgroundColor: cardBg, transform: [{ translateY: settingsSlide }] }]}
+        >
+          <Text style={[styles.settingsTitle, { color: colors.text }]}>播放设置</Text>
+
+          <Text style={[styles.settingsLabel, { color: colors.mutedForeground }]}>倍速</Text>
+          <View style={styles.settingsRow}>
+            {SPEED_OPTIONS.map((rate) => (
+              <Button
+                key={rate}
+                variant="secondary"
+                size="sm"
+                active={Math.abs(currentSpeed - rate) < 0.01}
+                style={styles.settingsChip}
+                onPress={() => handleSpeedChange(rate)}
+              >
+                {rate}x
+              </Button>
+            ))}
+          </View>
+
+          {videoTracks.length > 1 && (
+            <>
+              <Text style={[styles.settingsLabel, { color: colors.mutedForeground }]}>清晰度</Text>
+              <View style={styles.settingsRow}>
+                {videoTracks.map((t: any) => {
+                  const label = t.height ? `${t.height}p` : (t.displayName || t.name || '未知');
+                  return (
+                    <Button
+                      key={t.id}
+                      variant="secondary"
+                      size="sm"
+                      active={currentVideoTrackId === t.id}
+                      style={styles.settingsChip}
+                      onPress={() => handleQualityChange(t.id)}
+                    >
+                      {label}
+                    </Button>
+                  );
+                })}
+              </View>
+            </>
+          )}
+
+          {subtitleTracks.length > 0 && (
+            <>
+              <Text style={[styles.settingsLabel, { color: colors.mutedForeground }]}>字幕</Text>
+              <View style={styles.settingsRow}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  active={currentSubtitleId === null}
+                  style={styles.settingsChip}
+                  onPress={() => handleSubtitleChange(null)}
+                >
+                  关闭
+                </Button>
+                {subtitleTracks.map((t: any) => {
+                  const label = t.label || t.language || t.name || '字幕';
+                  return (
+                    <Button
+                      key={t.id}
+                      variant="secondary"
+                      size="sm"
+                      active={currentSubtitleId === t.id}
+                      style={styles.settingsChip}
+                      onPress={() => handleSubtitleChange(t.id)}
+                    >
+                      {label}
+                    </Button>
+                  );
+                })}
+              </View>
+            </>
+          )}
+
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            <Text style={[styles.settingsLabel, { color: colors.text, marginBottom: 0 }]}>显示预读分片进度</Text>
+            <Switch
+              value={showSegmentProgress}
+              onValueChange={handleToggleSegmentProgress}
+              trackColor={{ false: colors.swiftTrack, true: colors.swiftActiveTrack }}
+              thumbColor={showSegmentProgress ? colors.swiftThumb : colors.disabledForeground}
+            />
+          </View>
+        </Animated.View>
+      </View>
+    )}
     </BlurredBackground>
     <Modal
       visible={episodesSheetVisible}
@@ -2253,6 +2336,25 @@ export default function PlayScreen({ route, navigation }: Props) {
             </TouchableOpacity>
           </View>
           <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={styles.episodesSheetBody}>
+            {displaySeasons.length > 1 && (
+              <View style={styles.seasonTabRow}>
+                {displaySeasons.map((s: number) => {
+                  const isCurrent = seasonToMediaMap.get(s) === mediaId || (!seasonToMediaMap.has(s) && currentSeason === s);
+                  return (
+                    <Button
+                      key={s}
+                      variant="secondary"
+                      size="sm"
+                      active={isCurrent}
+                      style={styles.seasonTabBtn}
+                      onPress={() => { setEpisodesSheetVisible(false); handleSeasonChange(s); }}
+                    >
+                      第{s}季
+                    </Button>
+                  );
+                })}
+              </View>
+            )}
             <View style={styles.sourceEpisodeRow}>
               {episodeSources.length > 1 && (
                 <View style={styles.sourceTabCol}>

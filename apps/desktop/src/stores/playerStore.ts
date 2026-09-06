@@ -228,7 +228,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
         episodeId,
         media: null,
         episode: null,
-        sources: prev?.sources ?? [],
+        // 不继承旧 sources：避免切集/打开瞬间旧视频在遮罩下继续播放（一边在播一边转圈）
+        sources: [],
         playSourceId: prev?.playSourceId ?? null,
         selectedSourceId: prev?.selectedSourceId ?? null,
         currentTime: 0,
