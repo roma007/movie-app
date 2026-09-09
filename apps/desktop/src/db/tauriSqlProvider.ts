@@ -40,6 +40,12 @@ import type {
  *   - 多行查询直接用 select 返回数组，对应移动端 getAllAsync
  *   - 写入用 execute，对应移动端 runAsync
  */
+interface DbSem {
+  inFlight: number;
+  max: number;
+  waiters: (() => void)[];
+}
+
 export class TauriSqlProvider implements DatabaseProvider {
   private db: InstanceType<typeof Database> | null = null;
 
@@ -53,6 +59,9 @@ export class TauriSqlProvider implements DatabaseProvider {
     };
 
     let inTransaction = false;
+
+    const queuedExecute = (sql: string, params?: any[]) => this.withWriteLock(() => executeWithRetry(sql, params));
+    const queuedSelect = (sql: string, params?: any[]) => this.withReadLock(() => selectWithRetry(sql, params));
 
     const executeWithRetry = async (sql: string, params?: any[]) => {
       const trimmedSql = sql.trim().toUpperCase();
@@ -103,11 +112,55 @@ export class TauriSqlProvider implements DatabaseProvider {
 
     return new Proxy(db, {
       get(target, prop) {
-        if (prop === 'execute') return executeWithRetry;
-        if (prop === 'select') return selectWithRetry;
+        if (prop === 'execute') return queuedExecute;
+        if (prop === 'select') return queuedSelect;
         return (target as any)[prop];
       },
     });
+  }
+
+  // 读写分离锁：
+  // - 写（execute）：SQLite 单写者，串行（max 1）——写互斥 + 防止连接池被写占满。
+  // - 读（select）：放开并发（max 6）——读者互不阻塞；UI 首屏查询不会再排在
+  //   后台 recompute/采集的写事务后面干等（此前全排一条队导致分类页半分钟白屏）。
+  // 采集 detail 网络并发 20 里的 select 也受此限流（≤6），池不爆。
+  private readState: DbSem = { inFlight: 0, max: 6, waiters: [] };
+  private writeState: DbSem = { inFlight: 0, max: 1, waiters: [] };
+
+  private acquire(state: DbSem): Promise<void> {
+    if (state.inFlight < state.max) {
+      state.inFlight++;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      state.waiters.push(() => {
+        state.inFlight++;
+        resolve();
+      });
+    });
+  }
+
+  private release(state: DbSem): void {
+    state.inFlight--;
+    const next = state.waiters.shift();
+    if (next) next();
+  }
+
+  private async withLock<T>(state: DbSem, op: () => Promise<T>): Promise<T> {
+    await this.acquire(state);
+    try {
+      return await op();
+    } finally {
+      this.release(state);
+    }
+  }
+
+  private withReadLock<T>(op: () => Promise<T>): Promise<T> {
+    return this.withLock(this.readState, op);
+  }
+
+  private withWriteLock<T>(op: () => Promise<T>): Promise<T> {
+    return this.withLock(this.writeState, op);
   }
 
   async init(): Promise<void> {
@@ -226,6 +279,9 @@ export class TauriSqlProvider implements DatabaseProvider {
     // 增量迁移：为已有 media 表补齐 series_group / series_season 列
     await this.addColumnIfMissing('media', 'series_group', 'TEXT');
     await this.addColumnIfMissing('media', 'series_season', 'INTEGER');
+    // 增量迁移：为已有 media 表补齐源侧更新时间列（用于采集时跳过未变更条目）
+    await this.addColumnIfMissing('media', 'source_updated_at', 'TEXT');
+    await this.addColumnIfMissing('media', 'vod_id', 'TEXT');
     // 增量迁移：为已有 media 表补齐评分相关列
     await this.addColumnIfMissing('media', 'rating', 'REAL');
     await this.addColumnIfMissing('media', 'rating_count', 'INTEGER');
@@ -631,8 +687,9 @@ export class TauriSqlProvider implements DatabaseProvider {
         current_episodes, total_episodes, is_short_drama, duration_check_status, episode_duration,
         view_count, rating, rating_count, rating_source, rating_updated_at,
         hidden, series_group, series_season,
+        source_updated_at, vod_id,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(fingerprint) DO UPDATE SET
         title = excluded.title,
         original_title = excluded.original_title,
@@ -653,6 +710,8 @@ export class TauriSqlProvider implements DatabaseProvider {
         episode_duration = excluded.episode_duration,
         series_group = excluded.series_group,
         series_season = excluded.series_season,
+        source_updated_at = excluded.source_updated_at,
+        vod_id = excluded.vod_id,
         updated_at = excluded.updated_at`,
       [
         media.id, media.title, media.originalTitle || null, media.alias || null,
@@ -666,6 +725,8 @@ export class TauriSqlProvider implements DatabaseProvider {
         media.rating ?? null, media.ratingCount ?? null, media.ratingSource || null, media.ratingUpdatedAt || null,
         media.hidden ? 1 : 0,
         media.seriesGroup || null, media.seriesSeason ?? null,
+        media.sourceUpdatedAt || null,
+        media.vodId || null,
         media.createdAt || now, now,
       ]
     );
@@ -682,6 +743,15 @@ export class TauriSqlProvider implements DatabaseProvider {
       `UPDATE media SET status = ?, current_episodes = ?, total_episodes = ?, updated_at = ? WHERE id = ?`,
       [status, currentEpisodes, totalEpisodes, updatedAt, mediaId]
     );
+  }
+
+  async updateSourceSync(mediaId: string, sourceUpdatedAt: string | null, vodId: string | null): Promise<void> {
+    await this.db!.execute(`UPDATE media SET source_updated_at = ?, vod_id = ? WHERE id = ?`, [sourceUpdatedAt, vodId, mediaId]);
+  }
+
+  async getMediaByVodId(vodId: string): Promise<Media | null> {
+    const rows = await this.db!.select<any[]>('SELECT * FROM media WHERE vod_id = ? LIMIT 1', [vodId]);
+    return rows[0] ? rowToMedia(rows[0]) : null;
   }
 
   async updateMediaPoster(mediaId: string, posterUrl: string | null, updatedAt: string): Promise<void> {
@@ -901,6 +971,27 @@ export class TauriSqlProvider implements DatabaseProvider {
          source_id = excluded.source_id`,
       [episode.id, episode.mediaId, episode.seasonNumber, episode.episodeNumber, episode.title || null, episode.duration || null, episode.sourceId || null]
     );
+  }
+
+  async upsertEpisodesBatch(episodes: Episode[]): Promise<void> {
+    const CHUNK = 100;
+    for (let i = 0; i < episodes.length; i += CHUNK) {
+      const chunk = episodes.slice(i, i + CHUNK);
+      const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const params: unknown[] = [];
+      for (const e of chunk) {
+        params.push(e.id, e.mediaId, e.seasonNumber, e.episodeNumber, e.title || null, e.duration || null, e.sourceId || null);
+      }
+      await this.db!.execute(
+        `INSERT INTO episode (id, media_id, season_number, episode_number, title, duration, source_id)
+         VALUES ${placeholders}
+         ON CONFLICT(id) DO UPDATE SET
+           title = excluded.title,
+           duration = excluded.duration,
+           source_id = excluded.source_id`,
+        params
+      );
+    }
   }
 
   async updateEpisodeDuration(episodeId: string, duration: number | null): Promise<void> {
@@ -1161,6 +1252,26 @@ export class TauriSqlProvider implements DatabaseProvider {
         playSource.url, playSource.quality || null, 1, 0, null,
       ]
     );
+  }
+
+  async upsertPlaySourcesBatch(playSources: PlaySource[]): Promise<void> {
+    const CHUNK = 100;
+    for (let i = 0; i < playSources.length; i += CHUNK) {
+      const chunk = playSources.slice(i, i + CHUNK);
+      const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const params: unknown[] = [];
+      for (const p of chunk) {
+        params.push(p.id, p.episodeId, p.sourceId, p.sourceName || null, p.url, p.quality || null, 1, 0, null);
+      }
+      await this.db!.execute(
+        `INSERT INTO play_source (id, episode_id, source_id, source_name, url, quality, is_active, fail_count, last_fail_at)
+         VALUES ${placeholders}
+         ON CONFLICT(id) DO UPDATE SET
+           url = excluded.url,
+           quality = excluded.quality`,
+        params
+      );
+    }
   }
 
   // —— VideoSource DAO ——

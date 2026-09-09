@@ -20,6 +20,8 @@ export interface CollectConfig {
   autoIntervalHours: number;
   autoOnStartup: boolean;
   autoLastRunAt: string | null;
+  /** 1=忽略「源更新时间未变跳过」逻辑，强制全量处理每一条（应对源侧 vod_time 漏刷导致的漏更新） */
+  ignoreSourceSkip: boolean;
 }
 
 export interface PlaybackConfig {
@@ -73,6 +75,7 @@ const DEFAULT_COLLECT_CONFIG: CollectConfig = {
   autoIntervalHours: 24,
   autoOnStartup: false,
   autoLastRunAt: null,
+  ignoreSourceSkip: false,
 };
 
 const CONFIG_REMARKS: Record<string, string> = {
@@ -87,6 +90,7 @@ const CONFIG_REMARKS: Record<string, string> = {
   'collect.autoIntervalHours': '自动增量采集间隔（小时）',
   'collect.autoOnStartup': '启动时自动增量采集',
   'collect.autoLastRunAt': '上次自动增量采集时间',
+  'collect.ignoreSourceSkip': '忽略「源更新时间未变跳过」（0=开启跳过，1=全部处理）',
 };
 
 export class SystemConfigService {
@@ -176,13 +180,14 @@ export class SystemConfigService {
       autoIntervalHours: await this.getNumber('collect.autoIntervalHours', DEFAULT_COLLECT_CONFIG.autoIntervalHours),
       autoOnStartup: (await this.getNumber('collect.autoOnStartup', DEFAULT_COLLECT_CONFIG.autoOnStartup ? 1 : 0)) === 1,
       autoLastRunAt: await this.getString('collect.autoLastRunAt', DEFAULT_COLLECT_CONFIG.autoLastRunAt || '') || null,
+      ignoreSourceSkip: (await this.getNumber('collect.ignoreSourceSkip', DEFAULT_COLLECT_CONFIG.ignoreSourceSkip ? 1 : 0)) === 1,
     };
   }
 
   async setCollectConfig(config: Partial<CollectConfig>): Promise<void> {
     for (const [key, value] of Object.entries(config)) {
       const fullKey = `collect.${key}`;
-      if (key === 'autoEnabled' || key === 'autoOnStartup') {
+      if (key === 'autoEnabled' || key === 'autoOnStartup' || key === 'ignoreSourceSkip') {
         await this.setNumber(fullKey, value ? 1 : 0);
       } else if (key === 'autoLastRunAt') {
         await this.setString(fullKey, value ? String(value) : '');

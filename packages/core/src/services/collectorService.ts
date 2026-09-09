@@ -5,11 +5,12 @@ import { SOURCE_ID_TO_NAME_MAP, PLAY_SOURCE_TYPE_MAP, isPlayableMediaUrl } from 
 import { isKnownDeadPosterUrl, isUsablePosterUrl } from '../utils/posterHost';
 import type { DatabaseProvider } from '../db/provider';
 import { UNCATEGORIZED_GENRE } from '../db/provider';
-import type { CMSMediaItem, Media, Episode, PlaySource, VideoSource, CollectTask, TaskStatus, TaskErrorType, CollectionLog, CollectPreviewItem, HiddenCollectItem, SavePreviewResult, FailedItem } from '../types';
+import type { CMSMediaItem, CMSListResponse, Media, Episode, PlaySource, VideoSource, CollectTask, TaskStatus, TaskErrorType, CollectionLog, CollectPreviewItem, HiddenCollectItem, SavePreviewResult, FailedItem } from '../types';
 import { SystemConfigService } from './systemConfigService';
 import type { ShortDramaConfig } from './systemConfigService';
 import { VideoDurationService } from './videoDurationService';
 import { RecommendationService } from './recommendationService';
+import { PerfMeter } from './perfMeter';
 
 function generateId(): string {
   return `id_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
@@ -137,12 +138,24 @@ export class CollectorService {
     }
   }
 
+  private logPerf(level: string, context: Record<string, unknown>, meter: PerfMeter): void {
+    try {
+      console.error(`[CollectorPerf] ${level} ${JSON.stringify({ ...context, nodes: meter.summary() })}`);
+    } catch {
+      console.error(`[CollectorPerf] ${level} ${JSON.stringify(context)}`);
+    }
+  }
+
   private async processItem(
     item: CMSMediaItem,
     sourceId: string,
     _sourceName?: string,
-    minYear: number = DEFAULT_MIN_YEAR
+    minYear: number = DEFAULT_MIN_YEAR,
+    meter?: PerfMeter
   ): Promise<Media | null> {
+    const trace = meter
+      ? <T>(label: string, fn: () => Promise<T>) => meter.trace(label, fn)
+      : <T>(_label: string, fn: () => Promise<T>) => fn();
     let mediaWritten = false;
     let currentMediaId: string | null = null;
     try {
@@ -183,16 +196,23 @@ export class CollectorService {
       mediaType = refineTypeByEpisodes(firstGroupEps, mediaType, title);
 
       const seasonNumber = normalizer.extractSeasonNumber(title) || 1;
-      const fingerprint = await normalizer.generateFingerprint(title, year, mediaType, seasonNumber);
+      const fingerprint = await trace('fingerprint', () => normalizer.generateFingerprint(title, year, mediaType, seasonNumber));
 
-      const existing = await this.db.getMediaByFingerprint(fingerprint);
+      const existing = await trace('dbLookup', () => this.db.getMediaByFingerprint(fingerprint));
       let mediaId = existing?.id || generateId();
 
-      const genres = await normalizer.normalizeGenres(rawGenres, mediaType);
-      const directors = await normalizer.normalizePersonList(item.vod_director);
-      const actors = await normalizer.normalizePersonList(item.vod_actor);
-      const area = await normalizer.normalizeArea(item.vod_area);
-      const description = await normalizer.normalizeDescription(item.vod_content);
+      let genres: string[] = [];
+      let directors: string[] = [];
+      let actors: string[] = [];
+      let area: string | null = null;
+      let description = '';
+      await trace('normalize', async () => {
+        genres = await normalizer.normalizeGenres(rawGenres, mediaType);
+        directors = await normalizer.normalizePersonList(item.vod_director);
+        actors = await normalizer.normalizePersonList(item.vod_actor);
+        area = await normalizer.normalizeArea(item.vod_area);
+        description = await normalizer.normalizeDescription(item.vod_content);
+      });
 
       let hidden = existing?.hidden ?? false;
       if (!existing) {
@@ -223,7 +243,7 @@ export class CollectorService {
         } else {
           const configService = new SystemConfigService(this.db);
           const config = await configService.getShortDramaConfig();
-          const result = await this.determineShortDrama(genres, description || '', title, epGroups, config);
+          const result = await trace('shortDrama', () => this.determineShortDrama(genres, description || '', title, epGroups, config, meter));
           isShortDrama = result.isShortDrama;
           durationCheckStatus = result.status;
           episodeDurationSec = result.episodeDuration;
@@ -253,6 +273,16 @@ export class CollectorService {
       const seriesGroup = normalizer.extractSeriesGroup(fingerprint);
       const seriesSeason = normalizer.extractSeriesSeason(fingerprint);
 
+      // 源侧更新时间（vod_time）：detail 成功后记录，供下次采集「未变更跳过」对照
+      const rawSourceUpdatedAt = item.vod_time;
+      let sourceUpdatedAt = existing?.sourceUpdatedAt ?? null;
+      if (typeof rawSourceUpdatedAt === 'string' && rawSourceUpdatedAt) {
+        const parsedSourceUpdatedAt = Date.parse(rawSourceUpdatedAt.replace(' ', 'T'));
+        if (!Number.isNaN(parsedSourceUpdatedAt)) {
+          sourceUpdatedAt = new Date(parsedSourceUpdatedAt).toISOString();
+        }
+      }
+
       // 封面择优：已有封面挂在失效图床时，用当前源返回的有效封面覆盖（避免破图）
       const currentPoster = item.vod_pic || null;
       let effectivePoster = currentPoster;
@@ -281,6 +311,8 @@ export class CollectorService {
         fingerprint,
         seriesGroup,
         seriesSeason,
+sourceUpdatedAt,
+        vodId: item.vod_id != null ? String(item.vod_id) : null,
         currentEpisodes,
         totalEpisodes,
         isShortDrama,
@@ -309,26 +341,37 @@ export class CollectorService {
           : (totalEpisodes ?? existing.totalEpisodes ?? null);
 
         if (bestStatus !== existing.status || bestEpisodes !== existing.currentEpisodes || bestTotal !== existing.totalEpisodes) {
-          await this.db.updateMediaStatusAndEpisodes(mediaId, bestStatus, bestEpisodes, bestTotal, new Date().toISOString());
-          await this.recommendationService.recordMediaChange(mediaId, 'STATUS_UPDATE');
+          await trace('dbWrite.media', async () => {
+            await this.db.updateMediaStatusAndEpisodes(mediaId, bestStatus, bestEpisodes, bestTotal, new Date().toISOString());
+            await this.recommendationService.recordMediaChange(mediaId, 'STATUS_UPDATE');
+          });
         }
         if (posterReplaced && effectivePoster !== existing.posterUrl) {
-          await this.db.updateMediaPoster(mediaId, effectivePoster, new Date().toISOString());
+          await trace('dbWrite.media', () => this.db.updateMediaPoster(mediaId, effectivePoster, new Date().toISOString()));
         }
       } else {
-        await this.db.upsertMedia(media);
-        await this.recommendationService.recordMediaChange(mediaId, 'UPSERT');
+        await trace('dbWrite.media', async () => {
+          await this.db.upsertMedia(media);
+          await this.recommendationService.recordMediaChange(mediaId, 'UPSERT');
+        });
       }
       // 防止并发竞态：upsertMedia 的 ON CONFLICT(fingerprint) 可能保留了已存在的 id，
       // 而非当前调用者生成的 mediaId，需重新查询实际 id
-      const actualMedia = await this.db.getMediaByFingerprint(fingerprint);
+      const actualMedia = await trace('dbLookup', () => this.db.getMediaByFingerprint(fingerprint));
       if (actualMedia) {
         mediaId = actualMedia.id;
         currentMediaId = actualMedia.id;
         media.id = actualMedia.id;
       }
       mediaWritten = true;
-      await this.db.deleteEpisodesByMediaIdAndSourceId(mediaId, sourceId);
+
+      // 源侧更新时间落盘（existing 走的 updateMediaStatusAndEpisodes 分支不写该列，统一在此补齐）
+      if (sourceUpdatedAt || item.vod_id) {
+        await trace('dbWrite.sourceUpdatedAt', () => this.db.updateSourceSync(mediaId, sourceUpdatedAt, item.vod_id != null ? String(item.vod_id) : null));
+      }
+
+      const episodesBatch: Episode[] = [];
+      const playSourcesBatch: PlaySource[] = [];
 
       for (let sourceIdx = 0; sourceIdx < epGroups.length; sourceIdx++) {
         const sourceNameFromList = sources[sourceIdx] || `线路${sourceIdx + 1}`;
@@ -358,8 +401,7 @@ export class CollectorService {
             duration: null,
             sourceId,
           };
-
-          await this.db.upsertEpisode(episode);
+          episodesBatch.push(episode);
 
           const playSourceId = `ps_${episode.id}_${sourceIdx}`;
           const playSource: PlaySource = {
@@ -370,10 +412,13 @@ export class CollectorService {
             url: ep.url,
             quality: isVersion ? ep.title : (mappedQuality || null),
           };
-
-          await this.db.upsertPlaySource(playSource);
+          playSourcesBatch.push(playSource);
         }
       }
+
+      await trace('dbWrite.epsDel', () => this.db.deleteEpisodesByMediaIdAndSourceId(mediaId, sourceId));
+      await trace('dbWrite.eps', () => this.db.upsertEpisodesBatch(episodesBatch));
+      await trace('dbWrite.ps', () => this.db.upsertPlaySourcesBatch(playSourcesBatch));
 
       return media;
     } catch (err) {
@@ -401,7 +446,8 @@ export class CollectorService {
     summary: string,
     title: string,
     epGroups: { title: string; url: string }[][],
-    config: ShortDramaConfig
+    config: ShortDramaConfig,
+    meter?: PerfMeter
   ): Promise<{
     isShortDrama: boolean;
     status: 'SUMMARY' | 'PROBE' | 'FALLBACK';
@@ -427,7 +473,9 @@ export class CollectorService {
       const durationService = new VideoDurationService();
       for (let i = 0; i < probeCount; i++) {
         const probeLog = (msg: string) => this.logToDb(`[M3U8探测详情] "${title}" ${msg}`);
-        const duration = await durationService.getDurationFromM3U8(firstGroup[i].url, probeLog);
+        const duration = meter
+          ? await meter.trace('probe.m3u8', () => durationService.getDurationFromM3U8(firstGroup[i].url, probeLog))
+          : await durationService.getDurationFromM3U8(firstGroup[i].url, probeLog);
         if (duration !== null) {
           const durationMin = duration / 60;
           console.log(`[长短剧判断] 第2级(探测)命中: 第${i + 1}集成功, ${durationMin.toFixed(1)}分钟 → ${normalizer.isShortDramaByDuration(durationMin, config.durationThresholdMinutes) ? '短剧' : '长剧'}`);
@@ -457,8 +505,12 @@ export class CollectorService {
     page: number = 1,
     pageSize: number = 20,
     hours?: number,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    sourceMeter?: PerfMeter,
+    injectedList?: CMSListResponse | null
   ): Promise<{ media: Media[]; total: number; pagecount: number; failedCount: number; failedItems: FailedItem[]; error?: string; errorType?: TaskErrorType }> {
+    const pageMeter = new PerfMeter();
+    const pageStart = Date.now();
     const configService = new SystemConfigService(this.db);
     const config = await configService.getCollectConfig();
 
@@ -466,14 +518,17 @@ export class CollectorService {
     console.log(`[Collector] config: minYear=${config.minYear}, concurrency=${config.concurrency}`);
 
     const adapter = new CMSAdapter(baseUrl);
-    console.log(`[Collector] CMSAdapter created, calling getList...`);
 
     let response;
-    try {
-      await this.db.incrementSourceRequestCount(sourceId);
-      response = await adapter.getList(page, pageSize, hours, signal);
-      console.log(`[Collector] getList response: code=${response.code}, total=${response.total}, list.length=${response.list?.length || 0}`);
-    } catch (err) {
+    const prefetched = injectedList !== undefined && injectedList !== null;
+    if (prefetched) {
+      response = injectedList;
+    } else {
+      try {
+        await this.db.incrementSourceRequestCount(sourceId);
+        response = await pageMeter.trace('getList', () => adapter.getList(page, pageSize, hours, signal));
+        console.log(`[Collector] getList response: code=${response.code}, total=${response.total}, list.length=${response.list?.length || 0}`);
+      } catch (err) {
       await this.db.incrementSourceFailCount(sourceId);
       const errInstance = err instanceof Error ? err : new Error(String(err));
       const errorMsg = `[Collector] getList failed: ${errInstance.message}`;
@@ -497,23 +552,36 @@ export class CollectorService {
       }
 
       this.emitLog('error', detailedError, undefined, undefined, undefined, JSON.stringify({ errorType, url: baseUrl, page }));
-      
+
+      this.logPerf('PAGE', { src: sourceId, page, totalMs: Date.now() - pageStart, collected: 0, failed: 0, status: 'getList-failed' }, pageMeter);
+      if (sourceMeter) sourceMeter.merge(pageMeter);
+
       return { media: [], total: 0, pagecount: 0, failedCount: 0, failedItems: [], error: detailedError, errorType };
+      }
     }
 
     const list = response.list || [];
     const results: Media[] = [];
     let failedCount = 0;
     const allFailedItems: FailedItem[] = [];
+    let skipped = 0;
 
     if (config.concurrency > 1 && list.length > 0) {
-      const { failedCount: fc, failedItems } = await this.processItemsWithConcurrency(adapter, list, sourceId, config, results, signal);
+      const { failedCount: fc, failedItems, skippedCount } = await this.processItemsWithConcurrency(adapter, list, sourceId, config, results, signal, pageMeter);
       failedCount = fc;
       allFailedItems.push(...failedItems);
+      skipped = skippedCount;
     } else {
       for (const listItem of list) {
         try {
           console.log(`[Collector] Processing: ${listItem.vod_name} (vod_id=${listItem.vod_id})`);
+
+          const skippedExisting = await this.maybeSkipUnchangedSourceItem(listItem, config.minYear, config.ignoreSourceSkip);
+          if (skippedExisting) {
+            skipped++;
+            console.log(`[Collector] 跳过(源未变): ${listItem.vod_name}`);
+            continue;
+          }
 
           await this.db.incrementSourceRequestCount(sourceId);
           const detailResponse = await adapter.getDetail(String(listItem.vod_id), signal);
@@ -539,7 +607,7 @@ export class CollectorService {
           );
           console.log(`[Collector] Seq(${sourceId}) processItem called with listItem=${listItem.vod_name}, fingerprint=${fingerprint}`);
 
-          const media = await this.processItem(item, sourceId, '', config.minYear);
+          const media = await this.processItem(item, sourceId, '', config.minYear, pageMeter);
           if (media) {
             console.log(`[Collector] Media created: ${media.title} (${media.year})`);
             results.push(media);
@@ -558,7 +626,10 @@ export class CollectorService {
       }
     }
 
-    console.log(`[Collector] collectFromSource completed: ${results.length} media collected, ${failedCount} failed, pagecount=${response.pagecount}`);
+    console.log(`[Collector] collectFromSource completed: ${results.length} media collected, ${failedCount} failed, ${skipped} skipped, pagecount=${response.pagecount}`);
+
+    this.logPerf('PAGE', { src: sourceId, page, totalMs: Date.now() - pageStart, collected: results.length, failed: failedCount, skipped, pagecount: response.pagecount, prefetched }, pageMeter);
+    if (sourceMeter) sourceMeter.merge(pageMeter);
 
     return {
       media: results,
@@ -573,12 +644,17 @@ export class CollectorService {
     adapter: CMSAdapter,
     items: any[],
     sourceId: string,
-    config: { minYear: number; concurrency: number },
+    config: { minYear: number; concurrency: number; ignoreSourceSkip: boolean },
     results: Media[],
-    signal?: AbortSignal
-  ): Promise<{ failedCount: number; failedItems: FailedItem[] }> {
+    signal?: AbortSignal,
+    meter?: PerfMeter
+  ): Promise<{ failedCount: number; failedItems: FailedItem[]; skippedCount: number }> {
+    const trace = meter
+      ? <T>(label: string, fn: () => Promise<T>) => meter.trace(label, fn)
+      : <T>(_label: string, fn: () => Promise<T>) => fn();
     let index = 0;
     let failedCount = 0;
+    let skippedCount = 0;
     const failedItems: FailedItem[] = [];
 
     const worker = async () => {
@@ -589,9 +665,16 @@ export class CollectorService {
         try {
           console.log(`[Collector] Processing (worker): ${listItem.vod_name} (vod_id=${listItem.vod_id}) index=${currentIndex}`);
 
+          const skippedExisting = await this.maybeSkipUnchangedSourceItem(listItem, config.minYear, config.ignoreSourceSkip);
+          if (skippedExisting) {
+            skippedCount++;
+            console.log(`[Collector] 跳过(源未变): ${listItem.vod_name}`);
+            continue;
+          }
+
           await this.db.incrementSourceRequestCount(sourceId);
           console.log(`[Collector] Worker(${sourceId}) starting processItem for ${listItem.vod_name} at index ${currentIndex}`);
-          const detailResponse = await adapter.getDetail(String(listItem.vod_id), signal);
+          const detailResponse = await trace('getDetail', () => adapter.getDetail(String(listItem.vod_id), signal));
           console.log(`[Collector] Worker(${sourceId}) got detail response with ${detailResponse.list?.length || 0} items for ${listItem.vod_name}`);
 
           if (!detailResponse.list || detailResponse.list.length === 0) {
@@ -610,7 +693,7 @@ export class CollectorService {
             normalizer.extractSeasonNumber(item.vod_name) || 1
           );
           console.log(`[Collector] Worker(${sourceId}) processItem called with listItem=${listItem.vod_name}, fingerprint=${fingerprint}`);
-          const media = await this.processItem(item, sourceId, '', config.minYear);
+          const media = await this.processItem(item, sourceId, '', config.minYear, meter);
           console.log(`[Collector] Worker processItem returned: ${media ? media.title : 'null'}`);
 
           if (media) {
@@ -635,7 +718,73 @@ export class CollectorService {
     );
 
     await Promise.all(workers);
-    return { failedCount, failedItems };
+    return { failedCount, failedItems, skippedCount };
+  }
+
+  /**
+   * 源更新时间跳过判定：list item 携带源侧 vod_time，若本地已有该指纹且
+   * 上次记录的源更新时间 ≥ 当前 vod_time，说明该片自上次采集未变 → 返回 existing 表示跳过；
+   * 否则返回 null（正常拉取详情）。vod_time 缺失/解析失败时一律不跳过。
+   * 判定镜像 processItem 的指纹计算逻辑，保证 fingerprint 一致。
+   */
+  private async maybeSkipUnchangedSourceItem(
+    listItem: CMSMediaItem,
+    minYear: number,
+    ignoreSourceSkip: boolean
+  ): Promise<Media | null> {
+    if (ignoreSourceSkip) return null;
+    const rawVodTime = listItem.vod_time;
+    if (typeof rawVodTime !== 'string' || !rawVodTime) return null;
+    const vodTimeMs = Date.parse(rawVodTime.replace(' ', 'T'));
+    if (Number.isNaN(vodTimeMs)) return null;
+
+    // list 精简响应（无 vod_year/vod_play_url，指纹无法复算）时优先按源侧 vod_id 精确匹配；
+    // vod_id 缺失再退回指纹匹配。
+    const existing = listItem.vod_id
+      ? await this.db.getMediaByVodId(String(listItem.vod_id))
+      : null;
+    if (existing?.sourceUpdatedAt) {
+      const lastMs = Date.parse(existing.sourceUpdatedAt);
+      if (!Number.isNaN(lastMs) && vodTimeMs <= lastMs) return existing;
+    }
+
+    normalizer.setMinYear(minYear);
+    const year = normalizer.normalizeYear(listItem.vod_year);
+    if (!year) return null;
+    const title = await normalizer.normalizeTitle(listItem.vod_name);
+    if (!title) return null;
+
+    const typeName = listItem.type_name || listItem.vod_type || '';
+    const remarks = listItem.vod_remarks || '';
+    const vodPlayFrom = listItem.vod_play_from || '';
+    const vodPlayUrl = listItem.vod_play_url || '';
+    const { episodes: epGroups } = parsePlayInfo(vodPlayFrom, vodPlayUrl);
+    const vodClass = listItem.vod_class || '';
+    const vodTag = listItem.vod_tag || '';
+    const rawGenres = [
+      ...new Set([
+        ...(typeName ? typeName.split(/[,，]/).filter(Boolean) : []),
+        ...(vodClass ? vodClass.split(/[,，]/).filter(Boolean) : []),
+        ...(vodTag ? vodTag.split(/[,，]/).filter(Boolean) : []),
+      ]),
+    ];
+    let mediaType = mapType(typeName, remarks, vodPlayFrom, rawGenres);
+    if (epGroups.length > 0) {
+      mediaType = refineTypeByEpisodes(
+        epGroups[0].map((ep, idx) => ({ title: ep.title, number: idx + 1 })),
+        mediaType,
+        title
+      );
+    }
+    const seasonNumber = normalizer.extractSeasonNumber(title) || 1;
+    const fingerprint = await normalizer.generateFingerprint(title, year, mediaType, seasonNumber);
+
+    const fpExisting = await this.db.getMediaByFingerprint(fingerprint);
+    if (fpExisting?.sourceUpdatedAt) {
+      const lastMs = Date.parse(fpExisting.sourceUpdatedAt);
+      if (!Number.isNaN(lastMs) && vodTimeMs <= lastMs) return fpExisting;
+    }
+    return null;
   }
 
   /** 解析任务中记录的失败条目 JSON（容错损坏数据） */
@@ -747,7 +896,7 @@ export class CollectorService {
             const year = normalizer.normalizeYear(item.vod_year);
             if (!year) continue;
 
-            const title = await normalizer.normalizeTitle(item.vod_name);
+const title = await normalizer.normalizeTitle(item.vod_name);
             if (!title) continue;
 
             const typeName = item.type_name || item.vod_type || '';
@@ -844,7 +993,9 @@ export class CollectorService {
 
     console.log(`[Collector] collectLatest: ${sources.length} sources, incrementalMaxPages=${config.incrementalMaxPages}, maxIncrementalHours=${config.maxIncrementalHours}`);
 
+    const batchMeter = new PerfMeter();
     await Promise.all(sources.map(async (source, si) => {
+      const sourceMeter = new PerfMeter();
       const now = new Date().toISOString();
 
       // 断点续采: 计算时间窗口
@@ -889,6 +1040,8 @@ export class CollectorService {
       const maxPages = hours ? Number.MAX_SAFE_INTEGER : config.incrementalMaxPages;
       let totalPages = 0;
       const currentFailedItems: FailedItem[] = [];
+      let prefetchPromise: Promise<CMSListResponse | null> | null = null;
+      let knownPagecount = 0;
 
       try {
         await this.db.updateCollectTask(taskId, { status: 'RUNNING' as TaskStatus, startedAt: now, currentPage });
@@ -896,7 +1049,28 @@ export class CollectorService {
 
         while (hasMore && currentPage <= maxPages) {
           console.log(`[Collector] Processing source ${source.name} page ${currentPage}${hours ? ` hours=${hours}` : ` (定额)`}`);
-          const { media, pagecount, failedCount, failedItems } = await this.collectFromSource(source.id, source.baseUrl, currentPage, pageSize, hours);
+          let injectedList: CMSListResponse | null = null;
+          if (prefetchPromise) {
+            const cached = await prefetchPromise.catch(() => null);
+            prefetchPromise = null;
+            if (cached && Array.isArray(cached.list)) {
+              injectedList = cached;
+            }
+          }
+
+          const runPromise = this.collectFromSource(source.id, source.baseUrl, currentPage, pageSize, hours, undefined, sourceMeter, injectedList);
+
+          const nextPage = currentPage + 1;
+          const shouldPrefetch = prefetchPromise === null && (knownPagecount === 0 || nextPage <= knownPagecount);
+          if (shouldPrefetch) {
+            prefetchPromise = new CMSAdapter(source.baseUrl)
+              .getList(nextPage, pageSize, hours, undefined)
+              .then((r) => r)
+              .catch(() => null);
+          }
+
+          const { media, pagecount, failedCount, failedItems } = await runPromise;
+          if (!knownPagecount) knownPagecount = pagecount || 0;
 
           totalPages = Math.min(pagecount, config.incrementalMaxPages);
           collected += media.length;
@@ -943,6 +1117,9 @@ export class CollectorService {
           pages: currentPage - 1,
         });
 
+        this.logPerf('SOURCE', { src: source.name, taskId, pages: currentPage - 1, collected, failed, status: 'done' }, sourceMeter);
+        batchMeter.merge(sourceMeter);
+
         onSourceProgress?.({
           sourceIndex: si,
           sourceName: source.name,
@@ -980,8 +1157,12 @@ export class CollectorService {
           status: 'failed',
           error: errorMsg,
         });
+        this.logPerf('SOURCE', { src: source.name, taskId, pages: currentPage, collected, failed, status: 'failed', error: errorMsg }, sourceMeter);
+        batchMeter.merge(sourceMeter);
       }
     }));
+
+    this.logPerf('BATCH', { mode: 'incremental' }, batchMeter);
 
     console.log(`[Collector] collectLatest completed`);
     // 采集完成后统一触发一次"越看越懂你"重算：新元数据入库后，推荐库需刷新。
@@ -996,8 +1177,10 @@ export class CollectorService {
 
     let totalCollected = 0;
     let totalPages = 0;
+    const batchMeter = new PerfMeter();
 
     for (const source of sources) {
+      const sourceMeter = new PerfMeter();
       const { healthy } = await this.checkSource(source.id);
       if (!healthy) {
         console.warn(`[Collector] 跳过不可达视频源: ${source.name}`);
@@ -1009,7 +1192,7 @@ export class CollectorService {
 
       while (hasMore && page <= config.maxPages) {
         try {
-          const { media, pagecount } = await this.collectFromSource(source.id, source.baseUrl, page, pageSize);
+          const { media, pagecount } = await this.collectFromSource(source.id, source.baseUrl, page, pageSize, undefined, undefined, sourceMeter);
           totalCollected += media.length;
           totalPages += 1;
 
@@ -1022,7 +1205,11 @@ export class CollectorService {
       }
 
       await this.db.updateSourceLastCollectedAt(source.id, new Date().toISOString());
+      this.logPerf('SOURCE', { src: source.name, pages: page - 1, status: 'done' }, sourceMeter);
+      batchMeter.merge(sourceMeter);
     }
+
+    this.logPerf('BATCH', { mode: 'full' }, batchMeter);
 
     return { totalCollected, totalPages };
   }
@@ -1138,6 +1325,7 @@ export class CollectorService {
     let lastErrorMsg: string | null = null;
     let lastErrorType: TaskErrorType = 'UNKNOWN';
     let totalRuntimeMs = 0;
+    const sourceMeter = new PerfMeter();
     const controller = new AbortController();
     this.activeAbortControllers.set(taskId, controller);
 
@@ -1170,6 +1358,8 @@ export class CollectorService {
       this.emitLog('info', resumeTaskId ? `开始续采 [${source.name}]: 从第${startPage}页继续` : `开始增量采集 [${source.name}]`, sourceCode, source.name, taskId);
 
       const maxPages = hours ? Number.MAX_SAFE_INTEGER : config.incrementalMaxPages;
+      let prefetchPromise: Promise<CMSListResponse | null> | null = null;
+      let knownPagecount = 0;
 
       while (page <= maxPages) {
         const iterationStart = Date.now();
@@ -1180,8 +1370,30 @@ export class CollectorService {
           break;
         }
 
+        let injectedList: CMSListResponse | null = null;
+        if (prefetchPromise) {
+          const cached = await prefetchPromise.catch(() => null);
+          prefetchPromise = null;
+          if (cached && Array.isArray(cached.list)) {
+            injectedList = cached;
+          }
+        }
+
         try {
-          const result = await this.collectFromSource(source.id, source.baseUrl, page, 20, hours, controller.signal);
+          const runPromise = this.collectFromSource(source.id, source.baseUrl, page, 20, hours, controller.signal, sourceMeter, injectedList);
+
+          const nextPage = page + 1;
+          const shouldPrefetch = prefetchPromise === null && (knownPagecount === 0 || nextPage <= knownPagecount);
+          if (shouldPrefetch) {
+            prefetchPromise = new CMSAdapter(source.baseUrl)
+              .getList(nextPage, 20, hours, controller.signal)
+              .then((r) => r)
+              .catch(() => null);
+          }
+
+          const result = await runPromise;
+
+          if (!knownPagecount) knownPagecount = result.pagecount || 0;
 
           if (result.error) {
             throw new Error(result.error);
@@ -1253,6 +1465,7 @@ export class CollectorService {
           pages: page - 1,
         });
         this.emitLog('info', `增量采集完成 [${source.name}]: 共采集${collected}条，失败${failed}条`, sourceCode, source.name, taskId);
+        this.logPerf('SOURCE', { src: source.name, taskId, pages: page - 1, collected, failed, status: 'done' }, sourceMeter);
       }
 
       this.activeAbortControllers.delete(taskId);
@@ -1279,6 +1492,7 @@ export class CollectorService {
         completedAt: new Date().toISOString(),
       });
       this.emitLog('error', `增量采集失败 [${source.name}]: ${finalErrMsg}`, sourceCode, source.name, taskId, JSON.stringify({ errorType: errType, page, url: source.baseUrl }));
+      this.logPerf('SOURCE', { src: source.name, taskId, pages: page, collected, failed, status: 'failed', error: finalErrMsg }, sourceMeter);
       throw err;
     }
   }
@@ -1332,6 +1546,7 @@ export class CollectorService {
     let lastErrorMsg: string | null = null;
     let lastErrorType: TaskErrorType = 'UNKNOWN';
     let totalRuntimeMs = 0;
+    const sourceMeter = new PerfMeter();
     const controller = new AbortController();
     this.activeAbortControllers.set(taskId, controller);
 
@@ -1350,6 +1565,9 @@ export class CollectorService {
       await this.assertSourceReachable(source);
       this.emitLog('info', resumeTaskId ? `开始续采 [${source.name}]: 从第${startPage}页继续全量采集` : `开始全量采集 [${source.name}]，最多${config.maxPages}页`, sourceCode, source.name, taskId);
 
+      let prefetchPromise: Promise<CMSListResponse | null> | null = null;
+      let knownPagecount = 0;
+
       while (page <= config.maxPages) {
         const iterationStart = Date.now();
 
@@ -1359,8 +1577,30 @@ export class CollectorService {
           break;
         }
 
+        let injectedList: CMSListResponse | null = null;
+        if (prefetchPromise) {
+          const cached = await prefetchPromise.catch(() => null);
+          prefetchPromise = null;
+          if (cached && Array.isArray(cached.list)) {
+            injectedList = cached;
+          }
+        }
+
         try {
-          const result = await this.collectFromSource(source.id, source.baseUrl, page, 20, undefined, controller.signal);
+          const runPromise = this.collectFromSource(source.id, source.baseUrl, page, 20, undefined, controller.signal, sourceMeter, injectedList);
+
+          const nextPage = page + 1;
+          const shouldPrefetch = prefetchPromise === null && (knownPagecount === 0 || nextPage <= knownPagecount);
+          if (shouldPrefetch) {
+            prefetchPromise = new CMSAdapter(source.baseUrl)
+              .getList(nextPage, 20, undefined, controller.signal)
+              .then((r) => r)
+              .catch(() => null);
+          }
+
+          const result = await runPromise;
+
+          if (!knownPagecount) knownPagecount = result.pagecount || 0;
 
           if (result.error) {
             throw new Error(result.error);
@@ -1430,6 +1670,7 @@ export class CollectorService {
           pages: page - 1,
         });
         this.emitLog('info', `全量采集完成 [${source.name}]: 共采集${collected}条，失败${failed}条`, sourceCode, source.name, taskId);
+        this.logPerf('SOURCE', { src: source.name, taskId, pages: page - 1, collected, failed, status: 'done' }, sourceMeter);
       }
 
       this.activeAbortControllers.delete(taskId);
@@ -1456,6 +1697,7 @@ export class CollectorService {
         completedAt: new Date().toISOString(),
       });
       this.emitLog('error', `全量采集失败 [${source.name}]: ${finalErrMsg}`, sourceCode, source.name, taskId, JSON.stringify({ errorType: errType, page, url: source.baseUrl }));
+      this.logPerf('SOURCE', { src: source.name, taskId, pages: page, collected, failed, status: 'failed', error: finalErrMsg }, sourceMeter);
       throw err;
     }
   }

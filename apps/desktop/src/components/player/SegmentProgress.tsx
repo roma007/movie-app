@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useSyncExternalStore, useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { prefetchManager, type SegmentProgressState } from './PrefetchManager';
 
@@ -20,6 +20,49 @@ export function SegmentProgress({ open, onClose }: SegmentProgressProps) {
     prefetchManager.getSnapshot,
     prefetchManager.getSnapshot,
   );
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [alignBottom, setAlignBottom] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const measure = () => {
+      const player = wrapRef.current?.closest('[data-media-player]');
+      const controls = player?.querySelector('.vds-controls');
+      const groups = controls ? [...controls.querySelectorAll('.vds-controls-group')] : [];
+      const lastGroup = groups[groups.length - 1] as HTMLElement | undefined;
+      const rect = lastGroup?.getBoundingClientRect();
+      const playerRect = player?.getBoundingClientRect();
+      const wrapHeight = wrapRef.current?.offsetHeight ?? 0;
+      const wrapRect = wrapRef.current?.getBoundingClientRect();
+      const segCount = segments.length;
+      console.error(
+        '[Prefetch][SEG-DBG]',
+        JSON.stringify({
+          win: window.location.pathname,
+          view: new URLSearchParams(window.location.search).get('view'),
+          open,
+          segCount,
+          hasPlayer: !!player,
+          hasControls: !!controls,
+          groupCount: groups.length,
+          group: rect ? { top: Math.round(rect.top), bottom: Math.round(rect.bottom) } : null,
+          playerRect: playerRect ? { top: Math.round(playerRect.top), bottom: Math.round(playerRect.bottom), h: Math.round(playerRect.height) } : null,
+          wrapH: Math.round(wrapHeight),
+          wrapRect: wrapRect
+            ? { top: Math.round(wrapRect.top), bottom: Math.round(wrapRect.bottom), offset: playerRect ? Math.round(playerRect.bottom - wrapRect.bottom) : null }
+            : null,
+          curAlignBottom: alignBottom,
+        }),
+      );
+      if (rect && wrapHeight > 0 && playerRect) {
+        const groupCenterY = (rect.top + rect.bottom) / 2;
+        setAlignBottom(playerRect.bottom - groupCenterY - wrapHeight / 2);
+      }
+    };
+    measure();
+    const t = setInterval(measure, 500);
+    return () => clearInterval(t);
+  }, [open]);
 
   if (!open) return null;
   if (segments.length === 0) return null;
@@ -29,7 +72,9 @@ export function SegmentProgress({ open, onClose }: SegmentProgressProps) {
 
   return (
     <div
-      className="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 pointer-events-none select-none"
+      ref={wrapRef}
+      className="absolute left-1/2 -translate-x-1/2 z-30 pointer-events-none select-none"
+      style={{ bottom: alignBottom ?? undefined }}
       onPointerDown={(e) => e.stopPropagation()}
       onPointerUp={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}

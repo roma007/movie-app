@@ -393,6 +393,7 @@ class PrefetchManager {
   /** 清单解析后的播种与预取推进。 */
   onManifestLoaded(url: string, text: string): void {
     const parsed = parsePlaylist(text, url);
+    console.error('[Prefetch][FDBG] onManifestLoaded', JSON.stringify({ url: url.slice(-60), segCount: parsed.segments.length, hasExtInf: parsed.hasExtInf, curManifest: (this.manifestUrl || '').slice(-40) }));
     this.prewarmNext(url, parsed.nextResourceUrl);
     if (!parsed.hasExtInf) {
       this.log('master playlist，跳过预取播种');
@@ -559,6 +560,7 @@ class PrefetchManager {
     }
     items.sort((a, b) => a.index - b.index);
     this.snapshotCache = items;
+    console.error('[Prefetch][FDBG] snapshot', JSON.stringify({ segStates: this.segStates.size, segments: this.segments.length, items: items.length, playIndex: this.playIndex, first: items[0] ?? null }));
   }
 
   /** 订阅快照更新，返回取消订阅函数。 */
@@ -594,6 +596,7 @@ class PrefetchManager {
 
   /** 切换剧集/线路/退出播放页时清空会话与缓存。 */
   reset(): void {
+    console.error('[Prefetch][FDBG] reset called');
     this.segments = [];
     this.manifestUrl = '';
     this.frontier = 0;

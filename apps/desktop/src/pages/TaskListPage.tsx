@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../useAppStore';
 import { useConfirm } from '@/components/ConfirmProvider';
@@ -261,8 +261,8 @@ export default function TaskListPage() {
                   const progress = task.totalPages > 0 ? Math.round((task.currentPage / task.totalPages) * 100) : 0;
 
                   return (
-                    <>
-                    <tr key={task.id} className="hover:bg-hover transition-colors">
+                    <Fragment key={task.id}>
+                    <tr className="hover:bg-hover transition-colors">
                       <td className="p-3 text-sm font-mono text-muted-foreground max-w-[100px] truncate" title={task.taskId}>
                         {task.taskId}
                       </td>
@@ -355,7 +355,7 @@ export default function TaskListPage() {
                       </td>
                     </tr>
                     {(task.type === 'INCREMENTAL' || task.type === 'FULL') && (
-                      <tr key={`${task.id}-failed`} className="bg-secondary/40">
+                      <tr className="bg-secondary/40">
                         <td colSpan={8} className="p-3 pt-0">
                           {parseFailedItems(task).length > 0 ? (
                             <div className="flex items-start gap-2">
@@ -388,7 +388,7 @@ export default function TaskListPage() {
                         </td>
                       </tr>
                     )}
-                    </>
+                    </Fragment>
                   );
                 })
               )}

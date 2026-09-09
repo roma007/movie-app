@@ -68,6 +68,8 @@ export const SCHEMA_SQL = `
     personal_score INTEGER DEFAULT 0,
     series_group TEXT,
     series_season INTEGER,
+    source_updated_at TEXT,
+    vod_id TEXT,
     created_at TEXT,
     updated_at TEXT
   );
@@ -262,6 +264,16 @@ export const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_media_type_updated_at ON media(type, updated_at);
   CREATE INDEX IF NOT EXISTS idx_media_hidden ON media(hidden);
   CREATE INDEX IF NOT EXISTS idx_media_personal_score ON media(personal_score, updated_at);
+
+  -- 分类页筛选聚合查询（getYearsByType/getAreasByType/getSubTypesByType）的覆盖索引，
+  -- 避免每次 DISTINCT/GROUP BY 全表扫（21 万行耗时 6-8s）
+  CREATE INDEX IF NOT EXISTS idx_media_type_year ON media(type, year);
+  CREATE INDEX IF NOT EXISTS idx_media_type_area ON media(type, area);
+  CREATE INDEX IF NOT EXISTS idx_media_type_genre ON media(type, genre);
+
+  -- 采集跳过判定的点查（getMediaByFingerprint/getMediaByVodId），全表扫一次 10-30s
+  CREATE INDEX IF NOT EXISTS idx_media_fingerprint ON media(fingerprint);
+  CREATE INDEX IF NOT EXISTS idx_media_vod_id ON media(vod_id);
 
   -- 推荐重算变化跟踪表：记录自上次重算以来变化的媒体ID
   CREATE TABLE IF NOT EXISTS media_change_log (

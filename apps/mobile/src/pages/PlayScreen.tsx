@@ -9,7 +9,7 @@ import { Paths, File } from 'expo-file-system';
 const VideoCache: any = (() => { try { return require('expo-video-cache'); } catch { return null; } })();
 import { getProvider } from '../init';
 import { useAppStore, getStore } from '../useAppStore';
-import { ArrowLeft, Mic, EyeOff, Heart, ThumbsDown, Star, Settings, PictureInPicture2, Maximize, ChevronUp, ChevronDown, ChevronRight, MoreHorizontal, Play, Pause, X } from 'lucide-react-native';
+import { ArrowLeft, Mic, EyeOff, Heart, ThumbsDown, Star, Settings, PictureInPicture2, Maximize, ChevronUp, ChevronDown, ChevronRight, Play, Pause, X } from 'lucide-react-native';
 import { SystemConfigService, getVoiceControlSystem, UNCATEGORIZED_GENRE, VideoDurationService } from '@movie-app/core';
 import { clearCategoryFilterCache } from '../categoryFilterCache';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -74,6 +74,9 @@ export default function PlayScreen({ route, navigation }: Props) {
   const [plotOverflow, setPlotOverflow] = useState(false);
   const [castExpanded, setCastExpanded] = useState(false);
   const [castOverflow, setCastOverflow] = useState(false);
+  // 沉浸信息卡：简介/导演演员伸缩栏点击后底部滑出面板
+  const [introSheetVisible, setIntroSheetVisible] = useState(false);
+  const [castSheetVisible, setCastSheetVisible] = useState(false);
   const [isFav, setIsFav] = useState(false);
   const [isDisliked, setIsDisliked] = useState(false);
   const [hideModalVisible, setHideModalVisible] = useState(false);
@@ -259,11 +262,8 @@ export default function PlayScreen({ route, navigation }: Props) {
    *  探测未就绪/换源期间回退到最近一次已知比例，避免沉浸布局在换集/换源时瞬时闪烁。 */
   const effectiveRatio = videoRatio ?? lastRatioRef.current;
   const isVerticalVideo = effectiveRatio != null && effectiveRatio > 0 && effectiveRatio < 1;
-  /** 红果式沉浸：竖屏（cover 铺满）或横屏（contain 居中留黑边）视频均启用「全屏沉浸 + 底部悬浮信息卡 + 右侧竖排功能键」布局 */
-  const isImmersive = effectiveRatio != null && effectiveRatio > 0;
-
-  // 红果式沉浸信息卡：展开（显示选集/简介/导演演员等全部信息）与收起（仅标题+选集）两态
-  const [verticalCardExpanded, setVerticalCardExpanded] = useState(false);
+  /** 红果式沉浸：进页即全屏沉浸（横竖屏一致），不再等待视频尺寸探测；探测仅用于 contentFit（竖屏 cover / 横屏 contain） */
+  const isImmersive = videoUrl != null && !error;
 
   const styles = useMemo(() => {
     // 信息卡展开内容最大高度：≤40% 屏高（留档「≤60% 上限」以内的取中），超出区域内滚
@@ -302,55 +302,50 @@ export default function PlayScreen({ route, navigation }: Props) {
       position: 'absolute',
       left: 15,
       width: screenW * 0.68,
-      bottom: insets.bottom + 148,
+      bottom: insets.bottom + 76,
       zIndex: 15,
-      backgroundColor: 'rgba(0,0,0,0.5)',
+backgroundColor: 'transparent',
       borderRadius: radius.lg,
       paddingTop: 2,
       paddingBottom: 4,
       paddingHorizontal: 12,
     },
-    verticalCardRow: { alignItems: 'flex-start' },
-    verticalEpLabel: {
-      fontSize: sf(11),
-      fontWeight: '700',
-      color: '#ff9d2e',
-      backgroundColor: 'rgba(255,157,46,0.18)',
-      paddingHorizontal: 6,
-      paddingVertical: 2,
-      borderRadius: 4,
-      overflow: 'hidden',
-    },
-    verticalCompactSubRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
-    verticalCardCompact: { flexDirection: 'column' as const, alignItems: 'flex-start' },
-    verticalCollapseRow: { alignItems: 'center', alignSelf: 'center', paddingVertical: 2 },
-    // 右侧竖排功能键列（现有 4 键：设置/语音/画中画/投屏）——红果式：悬浮视频右侧、屏高 55% 起、距右缘 8
+    // 右侧竖排功能键列（现有 6 键：收藏/不感兴趣/隐藏/语音/画中画/投屏；竖屏视频时另含全屏键）——红果式：悬浮视频右侧、屏高 42% 起、距右缘 8
     toolbarVerticalCol: {
       position: 'absolute',
       right: 8,
-      top: screenH * 0.55,
+      top: screenH * 0.42,
       zIndex: 16,
       flexDirection: 'column' as const,
       alignItems: 'center',
       gap: 12,
     },
-    // 信息区 wrapper 显式 height 限定 ScrollView：避免「绝对定位+内容撑高」无界父下 maxHeight/百分比失效
-    verticalInfoWrap: { flex: 1, minWidth: 0, height: vInfoMax, overflow: 'hidden' as const },
-    verticalInfo: { height: '100%' },
+    // 信息区 wrapper：内容自然撑高，限高由内部 ScrollView 承担（内容多时才滚动）
+    verticalInfoWrap: { minWidth: 0, overflow: 'hidden' as const },
+    verticalInfo: { flexGrow: 0, maxHeight: vInfoMax },
     verticalTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
-    verticalTitle: { flex: 1, fontSize: sf(15), fontWeight: '700', color: '#fff' },
-    verticalSubText: { fontSize: sf(11), color: 'rgba(255,255,255,0.75)', marginBottom: 6 },
-    verticalBtnRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 8 },
+    verticalTitle: { fontSize: sf(15), fontWeight: '700', color: '#fff' },
+    verticalEpLabel: {
+      fontSize: sf(12),
+      fontWeight: '700',
+      color: '#ff9d2e',
+      backgroundColor: 'rgba(255,157,46,0.18)',
+      borderRadius: 4,
+      paddingHorizontal: 6,
+      paddingVertical: 1,
+    },
+    verticalSubText: { fontSize: sf(12), color: 'rgba(255,255,255,0.75)', marginBottom: 6 },
     verticalSection: { marginTop: 6 },
     verticalSectionText: { fontSize: sf(12), color: 'rgba(255,255,255,0.85)', lineHeight: sf(19) },
+    verticalDetailRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+    verticalSectionTag: { fontSize: sf(12), fontWeight: '600', color: '#fff', marginTop: 1 },
     verticalExpandLink: { fontSize: sf(12), color: '#fff', marginLeft: 6 },
-    verticalCollapsedRow: { flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0, gap: 8 },
     // 底部选集横条（红果式）：视频底部独立水平条，默认常显，点击弹选集列表，位于进度条上方
     episodeBar: {
       position: 'absolute',
       left: 12,
       right: 12,
-      bottom: insets.bottom + 90,
+      bottom: 32,
       zIndex: 17,
       flexDirection: 'row' as const,
       alignItems: 'center',
@@ -366,7 +361,7 @@ export default function PlayScreen({ route, navigation }: Props) {
       position: 'absolute',
       left: 0,
       right: 0,
-      bottom: 40,
+      bottom: 68,
       zIndex: 26,
       height: 34,
       flexDirection: 'row' as const,
@@ -411,6 +406,22 @@ export default function PlayScreen({ route, navigation }: Props) {
       justifyContent: 'center' as const,
       alignItems: 'center' as const,
     },
+    // 右侧竖排放大 + 白底圆（参照 GlobalVoiceControl 悬浮语音双层圆）
+    toolbarButtonRound: {
+      width: 60,
+      height: 60,
+      borderRadius: 30,
+      justifyContent: 'center' as const,
+      alignItems: 'center' as const,
+    },
+    toolbarIconRound: {
+      width: 46,
+      height: 46,
+      borderRadius: 23,
+      justifyContent: 'center' as const,
+      alignItems: 'center' as const,
+      backgroundColor: 'rgba(255,255,255,0.92)',
+    },
     loadingOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1 },
     loadingText: { color: colors.textSecondary, fontSize: sf(14), marginTop: 8 },
     errorOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 1, padding: 20 },
@@ -439,7 +450,7 @@ export default function PlayScreen({ route, navigation }: Props) {
     modalButton: { minWidth: 90 },
     settingsOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'flex-end', zIndex: 10000, elevation: 30 },
     settingsBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.5)' },
-    settingsSheet: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: 18, maxHeight: '75%' },
+    settingsSheet: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: 18, paddingBottom: insets.bottom + 28, maxHeight: '75%' },
     settingsTitle: { fontSize: sf(16), fontWeight: '600', marginBottom: 14 },
     settingsLabel: { fontSize: sf(13), marginBottom: 8 },
     settingsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
@@ -1655,7 +1666,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   return (
     <>
     {/* 红果式沉浸：竖屏视频时隐藏系统状态栏，让视频真正延伸到屏幕最顶端；退出/横屏自动恢复全局样式 */}
-    {isImmersive && <StatusBar hidden style="light" />}
+    {isImmersive && <StatusBar style="light" />}
     <BlurredBackground imageUrl={bgImageUrl}>
     <View style={styles.container}>
       <View style={styles.header}>
@@ -1669,8 +1680,7 @@ export default function PlayScreen({ route, navigation }: Props) {
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{currentTitle || '正在播放'}</Text>
         <TouchableOpacity style={styles.headerRight} activeOpacity={0.7} onPress={() => setSettingsVisible(true)}>
-          <Text style={styles.headerRightText}>倍速</Text>
-          <MoreHorizontal size={16} color="rgba(255,255,255,0.9)" />
+          <Settings size={18} color="#fff" />
         </TouchableOpacity>
       </View>
 
@@ -1713,6 +1723,7 @@ export default function PlayScreen({ route, navigation }: Props) {
             />
           </View>
         )}
+
         <NextEpisodeOverlay
           show={overlayVisible}
           nextEpisodeTitle={nextEpisodeTitle}
@@ -1724,10 +1735,12 @@ export default function PlayScreen({ route, navigation }: Props) {
           onSkip={handleSkipForward}
           onClose={handleSkipForwardClose}
         />
-        {showSegmentProgress && videoUrl && !error && (
+        {showSegmentProgress && videoUrl && (
           <SegmentProgress
             snapshot={segmentSnapshot}
             onClose={() => setShowSegmentProgress(false)}
+            resetKey={`${currentEpisodeId}|${activePlayIdx}`}
+            isHls={videoUrl.toLowerCase().includes('m3u8')}
           />
         )}
         {videoUrl && !error && !isImmersive && (
@@ -1777,21 +1790,17 @@ export default function PlayScreen({ route, navigation }: Props) {
             `${media?.directors.length ? `导演：${media?.directors.join('、')}` : ''}` +
             `${media?.actors.length ? `${media?.directors.length ? '\n' : ''}主演：${media?.actors.join('、')}` : ''}`;
           const epIdx = currentEpisodeId ? filteredEpisodes.findIndex((e: Episode) => e.id === currentEpisodeId) : -1;
-          const epLabelText = vmEpName || (epIdx >= 0 ? `第${epIdx + 1}集` : '') || '';
+          const epLabelText = vmEpName || (epIdx >= 0 ? `第${epIdx + 1}集` : '');
           return (
             <>
             <View style={styles.verticalCard}>
-              {/* 信息区：默认红果式两行紧凑卡（标签+剧名+箭头 / 简介一行+展开）；展开时显示完整信息+收起箭头 */}
-              {verticalCardExpanded ? (
-                <>
+              {/* 信息区：红果式信息卡常驻全量显示（不伸缩） */}
                 <View style={styles.verticalInfoWrap}>
-                <ScrollView style={styles.verticalInfo} contentContainerStyle={{ paddingBottom: 4 }} nestedScrollEnabled>
+                <View style={styles.verticalInfo} >
                   <View style={styles.verticalTitleRow}>
-                    <Text style={styles.verticalTitle} numberOfLines={1}>{media?.title || '正在播放'}</Text>
+                    {epLabelText ? <Text style={styles.verticalEpLabel}>{epLabelText}</Text> : null}
+                    <Text style={[styles.verticalTitle, { flex: 1 }]} numberOfLines={1}>{media?.title || '正在播放'}</Text>
                   </View>
-                  {vmEpName ? (
-                    <Text style={styles.verticalSubText} numberOfLines={1}>{vmEpName}</Text>
-                  ) : null}
                   {media && (
                     <Text style={styles.verticalSubText}>
                       {media.year}{media.area ? ` · ${media.area}` : ''}{media.alias ? ` · 又名：${media.alias}` : ''}
@@ -1837,82 +1846,30 @@ export default function PlayScreen({ route, navigation }: Props) {
                       </>
                     );
                   })()}
-                  {media && (
-                    <View style={styles.verticalBtnRow}>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        active={isFav}
-                        leftIcon={<Heart size={14} color={isFav ? '#fff' : 'rgba(255,255,255,0.8)'} fill={isFav ? '#fff' : 'none'} />}
-                        onPress={handleFav}
-                      >
-                        {isFav ? '已收藏' : '收藏'}
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        active={isDisliked}
-                        leftIcon={<ThumbsDown size={14} color={isDisliked ? colors.error : 'rgba(255,255,255,0.8)'} />}
-                        onPress={handleDislike}
-                      >
-                        {isDisliked ? '已不感兴趣' : '不感兴趣'}
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        leftIcon={<EyeOff size={14} color="rgba(255,255,255,0.8)" />}
-                        onPress={openHideModal}
-                      >
-                        隐藏
-                      </Button>
-                    </View>
-                  )}
                   {media && media.description && (
                     <View style={styles.verticalSection}>
-                      <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                        <Text style={styles.verticalSectionText} numberOfLines={plotExpanded ? undefined : 2}>{media.description}</Text>
-                        <TouchableOpacity onPress={() => setPlotExpanded((v) => !v)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
-                          <Text style={styles.verticalExpandLink}>{plotExpanded ? '收起' : '展开'}</Text>
+                      <View style={styles.verticalDetailRow}>
+                        <Text style={styles.verticalSectionTag}>简介</Text>
+                        <Text style={styles.verticalSectionText} numberOfLines={2}>{media.description}</Text>
+                        <TouchableOpacity onPress={() => setIntroSheetVisible(true)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
+                          <Text style={styles.verticalExpandLink}>展开</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
                   )}
                   {(media && (media.directors.length > 0 || media.actors.length > 0)) && (
                     <View style={styles.verticalSection}>
-                      <Text style={styles.verticalSectionText} numberOfLines={castExpanded ? undefined : 2}>{vCastText}</Text>
-                      <TouchableOpacity onPress={() => setCastExpanded((v) => !v)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
-                        <Text style={styles.verticalExpandLink}>{castExpanded ? '收起' : '展开'}</Text>
-                      </TouchableOpacity>
+                      <View style={styles.verticalDetailRow}>
+                        <Text style={styles.verticalSectionTag}>导演/演员</Text>
+                        <Text style={styles.verticalSectionText} numberOfLines={2}>{vCastText}</Text>
+                        <TouchableOpacity onPress={() => setCastSheetVisible(true)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
+                          <Text style={styles.verticalExpandLink}>展开</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   )}
-                </ScrollView>
                 </View>
-                <TouchableOpacity
-                  style={styles.verticalCollapseRow}
-                  activeOpacity={0.7}
-                  onPress={() => setVerticalCardExpanded(false)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <ChevronUp size={16} color="rgba(255,255,255,0.75)" />
-                </TouchableOpacity>
-                </>
-              ) : (
-                <TouchableOpacity style={styles.verticalCardCompact} activeOpacity={0.85} onPress={() => setVerticalCardExpanded(true)}>
-                  <View style={styles.verticalCardRow}>
-                    {epLabelText ? <Text style={styles.verticalEpLabel}>{epLabelText}</Text> : null}
-                    <Text style={[styles.verticalTitle, { marginLeft: 6 }]} numberOfLines={1}>{media?.title || '正在播放'}</Text>
-                    <ChevronRight size={15} color="rgba(255,255,255,0.85)" />
-                  </View>
-                  <View style={styles.verticalCompactSubRow}>
-                    <Text style={[styles.verticalSubText, { flex: 1, marginBottom: 0 }]} numberOfLines={1}>
-                      {media?.description?.trim()
-                        ? media.description.trim()
-                        : `${media?.year ?? ''}${media?.area ? ` · ${media.area}` : ''}`}
-                    </Text>
-                    <Text style={styles.verticalExpandLink}>展开</Text>
-                  </View>
-                </TouchableOpacity>
-              )}
+                </View>
             </View>
             {/* 红果式底部进度条（紧贴预读条上方，可拖动 seek，白点 thumb 标记当前进度） */}
             {media && videoUrl && !error && (
@@ -1930,27 +1887,39 @@ export default function PlayScreen({ route, navigation }: Props) {
             )}
             {/* 右侧竖排功能键（红果式：悬浮视频右侧、屏高 55% 起、距右缘 8） */}
             <View style={styles.toolbarVerticalCol}>
-              <TouchableOpacity style={styles.toolbarButton} activeOpacity={0.7} onPress={() => setSettingsVisible(true)}>
-                <Settings size={20} color="#fff" />
+              <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={handleFav}>
+                <View style={styles.toolbarIconRound}>
+                  <Heart size={22} color={isFav ? '#ff9d2e' : '#222'} fill={isFav ? '#ff9d2e' : 'none'} />
+                </View>
               </TouchableOpacity>
-              {voiceControl?.getConfig().enabled && (
-                <TouchableOpacity style={styles.toolbarButton} activeOpacity={0.7} onPress={handleVoiceControl}>
-                  <Mic size={20} color="#fff" />
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={handleDislike}>
+                <View style={styles.toolbarIconRound}>
+                  <ThumbsDown size={22} color={isDisliked ? colors.error : '#222'} />
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={openHideModal}>
+                <View style={styles.toolbarIconRound}>
+                  <EyeOff size={22} color="#222" />
+                </View>
+              </TouchableOpacity>
               {isPictureInPictureSupported() && (
-                <TouchableOpacity style={styles.toolbarButton} activeOpacity={0.7} onPress={handlePictureInPicture}>
-                  <PictureInPicture2 size={20} color="#fff" />
+                <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={handlePictureInPicture}>
+                  <View style={styles.toolbarIconRound}>
+                    <PictureInPicture2 size={22} color="#222" />
+                  </View>
                 </TouchableOpacity>
               )}
               <CastButton
                 onDeviceSelect={handleCastDeviceSelect}
                 onSearch={castManager.searchDevices}
-                style={styles.toolbarButton}
+                style={styles.toolbarButtonRound}
+                roundedWhite
               />
               {!isVerticalVideo && (
-                <TouchableOpacity style={styles.toolbarButton} activeOpacity={0.7} onPress={enterAppFullscreen}>
-                  <Maximize size={20} color="#fff" />
+                <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={enterAppFullscreen}>
+                  <View style={styles.toolbarIconRound}>
+                    <Maximize size={22} color="#222" />
+                  </View>
                 </TouchableOpacity>
               )}
             </View>
@@ -2216,7 +2185,7 @@ export default function PlayScreen({ route, navigation }: Props) {
       };
       return (
         <View style={fsStyles.wrap} pointerEvents="box-none">
-          <StatusBar hidden style="light" />
+          <StatusBar style="light" />
           <VideoView
             ref={appFullVideoRef}
             style={fsStyles.video}
@@ -2277,6 +2246,8 @@ export default function PlayScreen({ route, navigation }: Props) {
             <SegmentProgress
               snapshot={segmentSnapshot}
               onClose={() => setShowSegmentProgress(false)}
+              resetKey={`${currentEpisodeId}|${activePlayIdx}`}
+              isHls={videoUrl?.toLowerCase().includes('m3u8') ?? false}
             />
           )}
           {isCasting && (
@@ -2301,7 +2272,7 @@ export default function PlayScreen({ route, navigation }: Props) {
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setSettingsVisible(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} />
         </Animated.View>
         <Animated.View
-          style={[styles.settingsSheet, { backgroundColor: cardBg, transform: [{ translateY: settingsSlide }] }]}
+          style={[styles.settingsSheet, { backgroundColor: colors.background, transform: [{ translateY: settingsSlide }] }]}
         >
           <Text style={[styles.settingsTitle, { color: colors.text }]}>播放设置</Text>
 
@@ -2376,7 +2347,7 @@ export default function PlayScreen({ route, navigation }: Props) {
             </>
           )}
 
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <Text style={[styles.settingsLabel, { color: colors.text, marginBottom: 0 }]}>显示预读分片进度</Text>
             <Switch
               value={showSegmentProgress}
@@ -2389,6 +2360,65 @@ export default function PlayScreen({ route, navigation }: Props) {
       </View>
     )}
     </BlurredBackground>
+    <Modal
+      visible={introSheetVisible}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setIntroSheetVisible(false)}
+    >
+      <TouchableOpacity
+        style={styles.episodesSheetOverlay}
+        activeOpacity={1}
+        onPress={() => setIntroSheetVisible(false)}
+      >
+        <TouchableOpacity
+          style={[styles.episodesSheet, { backgroundColor: colors.background }]}
+          activeOpacity={1}
+          onPress={() => {}}
+        >
+          <View style={styles.episodesSheetHeader}>
+            <Text style={[styles.episodesSheetTitle, { color: colors.text }]}>剧情简介</Text>
+            <TouchableOpacity onPress={() => setIntroSheetVisible(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <X size={20} color={colors.mutedForeground} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={styles.episodesSheetBody}>
+            <Text style={[styles.verticalSectionText, { color: colors.text }]}>{media?.description || ''}</Text>
+          </ScrollView>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+    <Modal
+      visible={castSheetVisible}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setCastSheetVisible(false)}
+    >
+      <TouchableOpacity
+        style={styles.episodesSheetOverlay}
+        activeOpacity={1}
+        onPress={() => setCastSheetVisible(false)}
+      >
+        <TouchableOpacity
+          style={[styles.episodesSheet, { backgroundColor: colors.background }]}
+          activeOpacity={1}
+          onPress={() => {}}
+        >
+          <View style={styles.episodesSheetHeader}>
+            <Text style={[styles.episodesSheetTitle, { color: colors.text }]}>导演与演员</Text>
+            <TouchableOpacity onPress={() => setCastSheetVisible(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <X size={20} color={colors.mutedForeground} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={styles.episodesSheetBody}>
+            <Text style={[styles.verticalSectionText, { color: colors.text }]}>
+              {media?.directors.length ? `导演：${media.directors.join('、')}` : ''}
+              {media?.actors.length ? `${media?.directors.length ? '\n\n' : ''}主演：${media.actors.join('、')}` : ''}
+            </Text>
+          </ScrollView>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
     <Modal
       visible={episodesSheetVisible}
       transparent

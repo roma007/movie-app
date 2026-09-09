@@ -8,6 +8,10 @@ import type { MobileSegmentProgressState, SegmentProgressSnapshot } from '../ser
 interface Props {
   snapshot: SegmentProgressSnapshot | null;
   onClose: () => void;
+  /** 换集/换线路唯一标识：变化时清空粘滞快照重播种（仅此允许条隐藏/重播种） */
+  resetKey?: string;
+  /** 当前 URL 是否 m3u8 分片流；非分片流时显示说明文字而非分片条 */
+  isHls: boolean;
 }
 
 const MAX_BARS = 32;
@@ -19,9 +23,21 @@ function barWidth(duration: number): number {
   return Math.max(6, Math.min(22, duration * 2));
 }
 
-export function SegmentProgress({ snapshot, onClose }: Props) {
+export function SegmentProgress({ snapshot, onClose, resetKey, isHls }: Props) {
   const colors = useThemeColors();
   const s = useScaledFontSize();
+
+  // 粘滞快照：数据短暂不可用（403/fetch failed/桥滞后/集尾/error）时保留上一帧有效状态，条不隐藏
+  const lastGoodRef = useRef<SegmentProgressSnapshot | null>(null);
+  const lastResetKeyRef = useRef<string | null>(null);
+  if (resetKey !== lastResetKeyRef.current) {
+    lastResetKeyRef.current = resetKey ?? null;
+    lastGoodRef.current = null;
+  }
+  if (snapshot && snapshot.segments.length > 0) {
+    lastGoodRef.current = snapshot;
+  }
+  const display = snapshot && snapshot.segments.length > 0 ? snapshot : lastGoodRef.current;
 
   const styles = useMemo(() => StyleSheet.create({
     overlay: {
@@ -66,17 +82,35 @@ export function SegmentProgress({ snapshot, onClose }: Props) {
       justifyContent: 'center',
       backgroundColor: 'rgba(255,255,255,0.08)',
     },
+    hintText: {
+      color: 'rgba(255,255,255,0.65)',
+      fontSize: s(11),
+      flexShrink: 1,
+    },
   }), [colors, s]);
 
-  if (!snapshot) return null;
-  const segments = snapshot.segments.slice(0, MAX_BARS);
+  if (!isHls) {
+    return (
+      <View style={styles.overlay} pointerEvents="box-none">
+        <View style={styles.panel} pointerEvents="none">
+          <Text style={styles.hintText}>该视频当前线路不支持分片预读</Text>
+        </View>
+        <TouchableOpacity style={styles.close} activeOpacity={0.7} onPress={onClose}>
+          <X size={12} color="rgba(255,255,255,0.7)" />
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (!display) return null;
+  const segments = display.segments.slice(0, MAX_BARS);
   if (segments.length === 0) return null;
 
   return (
     <View style={styles.overlay} pointerEvents="box-none">
       <View style={styles.panel} pointerEvents="none">
-        {snapshot.prefetchedSeconds > 0 && (
-          <Text style={styles.label}>预读 {Math.round(snapshot.prefetchedSeconds)}s</Text>
+        {display.prefetchedSeconds > 0 && (
+          <Text style={styles.label}>预读 {Math.round(display.prefetchedSeconds)}s</Text>
         )}
         <View style={styles.barsRow}>
           {segments.map((seg) => (

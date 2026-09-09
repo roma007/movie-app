@@ -10,9 +10,11 @@ interface Props {
   onDeviceSelect: (device: { id: string; name: string; protocol: string }) => void;
   onSearch?: () => void;
   style?: any;
+  /** 白底圆样式：用于右侧竖排放大白底圆列（参照悬浮语音键） */
+  roundedWhite?: boolean;
 }
 
-export function CastButton({ onDeviceSelect, onSearch, style }: Props) {
+export function CastButton({ onDeviceSelect, onSearch, style, roundedWhite }: Props) {
   const colors = useThemeColors();
   const { isCasting, castDevice, availableDevices, isSearching } = useCastStore();
   const [pickerVisible, setPickerVisible] = useState(false);
@@ -43,8 +45,8 @@ export function CastButton({ onDeviceSelect, onSearch, style }: Props) {
         onPress={handlePress}
         style={[styles.container, style]}
       >
-        <View style={styles.iconWrap}>
-          <Cast size={18} color={emptyState ? '#777' : isCasting ? '#4ade80' : '#fff'} />
+        <View style={roundedWhite ? styles.iconWrapWhite : styles.iconWrap}>
+          <Cast size={roundedWhite ? 22 : 18} color={emptyState ? '#777' : isCasting ? '#4ade80' : roundedWhite ? '#222' : '#fff'} />
           {isCasting && (
             <View style={[styles.dot, { backgroundColor: '#4ade80' }]} />
           )}
@@ -76,6 +78,15 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
     backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconWrapWhite: {
+    position: 'relative',
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: 'rgba(255,255,255,0.92)',
     alignItems: 'center',
     justifyContent: 'center',
   },

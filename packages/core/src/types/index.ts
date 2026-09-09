@@ -21,6 +21,8 @@ export interface Media {
   fingerprint: string;
   seriesGroup?: string | null;
   seriesSeason?: number | null;
+  sourceUpdatedAt?: string | null;
+  vodId?: string | null;
   currentEpisodes?: number;
   totalEpisodes?: number;
   isShortDrama: boolean;

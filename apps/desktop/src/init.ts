@@ -229,6 +229,17 @@ export async function initApp(onProgress?: (step: string) => void): Promise<void
         });
       }, 3000);
 
+      report('Step 4e: 预热分类页筛选缓存（异步）...');
+      setTimeout(() => {
+        const s = _store?.getState();
+        if (!s) return;
+        for (const type of ['MOVIE', 'TV', 'VARIETY', 'ANIME', 'DOCUMENTARY']) {
+          void s.getSubTypesByType(type, undefined, true).catch(() => {});
+          void s.getYearsByType(type).catch(() => {});
+          void s.getAreasByType(type).catch(() => {});
+        }
+      }, 6000);
+
       const elapsed = Date.now() - startTime;
       report(`=== initApp 完成 (${elapsed}ms) ===`);
       await logToDb(`initApp completed (${elapsed}ms)`);

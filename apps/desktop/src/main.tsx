@@ -50,7 +50,7 @@ function captureWebviewErrors() {
     origError(...args);
     try {
       const text = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
-      if (text.startsWith('[VideoPlayer]') || text.startsWith('[Prefetch]') || text.startsWith('[TauriLoader]')) {
+      if (text.startsWith('[VideoPlayer]') || text.startsWith('[Prefetch]') || text.startsWith('[TauriLoader]') || text.startsWith('[CollectorPerf]')) {
         log(text.slice(0, 2000));
       }
     } catch {

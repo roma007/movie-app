@@ -6,6 +6,11 @@
 
 > 与用户的所有交流（包括代码 commit message）一律使用**中文**回复，禁止使用英文或中英混杂输出。
 
+## 实施许可铁律
+
+> 任何 AI 助手修改代码（含新增/删除/改动一行代码）前，必须先得到用户明确的「实施」「执行」「动手吧」等实施指令，缺此指令一律不得修改任何代码。
+> 仅用户提问、要求分析/方案/解释时，一律保持只读，不得擅自改代码；也不得反复催问「要不要实施」。
+
 ## 需求留档与全程对照机制（铁律）
 
 > 适用于任何原始需求，无论功能大小、涉及桌面端/移动端/基建。任何 AI 助手处理需求时必须遵守，违反视为未完成。
@@ -79,6 +84,85 @@
 - 所有改动必须同时落到 schema.ts + 桌面端 + 移动端三条路径，缺一不可。
 
 ## UI 规范
+
+### 截图验证方法（AI 无法直接看图时验证 UI 渲染，铁律）
+
+> 适用：AI 模型不支持图片输入，无法直接"看"运行中应用的渲染结果。涉及 UI 位置/对齐/坐标系等需要真实渲染结果验证的任务（如元素对齐、弹窗位置、预读条位移），若用户要求"看真实结果"/"自己截图验证"，必须按本节落地验证，否则不算完成。任何 AI 助手执行此类任务时必须遵守。
+
+### 流程速查
+
+1. **获取目标窗口位置尺寸**（每个窗口独立查询，避免混淆）：
+   ```
+   osascript -e '
+   tell application "System Events"
+     tell process "movie-app-desktop"
+       repeat with w in windows
+         set p to position of w
+         set s to size of w
+         set n to name of w
+         log (n & " pos=" & (item 1 of p) & "," & (item 2 of p) & " size=" & (item 1 of s) & "x" & (item 2 of s))
+       end repeat
+     end tell
+   end tell' 2>&1
+   ```
+2. **区域截图**（`screencapture -l <windowID>` 常失败，用 `-R x,y,w,h` 区域截取）：
+   ```
+   screencapture -x -R 755,290,925,554 /tmp/pip_win.png
+   sips -g pixelWidth -g pixelHeight /tmp/pip_win.png   # 确认 2x Retina 实际像素
+   ```
+3. **OCR 读文字+坐标**（Swift + Vision，macOS 自带，无需 tesseract）：
+   ```
+   swift /tmp/ocr.swift /tmp/pip_win.png 2
+   ```
+   输出格式：`文本 | x=左 y=顶 w=宽 h=高`（y 已换算为**左上原点 CSS 坐标**，除以 scale 2，可直接与之执行时在应用里用的 CSS 像素对比）。
+4. **触发动态 UI**（控制栏需鼠标悬停才显示、需点菜单等交互时用 cliclick）：
+   ```
+   /opt/homebrew/bin/cliclick m:1217,810      # 移动鼠标到指定屏幕坐标
+   /opt/homebrew/bin/cliclick m:900,600 c:.   # 点击（划掉/收起浮层）
+   ```
+
+### ocr.swift 脚本（写入 /tmp/ocr.swift）
+
+```swift
+import Vision
+import AppKit
+
+// 用法: swift ocr.swift <截图路径> [scale]
+// 输出每个识别文本块: string | x(left) y(top) w h（CSS 逻辑像素，左上原点）
+let args = CommandLine.arguments
+guard args.count >= 2 else { print("need image path"); exit(1) }
+let path = args[1]
+let scale = args.count >= 3 ? Double(args[2])! : 2.0
+
+guard let img = NSImage(contentsOfFile: path) else { print("cannot load"); exit(1) }
+var rect = NSRect(origin: .zero, size: img.size)
+guard let cg = img.cgImage(forProposedRect: &rect, context: nil, hints: nil) else { print("no cg"); exit(1) }
+
+let req = VNRecognizeTextRequest { r, _ in
+    guard let obs = r.results as? [VNRecognizedTextObservation] else { return }
+    for o in obs {
+        guard let c = o.topCandidates(1).first else { continue }
+        let b = o.boundingBox
+        let x = b.origin.x * Double(cg.width) / scale
+        let yLeft = (1 - b.origin.y - b.height) * Double(cg.height) / scale
+        let w = b.width * Double(cg.width) / scale
+        let h = b.height * Double(cg.height) / scale
+        print("\(c.string) | x=\(Int(x)) y=\(Int(yLeft)) w=\(Int(w)) h=\(Int(h))")
+    }
+}
+req.recognitionLevel = .accurate
+req.recognitionLanguages = ["zh-Hans", "en-US"]
+let handler = VNImageRequestHandler(cgImage: cg, options: [:])
+try handler.perform([req])
+```
+
+### 判定要点（避免误判）
+
+- **OCR 给的是文字外框**；文字有行高/padding，比较中线时需把元素盒高度算进去：盒中线 = `文字y + 文字高/2 + 上下padding`。直接拿两个文字 y 相减会误判（本需求就踩过：文字差 40px 实际盒中线只差 6px）。
+- **控制组/按钮是图标或无文字时**，OCR 认不出图标文字不表示不存在；可借同组文字（如时间"0:34 /46:27"、按钮旁的"s"）定位同一条中线的参考。
+- 截图 y 坐标系：屏幕上 y 从 0（顶部）增大向下；CSS `getBoundingClientRect().top` 一致，可直接换算对齐目标 `bottom` 值。
+- **日志桥交叉验证**：桌面端 `console.error('[Prefetch]...')` 会被 `main.tsx` 转发到 `~/Library/Logs/com.movie.app.desktop/video_fetch.log`（仅 `[VideoPlayer]`/`[Prefetch]`/`[TauriLoader]` 前缀），可在改动组件里临时打点（如每 500ms 输出 `getBoundingClientRect`），与截图 OCR 双重确认。验证完必须移除临时代码/日志。
+- 画中画（独立 WebviewWindow 实例）不自动收主窗口 HMR：改画中画相关代码后，须手动刷新画中画窗口（如对窗口发 Cmd+R）或用区域截图对比旧/新渲染位置确认已加载最新 JS。
 
 ### 弹窗不透明度规则
 

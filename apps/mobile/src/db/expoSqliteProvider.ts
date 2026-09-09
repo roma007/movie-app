@@ -381,6 +381,29 @@ const MIGRATIONS: Migration[] = [
     description: 'add_failed_items_to_collect_task',
     sql: `ALTER TABLE collect_task ADD COLUMN failed_items TEXT;`,
   },
+  {
+    version: 42,
+    description: 'add_source_updated_at_to_media',
+    sql: `ALTER TABLE media ADD COLUMN source_updated_at TEXT;`,
+  },
+  {
+    version: 43,
+    description: 'add_vod_id_to_media',
+    sql: `ALTER TABLE media ADD COLUMN vod_id TEXT;`,
+  },
+  {
+    version: 44,
+    description: 'add_media_filter_covering_indexes',
+    sql: `CREATE INDEX IF NOT EXISTS idx_media_type_year ON media(type, year);
+          CREATE INDEX IF NOT EXISTS idx_media_type_area ON media(type, area);
+          CREATE INDEX IF NOT EXISTS idx_media_type_genre ON media(type, genre);`,
+  },
+  {
+    version: 45,
+    description: 'add_media_fingerprint_vod_id_indexes',
+    sql: `CREATE INDEX IF NOT EXISTS idx_media_fingerprint ON media(fingerprint);
+          CREATE INDEX IF NOT EXISTS idx_media_vod_id ON media(vod_id);`,
+  },
 ];
 
 /**
@@ -667,8 +690,9 @@ export class ExpoSqliteProvider implements DatabaseProvider {
         current_episodes, total_episodes, is_short_drama, duration_check_status, episode_duration,
         view_count, rating, rating_count, rating_source, rating_updated_at,
         hidden, series_group, series_season,
+        source_updated_at, vod_id,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(fingerprint) DO UPDATE SET
         title = excluded.title,
         original_title = excluded.original_title,
@@ -689,6 +713,8 @@ export class ExpoSqliteProvider implements DatabaseProvider {
         episode_duration = excluded.episode_duration,
         series_group = excluded.series_group,
         series_season = excluded.series_season,
+        source_updated_at = excluded.source_updated_at,
+        vod_id = excluded.vod_id,
         updated_at = excluded.updated_at`,
       [
         media.id, media.title, media.originalTitle || null, media.alias || null,
@@ -702,6 +728,8 @@ export class ExpoSqliteProvider implements DatabaseProvider {
         media.rating ?? null, media.ratingCount ?? null, media.ratingSource || null, media.ratingUpdatedAt || null,
         media.hidden ? 1 : 0,
         media.seriesGroup || null, media.seriesSeason ?? null,
+        media.sourceUpdatedAt || null,
+        media.vodId || null,
         media.createdAt || now, now,
       ]
     );
@@ -718,6 +746,15 @@ export class ExpoSqliteProvider implements DatabaseProvider {
       `UPDATE media SET status = ?, current_episodes = ?, total_episodes = ?, updated_at = ? WHERE id = ?`,
       [status, currentEpisodes, totalEpisodes, updatedAt, mediaId]
     );
+  }
+
+  async updateSourceSync(mediaId: string, sourceUpdatedAt: string | null, vodId: string | null): Promise<void> {
+    await this.db!.runAsync(`UPDATE media SET source_updated_at = ?, vod_id = ? WHERE id = ?`, [sourceUpdatedAt, vodId, mediaId]);
+  }
+
+  async getMediaByVodId(vodId: string): Promise<Media | null> {
+    const rows = await this.db!.getAllAsync<any[]>('SELECT * FROM media WHERE vod_id = ? LIMIT 1', [vodId]);
+    return rows[0] ? rowToMedia(rows[0]) : null;
   }
 
   async updateMediaPoster(mediaId: string, posterUrl: string | null, updatedAt: string): Promise<void> {
@@ -937,6 +974,27 @@ export class ExpoSqliteProvider implements DatabaseProvider {
          source_id = excluded.source_id`,
       [episode.id, episode.mediaId, episode.seasonNumber, episode.episodeNumber, episode.title || null, episode.duration || null, episode.sourceId || null]
     );
+  }
+
+  async upsertEpisodesBatch(episodes: Episode[]): Promise<void> {
+    const CHUNK = 100;
+    for (let i = 0; i < episodes.length; i += CHUNK) {
+      const chunk = episodes.slice(i, i + CHUNK);
+      const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const params: any[] = [];
+      for (const e of chunk) {
+        params.push(e.id, e.mediaId, e.seasonNumber, e.episodeNumber, e.title || null, e.duration || null, e.sourceId || null);
+      }
+      await this.db!.runAsync(
+        `INSERT INTO episode (id, media_id, season_number, episode_number, title, duration, source_id)
+         VALUES ${placeholders}
+         ON CONFLICT(id) DO UPDATE SET
+           title = excluded.title,
+           duration = excluded.duration,
+           source_id = excluded.source_id`,
+        params
+      );
+    }
   }
 
   async updateEpisodeDuration(episodeId: string, duration: number | null): Promise<void> {
@@ -1196,6 +1254,26 @@ export class ExpoSqliteProvider implements DatabaseProvider {
         playSource.url, playSource.quality || null, 1, 0, null,
       ]
     );
+  }
+
+  async upsertPlaySourcesBatch(playSources: PlaySource[]): Promise<void> {
+    const CHUNK = 100;
+    for (let i = 0; i < playSources.length; i += CHUNK) {
+      const chunk = playSources.slice(i, i + CHUNK);
+      const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const params: any[] = [];
+      for (const p of chunk) {
+        params.push(p.id, p.episodeId, p.sourceId, p.sourceName || null, p.url, p.quality || null, 1, 0, null);
+      }
+      await this.db!.runAsync(
+        `INSERT INTO play_source (id, episode_id, source_id, source_name, url, quality, is_active, fail_count, last_fail_at)
+         VALUES ${placeholders}
+         ON CONFLICT(id) DO UPDATE SET
+           url = excluded.url,
+           quality = excluded.quality`,
+        params
+      );
+    }
   }
 
   // —— VideoSource DAO ——

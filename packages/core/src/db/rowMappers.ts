@@ -52,6 +52,8 @@ export function rowToMedia(row: any): Media {
     fingerprint: row.fingerprint,
     seriesGroup: row.series_group || null,
     seriesSeason: row.series_season ?? null,
+    sourceUpdatedAt: row.source_updated_at || null,
+    vodId: row.vod_id || null,
     currentEpisodes: row.current_episodes,
     totalEpisodes: row.total_episodes,
     isShortDrama: row.is_short_drama === 1,

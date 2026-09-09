@@ -29,6 +29,7 @@ Android 无字节级进度回调（Media3 1.9.0 AnalyticsListener 无 onBytesLoa
 `pnpm install` 后会自动：
 - **Android**：对 `expo-video` 的 `DataSourceUtils.kt` 注入 `maxRequestsPerHost`（读 `cacheDir/prefetch_concurrency`）。已做幂等，重复安装不重复打。
 - **Android（功能13）**：对 `expo-video` 的 `VideoPlayer.kt` 注入 AnalyticsListener 分片状态落盘（`cacheDir/segment_progress.json`）。已做幂等。
+- **Android（功能PiP）**：对 `expo-video` 两处打补丁，PiP 窗口比例始终按视频真实尺寸（竖屏视频也是竖屏窗口）：① `PictureInPictureUtils.kt` 的 `calculatePiPAspectRatio` 优先用 `player.videoSize`（不受 `contentFit=cover` 按 View 全屏横屏影响）；② `PictureInPictureManager.kt` 的 `enterPictureInPictureMode` 携带该 aspectRatio（不被空 params 覆盖为横屏），且 `findAndSetupPipCandidate` 不清掉它。已做幂等。
 - **iOS**：对 `expo-video-cache` 暴露 `maxConcurrency`（best-effort，匹配不到 startServer / 并发符号时只打印手动指引，不破坏原库）。
 - **iOS（功能13）**：对 `expo-video-cache` 的 `NetworkDownloader.swift` `SessionRouter` 注入分片进度跟踪（`Library/Caches/segment_progress.json`）。已做幂等。
 

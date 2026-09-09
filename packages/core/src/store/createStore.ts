@@ -12,6 +12,23 @@ declare global {
 }
 
 // store API 自动指纹：基于 createAppStore 源码哈希。createStore.ts 被（Fast Refresh）重新执行时
+// 类型/年份/地区筛选聚合查询缓存：这些 DISTINCT 在采集间隙基本稳定，
+// 而每访问一次分类页就要重查 11 万+ 行（冷启动磁盘 IO 10s+）。采集完成后 clearMediaFilterCache 失效。
+const mediaFilterCache = new Map<string, { t: number; data: unknown }>();
+const MEDIA_FILTER_CACHE_TTL = 10 * 60 * 1000;
+
+async function withMediaFilterCache<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const hit = mediaFilterCache.get(key);
+  if (hit && Date.now() - hit.t < MEDIA_FILTER_CACHE_TTL) return hit.data as T;
+  const data = await fn();
+  mediaFilterCache.set(key, { t: Date.now(), data });
+  return data;
+}
+
+function clearMediaFilterCache(): void {
+  mediaFilterCache.clear();
+}
+
 // 自动刷新 globalThis 上的当前指纹，与 store 实例创建时打的指纹对比，不一致说明单例是旧代码建的，
 // init 层 getStore() 据此整包重载。无需手动维护版本号。
 function fingerprintSource(src: string): string {
@@ -342,15 +359,17 @@ export function createAppStore(db: DatabaseProvider) {
     },
 
     getSubTypesByType: async (type?: string, includeHidden?: boolean, firstOnly?: boolean) => {
-      return await db.getSubTypesByType(type, includeHidden, firstOnly);
+      return withMediaFilterCache(`subs:${type ?? ''}:${includeHidden ? 1 : 0}:${firstOnly ? 1 : 0}`, () =>
+        db.getSubTypesByType(type, includeHidden, firstOnly)
+      );
     },
 
     getYearsByType: async (type?: string) => {
-      return await db.getYearsByType(type);
+      return withMediaFilterCache(`years:${type ?? ''}`, () => db.getYearsByType(type));
     },
 
     getAreasByType: async (type?: string) => {
-      return await db.getAreasByType(type);
+      return withMediaFilterCache(`areas:${type ?? ''}`, () => db.getAreasByType(type));
     },
 
     loadMediaDetail: async (id: string) => {
@@ -855,6 +874,7 @@ export function createAppStore(db: DatabaseProvider) {
     collectSourceAll: async (sourceCode: string) => {
       try {
         const result = await collectorService.collectSourceAll(sourceCode);
+        clearMediaFilterCache();
         await get().loadMediaList();
         await get().loadVideoSources();
         return { success: true, taskId: result.taskId, collected: result.collected, pages: result.pages };

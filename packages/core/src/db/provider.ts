@@ -38,6 +38,10 @@ export interface DatabaseProvider {
     totalEpisodes: number | null,
     updatedAt: string
   ): Promise<void>;
+  /** 更新该片的源侧更新时间（vod_time ISO）与源侧 vod_id，供采集「未变更跳过」对照；仅当值非空时调用。 */
+  updateSourceSync(mediaId: string, sourceUpdatedAt: string | null, vodId: string | null): Promise<void>;
+  /** 按源侧 vod_id 精确查片（采集跳过判定用，避开 list 精简响应无指纹输入的问题）。 */
+  getMediaByVodId(vodId: string): Promise<Media | null>;
   updateMediaPoster(mediaId: string, posterUrl: string | null, updatedAt: string): Promise<void>;
   updateMediaRating(
     mediaId: string,
@@ -72,6 +76,8 @@ export interface DatabaseProvider {
   getEpisodeSourcesByMediaId(mediaId: string, season?: number): Promise<VideoSource[]>;
   getEpisodeById(id: string): Promise<Episode | null>;
   upsertEpisode(episode: Episode): Promise<void>;
+  /** 批量 upsert 剧集：单条 multi-row INSERT ... ON CONFLICT，按 chunk 分块执行，用于采集热路径避免逐集 autocommit。语义与逐条 upsertEpisode 等价（同 id 同列）。 */
+  upsertEpisodesBatch(episodes: Episode[]): Promise<void>;
   /** 写入单集已探测到的视频时长（秒），供播放页剧集列表复用，避免重复探测。 */
   updateEpisodeDuration(episodeId: string, duration: number | null): Promise<void>;
   deleteEpisodesByMediaIdAndSourceId(mediaId: string, sourceId: string): Promise<void>;
@@ -95,6 +101,8 @@ export interface DatabaseProvider {
   // —— PlaySource DAO ——
   getPlaySourcesByEpisodeId(episodeId: string): Promise<PlaySource[]>;
   upsertPlaySource(playSource: PlaySource): Promise<void>;
+  /** 批量 upsert 播放源：单条 multi-row INSERT ... ON CONFLICT 分块，语义与逐条 upsertPlaySource 等价。 */
+  upsertPlaySourcesBatch(playSources: PlaySource[]): Promise<void>;
 
   // —— VideoSource DAO ——
   getAllVideoSources(): Promise<VideoSource[]>;

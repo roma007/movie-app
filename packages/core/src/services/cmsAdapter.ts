@@ -2,6 +2,10 @@ import { getHttpClient, type HttpClient } from '../utils/httpClient';
 import type { CMSMediaItem, CMSListResponse } from '../types';
 
 const MAX_RETRIES = 3;
+const DETAIL_TIMEOUT_MS = 12000;
+const DETAIL_MAX_RETRIES = 1;
+const LIST_TIMEOUT_MS = 12000;
+const LIST_MAX_RETRIES = 1;
 
 export class CMSAdapter {
   private readonly baseUrl: string;
@@ -31,19 +35,25 @@ export class CMSAdapter {
     return false;
   }
 
-  private async requestWithRetry(url: string, signal?: AbortSignal): Promise<any> {
+  private async requestWithRetry(
+    url: string,
+    signal?: AbortSignal,
+    opts?: { timeout?: number; maxRetries?: number }
+  ): Promise<any> {
+    const timeout = opts?.timeout ?? 30000;
+    const maxRetries = opts?.maxRetries ?? this.maxRetries;
     let lastError: Error | null = null;
 
-    for (let attempt = 0; attempt < this.maxRetries; attempt++) {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        const response = await this.client.get(url, { signal, timeout: 30000 });
+        const response = await this.client.get(url, { signal, timeout });
         return response.data;
       } catch (error: any) {
         lastError = error;
         if (!this.isRetryableError(error)) {
           throw error;
         }
-        if (attempt < this.maxRetries - 1) {
+        if (attempt < maxRetries - 1) {
           const isRateLimit = error?.message?.includes('429') || error?.message?.includes('too many requests');
           const baseDelay = isRateLimit ? 5000 : Math.pow(2, attempt) * 1000;
           const jitter = Math.random() * (isRateLimit ? 2000 : 500);
@@ -61,7 +71,7 @@ export class CMSAdapter {
     if (hours !== undefined && hours > 0) {
       url += `&h=${hours}`;
     }
-    return this.requestWithRetry(url, signal);
+    return this.requestWithRetry(url, signal, { timeout: LIST_TIMEOUT_MS, maxRetries: LIST_MAX_RETRIES });
   }
 
   async search(keyword: string, page: number = 1, signal?: AbortSignal): Promise<CMSListResponse> {
@@ -72,7 +82,7 @@ export class CMSAdapter {
 
   async getDetail(ids: string, signal?: AbortSignal): Promise<CMSListResponse> {
     const url = `${this.baseUrl}?ac=detail&ids=${ids}`;
-    return this.requestWithRetry(url, signal);
+    return this.requestWithRetry(url, signal, { timeout: DETAIL_TIMEOUT_MS, maxRetries: DETAIL_MAX_RETRIES });
   }
 
   async getTypes(signal?: AbortSignal): Promise<any> {

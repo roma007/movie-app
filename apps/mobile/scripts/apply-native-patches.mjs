@@ -180,6 +180,170 @@ function patchAndroidSegmentProgress() {
   console.log('[patch] Android VideoPlayer.kt 已注入分片进度补丁');
 }
 
+// ---------- Android: expo-video PiP 窗口按视频真实比例 ----------
+// 功能PiP: 让竖屏视频进入 PiP 时窗口也是竖屏。原实现 contentFit=cover 时用 View 尺寸（全屏横屏），
+// PiP 窗口变横屏。补丁四点：
+//   1) PictureInPictureUtils.kt 的 calculatePiPAspectRatio 优先用 player.videoSize 真实尺寸
+//   2) PictureInPictureUtils.kt 的 applyRectHint 合并 aspectRatio，避免裸 rectHint 重置横屏
+//   3) PictureInPictureManager.kt 的 enterPictureInPictureMode 携带 aspectRatio（不被空 params 覆盖），
+//      applyPipParamsForView/findAndSetupPipCandidate 不清掉它
+//   4) FullscreenPlayerActivity.kt 的 applyRectHint 同样带上 aspectRatio
+function patchAndroidPipAspectRatio() {
+  const pkgDir = resolvePkg('expo-video');
+  if (!pkgDir) {
+    console.log('[patch] expo-video 未安装，跳过 Android PiP 比例补丁');
+    return;
+  }
+
+  // 1)+2) PictureInPictureUtils.kt
+  const utilsFile = join(pkgDir, 'android/src/main/java/expo/modules/video/utils/PictureInPictureUtils.kt');
+  if (existsSync(utilsFile)) {
+    let content = readFileSync(utilsFile, 'utf8');
+    const utilsPatched = content.includes('功能PiP');
+    // 2a) calculatePiPAspectRatio 优先视频真实尺寸
+    if (!content.includes('功能PiP')) {
+      const orig = `internal fun calculatePiPAspectRatio(videoSize: VideoSize, viewWidth: Int, viewHeight: Int, contentFit: ContentFit): Rational {
+  var aspectRatio = if (contentFit == ContentFit.CONTAIN) {
+    Rational(videoSize.width, videoSize.height)
+  } else {
+    Rational(viewWidth, viewHeight)
+  }`;
+      if (!content.includes(orig)) {
+        console.log('[patch][Android] 未匹配到 calculatePiPAspectRatio 锚点，需手动补丁（见 NATIVE_PATCHES.md）');
+      } else {
+        const patched = `internal fun calculatePiPAspectRatio(videoSize: VideoSize, viewWidth: Int, viewHeight: Int, contentFit: ContentFit): Rational {
+  // 功能PiP: 始终优先使用视频真实尺寸，保证竖屏视频进入 PiP 时窗口也是竖屏，
+  // 不受 contentFit=cover 时使用 View 尺寸（全屏横屏）的影响。
+  var aspectRatio = if (videoSize.width > 0 && videoSize.height > 0) {
+    Rational(videoSize.width, videoSize.height)
+  } else if (contentFit == ContentFit.CONTAIN) {
+    Rational(videoSize.width, videoSize.height)
+  } else {
+    Rational(viewWidth, viewHeight)
+  }`;
+        content = content.replace(orig, patched);
+      }
+    }
+    // 2b) applyRectHint 合并 aspectRatio（裸 rectHint 会把竖屏比例重置为横屏）
+    if (!content.includes('合并 rectHint 与 aspectRatio')) {
+      const origRectHint = `internal fun applyRectHint(activity: Activity, rectHint: Rect) {
+  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isPictureInPictureSupported(activity)) {
+    runWithPiPMisconfigurationSoftHandling {
+      activity.setPictureInPictureParams(PictureInPictureParams.Builder().setSourceRectHint(rectHint).build())
+    }
+  }
+}`;
+      if (!content.includes(origRectHint)) {
+        console.log('[patch][Android] 未匹配到 applyRectHint 锚点，需手动补丁（见 NATIVE_PATCHES.md）');
+      } else {
+        const patchedRectHint = `internal fun applyRectHint(activity: Activity, rectHint: Rect, aspectRatio: Rational? = null) {
+  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isPictureInPictureSupported(activity)) {
+    val safeAspectRatio = aspectRatio?.takeIf { it.toFloat() in 0.41841..2.39 }
+    runWithPiPMisconfigurationSoftHandling {
+      // 功能PiP: 合并 rectHint 与 aspectRatio，避免裸设 rectHint 把竖屏比例重置为默认横屏
+      val b = PictureInPictureParams.Builder().setSourceRectHint(rectHint)
+      safeAspectRatio?.let { b.setAspectRatio(it) }
+      activity.setPictureInPictureParams(b.build())
+    }
+  }
+}`;
+        content = content.replace(origRectHint, patchedRectHint);
+      }
+    }
+    if (!utilsPatched && (content.includes('功能PiP') || content.includes('合并 rectHint 与 aspectRatio'))) {
+      writeFileSync(utilsFile, content);
+      console.log('[patch] Android PictureInPictureUtils.kt 已打补丁（PiP 按视频真实比例）');
+    } else {
+      console.log('[patch] Android PiP 比例(Utils)已打补丁，跳过');
+    }
+  }
+
+  // 3) PictureInPictureManager.kt
+  const mgrFile = join(pkgDir, 'android/src/main/java/expo/modules/video/managers/PictureInPictureManager.kt');
+  if (existsSync(mgrFile)) {
+    let content = readFileSync(mgrFile, 'utf8');
+    if (content.includes('功能PiP')) {
+      console.log('[patch] Android PiP 比例(Manager)已打补丁，跳过');
+    } else {
+    // 3a) enterPictureInPictureMode 带 aspectRatio
+    const origEnter = `    currentPiPViewCandidate = WeakReference(videoView)
+    applyPipParamsForView(videoView)
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      mainActivity.enterPictureInPictureMode(PictureInPictureParams.Builder().build())`;
+    if (!content.includes(origEnter)) {
+      console.log('[patch][Android] 未匹配到 enterPictureInPictureMode 锚点，需手动补丁（见 NATIVE_PATCHES.md）');
+      return;
+    }
+    const patchedEnter = `    currentPiPViewCandidate = WeakReference(videoView)
+    applyPipParamsForView(videoView)
+
+    // 功能PiP: 用视频真实 aspectRatio 进入 PiP，避免空 params 默认横屏
+    val pipBuilder = PictureInPictureParams.Builder()
+    videoView.pipParams.aspectRatio?.let {
+      if (it.toFloat() in 0.41841..2.39) {
+        pipBuilder.setAspectRatio(it)
+      }
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      mainActivity.enterPictureInPictureMode(pipBuilder.build())`;
+    content = content.replace(origEnter, patchedEnter);
+
+    // 3b) findAndSetupPipCandidate 不清掉 aspectRatio
+    const origCandidate = `    if (!newAutoEnter) {
+      mainActivity.get()?.let {
+        applyPiPParams(it, autoEnterPiP)
+      }
+    }`;
+    const patchedCandidate = `    if (!newAutoEnter) {
+      mainActivity.get()?.let {
+        applyPiPParams(it, autoEnterPiP, currentPiPViewCandidate.get()?.pipParams?.aspectRatio)
+      }
+    }`;
+    if (content.includes(origCandidate)) {
+      content = content.replace(origCandidate, patchedCandidate);
+    }
+
+    // 3c) applyPipParamsForView 给 applyRectHint 传 aspectRatio
+    const origForView = `    mainActivity.get()?.let {
+      applyRectHint(it, calculateRectHint(view.playerView))
+      applyPiPParams(it, autoEnterPiP, view.pipParams.aspectRatio)
+    }`;
+    const patchedForView = `    mainActivity.get()?.let {
+      applyRectHint(it, calculateRectHint(view.playerView), view.pipParams.aspectRatio)
+      applyPiPParams(it, autoEnterPiP, view.pipParams.aspectRatio)
+    }`;
+    if (content.includes(origForView)) {
+      content = content.replace(origForView, patchedForView);
+    }
+    writeFileSync(mgrFile, content);
+    console.log('[patch] Android PictureInPictureManager.kt 已打补丁（PiP 进入/保持视频比例）');
+    }
+  }
+
+  // 4) FullscreenPlayerActivity.kt 的 applyRectHint 带上 aspectRatio
+  const fsFile = join(pkgDir, 'android/src/main/java/expo/modules/video/FullscreenPlayerActivity.kt');
+  if (existsSync(fsFile)) {
+    let content = readFileSync(fsFile, 'utf8');
+    const origFs = `playerView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+      applyRectHint(this, calculateRectHint(playerView))
+    }`;
+    const patchedFs = `playerView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+      val ar = playerView.player?.let { calculatePiPAspectRatio(it.videoSize, playerView.width, playerView.height, videoView.contentFit) }
+      applyRectHint(this, calculateRectHint(playerView), ar)
+    }`;
+    if (content.includes(patchedFs)) {
+      console.log('[patch] Android PiP 比例(Fullscreen)已打补丁，跳过');
+    } else if (content.includes(origFs)) {
+      content = content.replace(origFs, patchedFs);
+      writeFileSync(fsFile, content);
+      console.log('[patch] Android FullscreenPlayerActivity.kt 已打补丁（PiP 比例保持）');
+    } else {
+      console.log('[patch][Android] 未匹配到 FullscreenPlayerActivity anchor，跳过（不影响主路径）');
+    }
+  }
+}
+
 // ---------- iOS: expo-video-cache 暴露 maxConcurrency（best-effort）----------
 
 // 功能13: 在 SessionRouter 内记录真实分片下载状态（didReceiveResponse 拿 total，didReceive 累加 received，
@@ -360,10 +524,48 @@ function patchIOS() {
   console.log('[patch] iOS expo-video-cache 已打补丁（NetworkDownloader + SessionRouter + ExpoVideoCacheModule）');
 }
 
+// ---------- iOS: expo-video PiP 主线程补丁 ----------
+// 根因：expo-modules AsyncFunction 默认在后台队列执行（expo.modules.AsyncFunctionQueue），
+// AVPlayerViewController 的 startPictureInPicture 必须主线程调用，后台线程调用被 AVKit 静默忽略 → 点击 PiP 无效。
+function patchIOSPictureInPicture() {
+  const pkgDir = resolvePkg('expo-video');
+  if (!pkgDir) {
+    console.log('[patch] expo-video 未安装，跳过 iOS PiP 补丁');
+    return;
+  }
+  const file = join(pkgDir, 'ios', 'OrientationAVPlayerViewController.swift');
+  if (!existsSync(file)) {
+    console.log('[patch] OrientationAVPlayerViewController.swift 缺失，跳过 iOS PiP 补丁');
+    return;
+  }
+  let content = readFileSync(file, 'utf8');
+  if (content.includes('功能14')) {
+    console.log('[patch] iOS PiP 已打补丁，跳过');
+    return;
+  }
+  const before = '  func startPictureInPicture() throws {\n    if isInPictureInPicture {\n      return\n    }\n    if !AVPictureInPictureController.isPictureInPictureSupported() {\n      throw PictureInPictureUnsupportedException()\n    }\n\n    let selectorName = "startPictureInPicture"';
+  if (!content.includes(before)) {
+    console.log('[patch][iOS PiP] 未匹配到 startPictureInPicture 函数体，需手动补丁（见 NATIVE_PATCHES.md）');
+    return;
+  }
+  content = content.replace(
+    before,
+    '  func startPictureInPicture() throws {\n    if isInPictureInPicture {\n      return\n    }\n    if !AVPictureInPictureController.isPictureInPictureSupported() {\n      throw PictureInPictureUnsupportedException()\n    }\n\n    // 功能14: AsyncFunction 默认跑在后台队列，PiP 必须在主线程调用，否则被 AVKit 静默忽略\n    DispatchQueue.main.async { [weak self] in\n    let selectorName = "startPictureInPicture"'
+  );
+  content = content.replace(
+    '    if self.responds(to: selectorToStartPictureInPicture) {\n      self.perform(selectorToStartPictureInPicture)\n    }\n  }\n\n  func stopPictureInPicture()',
+    '    if self.responds(to: selectorToStartPictureInPicture) {\n      self.perform(selectorToStartPictureInPicture)\n    }\n    }\n  }\n\n  func stopPictureInPicture()'
+  );
+  writeFileSync(file, content);
+  console.log('[patch] iOS expo-video PiP 已打补丁（主线程调度 startPictureInPicture）');
+}
+
 try {
   patchAndroid();
   patchAndroidSegmentProgress();
+  patchAndroidPipAspectRatio();
   patchIOS();
+  patchIOSPictureInPicture();
 } catch (e) {
   console.log('[patch] 原生补丁脚本异常（已忽略，不阻断安装）: ' + (e && e.message));
 }

@@ -6,7 +6,7 @@ const monorepoRoot = path.resolve(projectRoot, '../..');
 
 const config = getDefaultConfig(projectRoot);
 
-// serverRoot keeps default (monorepo root) so entry resolves as ./apps/mobile/index correctly
+// serverRoot keeps default (monorepo root): expo 的 .virtual-metro-entry 依赖它解析
 
 
 // monorepo: 保留默认 watchFolders 并追加 monorepoRoot
