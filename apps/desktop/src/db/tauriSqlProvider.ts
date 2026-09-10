@@ -49,6 +49,9 @@ interface DbSem {
 export class TauriSqlProvider implements DatabaseProvider {
   private db: InstanceType<typeof Database> | null = null;
 
+  /** 事务进行中标志：事务内写操作绕过 writeState acquire（改由 withTransactionAsync 长持锁），避免重入死锁。 */
+  private txLockHeld = false;
+
   private wrapWithRetry(db: any): any {
     const originalExecute = db.execute.bind(db);
     const originalSelect = db.select.bind(db);
@@ -160,7 +163,32 @@ export class TauriSqlProvider implements DatabaseProvider {
   }
 
   private withWriteLock<T>(op: () => Promise<T>): Promise<T> {
+    // 事务内：无论从哪个写方法调用都直接执行（连接已被 withTransactionAsync 长持唯一写锁，事务隔离由 BEGIN/COMMIT 保证）
+    if (this.txLockHeld) return op();
     return this.withLock(this.writeState, op);
+  }
+
+  async withTransactionAsync<T>(fn: () => Promise<T>): Promise<T> {
+    await this.acquire(this.writeState);
+    this.txLockHeld = true;
+    try {
+      await this.db!.execute('BEGIN');
+      try {
+        const result = await fn();
+        await this.db!.execute('COMMIT');
+        return result;
+      } catch (err) {
+        try {
+          await this.db!.execute('ROLLBACK');
+        } catch (_) {
+          // 事务可能已由底层自动回滚，忽略二次回滚错误
+        }
+        throw err;
+      }
+    } finally {
+      this.txLockHeld = false;
+      this.release(this.writeState);
+    }
   }
 
   async init(): Promise<void> {
@@ -196,6 +224,17 @@ export class TauriSqlProvider implements DatabaseProvider {
 
     // 6. 将历史内置 HTTP 源升级为 HTTPS（iOS ATS 会拦截明文 http）
     await this.upgradeSourceUrlsToHttps();
+
+    // 7. 清理历史超大 failed_items blob（早期版本逐页累积无上限）：仅清理已结束
+    //    状态（COMPLETED/FAILED/ABANDONED）的 >128KB 失败明细，绝不动 RUNNING/PENDING
+    //    未完成任务（其续采依赖 currentPage/failed_items 等）。
+    try {
+      await this.db!.execute(
+        "UPDATE collect_task SET failed_items = NULL WHERE status IN ('COMPLETED','FAILED','ABANDONED') AND failed_items IS NOT NULL AND length(failed_items) > 131072"
+      );
+    } catch (err) {
+      console.error('[DB] 清理超大 failed_items 失败:', err);
+    }
   }
 
   /**
@@ -1682,9 +1721,12 @@ async clearWatchHistory(): Promise<void> {
   }
 
   async getAllCollectTasks(): Promise<CollectTask[]> {
+    const t0 = Date.now();
     const rows = await this.db!.select<any[]>(
       'SELECT * FROM collect_task ORDER BY created_at DESC'
     );
+    const dt = Date.now() - t0;
+    if (dt > 50) console.error(`[CollectTask] listQuery desktop dt=${dt}ms rows=${rows.length}`);
     return rows.map(rowToCollectTask);
   }
 

@@ -235,6 +235,12 @@ export interface DatabaseProvider {
   select<T>(sql: string, params?: any[]): Promise<T[]>;
   selectOne<T>(sql: string, params?: any[]): Promise<T | null>;
   execute(sql: string, params?: any[]): Promise<void>;
+  /**
+   * 在单个事务内执行 fn 中的全部数据库写；fn 抛错则整体回滚。
+   * 移动端：writeDb.withTransactionAsync；桌面端：writeState 长锁 + BEGIN/COMMIT/ROLLBACK。
+   * 用于采集批量写入，把一场页内多次独立 commit 合并，降低写锁竞争。
+   */
+  withTransactionAsync<T>(fn: () => Promise<T>): Promise<T>;
 
   // —— 生命周期 ——
   init(): Promise<void>;

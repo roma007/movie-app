@@ -16,6 +16,23 @@ function generateId(): string {
   return `id_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 }
 
+/** processItem 两段式拆分（prepare 只读+网络，提交阶段 commitItem 单事务写）的中间产物 */
+interface PreparedMedia {
+  media: Media;
+  existing: Media | null;
+  needsStatusUpdate: boolean;
+  needsPosterUpdate: boolean;
+  bestStatus: Media['status'] | null;
+  bestEpisodes: number | null;
+  bestTotal: number | null;
+  sourceUpdatedAt: string | null;
+  itemVodId: number | null | undefined;
+  sourceId: string;
+  seasonNumber: number;
+  sources: string[];
+  epGroups: { title: string; url: string }[][];
+}
+
 /** 根据错误特征归类错误类型，用于前端按类型筛选/展示 */
 function classifyError(err: unknown): TaskErrorType {
   const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
@@ -100,6 +117,7 @@ function parsePlayInfo(
  * 通过依赖注入接收 DatabaseProvider，与具体 SQLite 实现解耦。
  * 移动端注入 ExpoSqliteProvider，桌面端注入 TauriSqlProvider。
  */
+const MAX_FAILED_ITEMS = 300;
 export class CollectorService {
   private activeAbortControllers = new Map<string, AbortController>();
   private onLogCallback?: (log: CollectionLog) => void;
@@ -146,18 +164,16 @@ export class CollectorService {
     }
   }
 
-  private async processItem(
+  private async prepareItem(
     item: CMSMediaItem,
     sourceId: string,
     _sourceName?: string,
     minYear: number = DEFAULT_MIN_YEAR,
     meter?: PerfMeter
-  ): Promise<Media | null> {
+  ): Promise<PreparedMedia | null> {
     const trace = meter
       ? <T>(label: string, fn: () => Promise<T>) => meter.trace(label, fn)
       : <T>(_label: string, fn: () => Promise<T>) => fn();
-    let mediaWritten = false;
-    let currentMediaId: string | null = null;
     try {
       const typeName = item.type_name || item.vod_type || '';
       const remarks = item.vod_remarks || '';
@@ -328,50 +344,100 @@ sourceUpdatedAt,
         updatedAt: new Date().toISOString(),
       };
 
-      currentMediaId = media.id;
+      // —— 计算决策（不执行任何 DB 写；统一由 commitItem 在事务内提交）——
+      const existingMedia: Media | null = existing;
+      let needsStatusUpdate = false;
+      let needsPosterUpdate = false;
+      let bestStatus: Media['status'] | null = null;
+      let bestEpisodes: number | null = null;
+      let bestTotal: number | null = null;
       if (existing) {
         // 多源合并：状态取更"完结"的，集数取更大的
         const statusPriority: Record<string, number> = { COMPLETED: 3, ONGOING: 2, PUBLISHED: 1 };
-        const bestStatus = (statusPriority[status] || 0) > (statusPriority[existing.status || ''] || 0) ? status : (existing.status || status);
-        const bestEpisodes = currentEpisodes != null && existing.currentEpisodes != null
+        bestStatus = (statusPriority[status] || 0) > (statusPriority[existing.status || ''] || 0) ? status : (existing.status || status);
+        bestEpisodes = currentEpisodes != null && existing.currentEpisodes != null
           ? Math.max(currentEpisodes, existing.currentEpisodes)
           : (currentEpisodes ?? existing.currentEpisodes ?? null);
-        const bestTotal = totalEpisodes != null && existing.totalEpisodes != null
+        bestTotal = totalEpisodes != null && existing.totalEpisodes != null
           ? Math.max(totalEpisodes, existing.totalEpisodes)
           : (totalEpisodes ?? existing.totalEpisodes ?? null);
-
         if (bestStatus !== existing.status || bestEpisodes !== existing.currentEpisodes || bestTotal !== existing.totalEpisodes) {
-          await trace('dbWrite.media', async () => {
-            await this.db.updateMediaStatusAndEpisodes(mediaId, bestStatus, bestEpisodes, bestTotal, new Date().toISOString());
-            await this.recommendationService.recordMediaChange(mediaId, 'STATUS_UPDATE');
-          });
+          needsStatusUpdate = true;
         }
         if (posterReplaced && effectivePoster !== existing.posterUrl) {
-          await trace('dbWrite.media', () => this.db.updateMediaPoster(mediaId, effectivePoster, new Date().toISOString()));
+          needsPosterUpdate = true;
+        }
+      }
+
+      return {
+        media,
+        existing: existingMedia,
+        needsStatusUpdate,
+        needsPosterUpdate,
+        bestStatus,
+        bestEpisodes,
+        bestTotal,
+        sourceUpdatedAt,
+        itemVodId: item.vod_id != null ? Number(item.vod_id) : null,
+        sourceId,
+        seasonNumber,
+        sources,
+        epGroups,
+      };
+    } catch (err) {
+      console.error("[Collector] prepareItem 失败:", err instanceof Error ? err.message : String(err));
+      throw err;
+    }
+  }
+
+  /**
+   * 写入阶段（每 media 单事务）：将单个 media 的全部写合并为一次 commit，
+   * 页面在「prepare 并行 + commit 串行」模式下执行，大幅降低写锁竞争。
+   * 任一步失败整体回滚该 media，语义与逐条独立提交一致。
+   */
+  private async commitItem(prep: PreparedMedia, meter?: PerfMeter): Promise<Media> {
+    const trace = meter
+      ? <T>(label: string, fn: () => Promise<T>) => meter.trace(label, fn)
+      : <T>(_label: string, fn: () => Promise<T>) => fn();
+    const media = prep.media;
+    return this.db.withTransactionAsync(async () => {
+      if (prep.existing) {
+        if (prep.needsStatusUpdate) {
+          await trace('dbWrite.media', async () => {
+            await this.db.updateMediaStatusAndEpisodes(media.id, prep.bestStatus ?? 'PUBLISHED', prep.bestEpisodes, prep.bestTotal, new Date().toISOString());
+            await this.recommendationService.recordMediaChange(media.id, 'STATUS_UPDATE');
+          });
+        }
+        if (prep.needsPosterUpdate) {
+          await trace('dbWrite.media', () => this.db.updateMediaPoster(media.id, media.posterUrl ?? null, new Date().toISOString()));
         }
       } else {
         await trace('dbWrite.media', async () => {
           await this.db.upsertMedia(media);
-          await this.recommendationService.recordMediaChange(mediaId, 'UPSERT');
+          await this.recommendationService.recordMediaChange(media.id, 'UPSERT');
         });
       }
+
       // 防止并发竞态：upsertMedia 的 ON CONFLICT(fingerprint) 可能保留了已存在的 id，
-      // 而非当前调用者生成的 mediaId，需重新查询实际 id
-      const actualMedia = await trace('dbLookup', () => this.db.getMediaByFingerprint(fingerprint));
+      // 而非当前生成的 mediaId，重新查询实际 id 后用其构造并写入 episodes/playSources
+      let writeMediaId = media.id;
+      const actualMedia = await trace('dbLookup', () => this.db.getMediaByFingerprint(media.fingerprint));
       if (actualMedia) {
-        mediaId = actualMedia.id;
-        currentMediaId = actualMedia.id;
+        writeMediaId = actualMedia.id;
         media.id = actualMedia.id;
       }
-      mediaWritten = true;
 
       // 源侧更新时间落盘（existing 走的 updateMediaStatusAndEpisodes 分支不写该列，统一在此补齐）
-      if (sourceUpdatedAt || item.vod_id) {
-        await trace('dbWrite.sourceUpdatedAt', () => this.db.updateSourceSync(mediaId, sourceUpdatedAt, item.vod_id != null ? String(item.vod_id) : null));
+      if (prep.sourceUpdatedAt || prep.itemVodId != null) {
+        await trace('dbWrite.sourceUpdatedAt', () => this.db.updateSourceSync(writeMediaId, prep.sourceUpdatedAt, prep.itemVodId != null ? String(prep.itemVodId) : null));
       }
 
+      const sourceId = prep.sourceId;
+      const seasonNumber = prep.seasonNumber;
       const episodesBatch: Episode[] = [];
       const playSourcesBatch: PlaySource[] = [];
+      const epGroups = prep.epGroups;
+      const sources = prep.sources;
 
       for (let sourceIdx = 0; sourceIdx < epGroups.length; sourceIdx++) {
         const sourceNameFromList = sources[sourceIdx] || `线路${sourceIdx + 1}`;
@@ -382,57 +448,58 @@ sourceUpdatedAt,
         for (let epIdx = 0; epIdx < eps.length; epIdx++) {
           const ep = eps[epIdx];
           const epNumber = epIdx + 1;
-          const isVersion = isVersionTitle(ep.title) && mediaType === 'MOVIE';
+          const isVersion = isVersionTitle(ep.title) && media.type === 'MOVIE';
 
           const episodeKey = isVersion
-            ? `movie_${mediaId}_src_${sourceId}`
+            ? `movie_${writeMediaId}_src_${sourceId}`
             : `s${seasonNumber}_e${epNumber}_src_${sourceId}`;
 
           const episodeId = isVersion
-            ? `ep_${mediaId}_movie_src_${sourceId}`
-            : `ep_${mediaId}_s${seasonNumber}_e${epNumber}_src_${sourceId}`;
+            ? `ep_${writeMediaId}_movie_src_${sourceId}`
+            : `ep_${writeMediaId}_s${seasonNumber}_e${epNumber}_src_${sourceId}`;
 
-          const episode: Episode = {
+          episodesBatch.push({
             id: episodeId,
-            mediaId,
+            mediaId: writeMediaId,
             seasonNumber,
             episodeNumber: isVersion ? 1 : epNumber,
             title: isVersion ? null : ep.title,
             duration: null,
             sourceId,
-          };
-          episodesBatch.push(episode);
+          });
 
-          const playSourceId = `ps_${episode.id}_${sourceIdx}`;
-          const playSource: PlaySource = {
-            id: playSourceId,
-            episodeId: episode.id,
+          playSourcesBatch.push({
+            id: `ps_${episodeId}_${sourceIdx}`,
+            episodeId,
             sourceId,
             sourceName: sourceDisplayName,
             url: ep.url,
             quality: isVersion ? ep.title : (mappedQuality || null),
-          };
-          playSourcesBatch.push(playSource);
+          });
         }
       }
 
-      await trace('dbWrite.epsDel', () => this.db.deleteEpisodesByMediaIdAndSourceId(mediaId, sourceId));
+      await trace('dbWrite.epsDel', () => this.db.deleteEpisodesByMediaIdAndSourceId(writeMediaId, sourceId));
       await trace('dbWrite.eps', () => this.db.upsertEpisodesBatch(episodesBatch));
       await trace('dbWrite.ps', () => this.db.upsertPlaySourcesBatch(playSourcesBatch));
 
       return media;
-    } catch (err) {
-      console.error("[Collector] processItem 失败:", err instanceof Error ? err.message : String(err));
-      if (mediaWritten && currentMediaId) {
-        try {
-          await this.db.deleteMediaCompletely(currentMediaId);
-          console.log(`[Collector] 已清理部分写入的媒体: ${currentMediaId}`);
-        } catch (cleanupErr) {
-          console.error("[Collector] 清理失败媒体出错:", cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr));
-        }
-      }
-      throw err;
-    }
+    });
+  }
+
+  /**
+   * 兼容旧调用点（keyword/预览/单条详情等）：prepare 阶段1 + commit 阶段2（单事务写）。
+   */
+  private async processItem(
+    item: CMSMediaItem,
+    sourceId: string,
+    sourceName?: string,
+    minYear: number = DEFAULT_MIN_YEAR,
+    meter?: PerfMeter
+  ): Promise<Media | null> {
+    const prep = await this.prepareItem(item, sourceId, sourceName, minYear, meter);
+    if (!prep) return null;
+    return this.commitItem(prep, meter);
   }
 
   /**
@@ -656,6 +723,9 @@ sourceUpdatedAt,
     let failedCount = 0;
     let skippedCount = 0;
     const failedItems: FailedItem[] = [];
+    // 阶段1 只做网络拉取/归一化/指纹查重（无 DB 写），并行 worker 产出待提交数据
+    const prepared: (PreparedMedia | null)[] = new Array(items.length).fill(null);
+    const preparedErrors: (string | null)[] = new Array(items.length).fill(null);
 
     const worker = async () => {
       while (index < items.length) {
@@ -681,33 +751,21 @@ sourceUpdatedAt,
             await this.db.incrementSourceFailCount(sourceId);
             console.warn(`[Collector] 获取详情失败: ${listItem.vod_name}`);
             failedCount++;
-            failedItems.push({ vodId: String(listItem.vod_id), title: listItem.vod_name, error: '获取详情返回空' });
+            preparedErrors[currentIndex] = '获取详情返回空';
             continue;
           }
 
           const item = detailResponse.list[0];
-          const fingerprint = await normalizer.generateFingerprint(
-            item.vod_name, 
-            item.vod_year ? parseInt(item.vod_year.match(/\d{4}/)?.[0] || '0', 10) : 0,
-            item.type_name || '', 
-            normalizer.extractSeasonNumber(item.vod_name) || 1
-          );
-          console.log(`[Collector] Worker(${sourceId}) processItem called with listItem=${listItem.vod_name}, fingerprint=${fingerprint}`);
-          const media = await this.processItem(item, sourceId, '', config.minYear, meter);
-          console.log(`[Collector] Worker processItem returned: ${media ? media.title : 'null'}`);
-
-          if (media) {
-            results.push(media);
-          } else {
-            console.log(`[Collector] processItem returned null for: ${item.vod_name}`);
-          }
+          const prep = await this.prepareItem(item, sourceId, '', config.minYear, meter);
+          prepared[currentIndex] = prep;
+          console.log(`[Collector] Worker(${sourceId}) prepared: ${item.vod_name}`);
         } catch (err) {
           await this.db.incrementSourceFailCount(sourceId);
           const errorMsg = `[Collector] 处理视频 ${listItem.vod_name} 失败: ${err instanceof Error ? err.message : String(err)}`;
           console.error(errorMsg);
           await this.logToDb(errorMsg, 'error');
           failedCount++;
-          failedItems.push({ vodId: String(listItem.vod_id), title: listItem.vod_name, error: err instanceof Error ? err.message : String(err) });
+          preparedErrors[currentIndex] = err instanceof Error ? err.message : String(err);
         }
       }
     };
@@ -718,6 +776,34 @@ sourceUpdatedAt,
     );
 
     await Promise.all(workers);
+
+    // 阶段2 页面末尾串行提交：每 media 单事务（commitItem），避免 6 worker 并发写风暴
+    for (let i = 0; i < prepared.length; i++) {
+      const prep = prepared[i];
+      if (!prep) {
+        const prepErr = preparedErrors[i];
+        if (prepErr) {
+          failedItems.push({ vodId: String(items[i].vod_id), title: items[i].vod_name, error: prepErr });
+        }
+        continue;
+      }
+      try {
+        const media = await this.commitItem(prep, meter);
+        if (media) {
+          results.push(media);
+        } else {
+          console.log(`[Collector] processItem returned null for: ${items[i].vod_name}`);
+        }
+      } catch (err) {
+        await this.db.incrementSourceFailCount(sourceId);
+        const errorMsg = `[Collector] 提交 ${items[i].vod_name} 失败: ${err instanceof Error ? err.message : String(err)}`;
+        console.error(errorMsg);
+        await this.logToDb(errorMsg, 'error');
+        failedCount++;
+        failedItems.push({ vodId: String(items[i].vod_id), title: items[i].vod_name, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+
     return { failedCount, failedItems, skippedCount };
   }
 
@@ -800,6 +886,14 @@ sourceUpdatedAt,
     } catch {
       return [];
     }
+  }
+
+  /** 失败条目内存保护：超出上限丢弃最旧条目，防止 updateCollectTask 每次全量写入超大 JSON blob */
+  private capFailedItems(items: FailedItem[]): FailedItem[] {
+    if (items.length > MAX_FAILED_ITEMS) {
+      items.splice(0, items.length - MAX_FAILED_ITEMS);
+    }
+    return items;
   }
 
   private async logToDb(message: string, level: 'info' | 'error' = 'info', details?: Record<string, unknown>): Promise<void> {
@@ -1076,6 +1170,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
           collected += media.length;
           failed += failedCount;
           currentFailedItems.push(...failedItems);
+          this.capFailedItems(currentFailedItems);
 
           await this.db.updateCollectTask(taskId, {
             currentPage,
@@ -1277,6 +1372,10 @@ const title = await normalizer.normalizeTitle(item.vod_name);
     }
   }
 
+  private logTaskStep(step: string, sourceCode: string, taskId: string, sinceMs: number): void {
+    console.error(`[CollectTask] ${step} source=${sourceCode} task=${taskId || '-'} dt=${Date.now() - sinceMs}ms at=${new Date().toISOString()}`);
+  }
+
   async collectSourceLatest(sourceCode: string, startPage: number = 1, resumeTaskId?: string): Promise<{ taskId: string; collected: number }> {
     const source = await this.db.getVideoSourceByCode(sourceCode);
     if (!source || !source.isEnabled) return { taskId: '', collected: 0 };
@@ -1333,6 +1432,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
     const currentFailedItems: FailedItem[] = [];
     if (resumeTaskId && resumeTask) {
       currentFailedItems.push(...this.parseFailedItems(resumeTask.failedItems));
+      this.capFailedItems(currentFailedItems);
     }
 
     // 断点续采: 计算时间窗口
@@ -1403,6 +1503,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
           collected += media.length;
           failed += failedCount;
           currentFailedItems.push(...failedItems);
+          this.capFailedItems(currentFailedItems);
           await this.db.updateCollectTask(taskId, {
             currentPage: page,
             totalPages: Math.min(pagecount, config.incrementalMaxPages),
@@ -1498,15 +1599,20 @@ const title = await normalizer.normalizeTitle(item.vod_name);
   }
 
   async collectSourceAll(sourceCode: string, startPage: number = 1, resumeTaskId?: string): Promise<{ taskId: string; collected: number; pages: number }> {
+    const perfStart = Date.now();
+    this.logTaskStep('entry', sourceCode, resumeTaskId || '', perfStart);
     const source = await this.db.getVideoSourceByCode(sourceCode);
+    this.logTaskStep('sourceLoaded', sourceCode, resumeTaskId || '', perfStart);
     if (!source || !source.isEnabled) return { taskId: '', collected: 0, pages: 0 };
 
     const runningTasks = await this.db.getRunningTasksBySourceCode(sourceCode);
+    this.logTaskStep('runningChecked', sourceCode, resumeTaskId || '', perfStart);
     if (runningTasks.some(t => t.type === 'FULL' && (t.status === 'RUNNING' || t.status === 'PENDING'))) {
       throw new Error('该视频源已有全量采集任务正在运行，请等待完成后再启动');
     }
 
     const config = await (new SystemConfigService(this.db)).getCollectConfig();
+    this.logTaskStep('configLoaded', sourceCode, resumeTaskId || '', perfStart);
     const now = new Date().toISOString();
 
     let taskId = `${sourceCode}-FULL-${Date.now()}`;
@@ -1536,6 +1642,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
         createdAt: now,
       };
       await this.db.createCollectTask(task);
+      this.logTaskStep('taskCreated', sourceCode, taskId, perfStart);
     }
 
     let collected = initialCollected;
@@ -1554,6 +1661,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
     const currentFailedItems: FailedItem[] = [];
     if (resumeTaskId && resumeTask) {
       currentFailedItems.push(...this.parseFailedItems(resumeTask.failedItems));
+      this.capFailedItems(currentFailedItems);
     }
 
     try {
@@ -1562,12 +1670,15 @@ const title = await normalizer.normalizeTitle(item.vod_name);
         startedAt: now,
         ...(resumeTaskId ? { errorMessage: null, errorType: null, completedAt: null, lastErrorPage: null, currentPage: startPage } : {}),
       });
+      this.logTaskStep('runningSet', sourceCode, taskId, perfStart);
       await this.assertSourceReachable(source);
+      this.logTaskStep('reachableOk', sourceCode, taskId, perfStart);
       this.emitLog('info', resumeTaskId ? `开始续采 [${source.name}]: 从第${startPage}页继续全量采集` : `开始全量采集 [${source.name}]，最多${config.maxPages}页`, sourceCode, source.name, taskId);
 
       let prefetchPromise: Promise<CMSListResponse | null> | null = null;
       let knownPagecount = 0;
 
+      this.logTaskStep('loopStart', sourceCode, taskId, perfStart);
       while (page <= config.maxPages) {
         const iterationStart = Date.now();
 
@@ -1611,6 +1722,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
           failed += failedCount;
           pages++;
           currentFailedItems.push(...failedItems);
+          this.capFailedItems(currentFailedItems);
 
           await this.db.updateCollectTask(taskId, {
             currentPage: page,
@@ -1655,6 +1767,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
         }
       }
 
+      this.logTaskStep('loopEnd', sourceCode, taskId, perfStart);
       if (!cancelled) {
         await this.db.updateCollectTask(taskId, {
           status: 'COMPLETED' as TaskStatus,

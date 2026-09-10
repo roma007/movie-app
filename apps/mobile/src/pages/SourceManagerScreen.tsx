@@ -154,6 +154,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
   const [hasSearched, setHasSearched] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [relaxYear, setRelaxYear] = useState(false);
+  const [submittingSources, setSubmittingSources] = useState<Record<string, 'increment' | 'full'>>({});
 
   const [aiModalVisible, setAiModalVisible] = useState(false);
   const [aiStep, setAiStep] = useState<'prompt' | 'paste' | 'preview'>('prompt');
@@ -184,6 +185,23 @@ export default function SourceManagerScreen({ navigation }: Props) {
     }, 5000);
     return () => clearInterval(interval);
   }, [loadRunningCollectTasks, loadVideoSources]);
+
+  // 中间态收敛：任务真正落库（collectTasks 出现该源 RUNNING/PENDING）后，
+  // 由「采集中」接管，清除「正在建立任务」提交态。
+  useEffect(() => {
+    if (Object.keys(submittingSources).length === 0) return;
+    setSubmittingSources((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const code of Object.keys(next)) {
+        if (collectTasks.some((t) => t.sourceCode === code && (t.status === 'PENDING' || t.status === 'RUNNING'))) {
+          delete next[code];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [collectTasks, submittingSources]);
 
   const isSourceCollecting = (sourceCode: string) => {
     return collectTasks.some(
@@ -289,20 +307,29 @@ export default function SourceManagerScreen({ navigation }: Props) {
     }
   };
 
-  const handleCollect = async (sourceCode: string, type: 'increment' | 'full', sourceName: string) => {
+  const handleCollect = (sourceCode: string, type: 'increment' | 'full', sourceName: string) => {
     const label = type === 'increment' ? '增量' : '全量';
-    try {
-      const fn = type === 'increment' ? collectSourceLatest : collectSourceAll;
-      const result = await fn(sourceCode);
-      if (!result.success) {
-        showToast(`${sourceName}${label}采集失败: ${result.error || '未知错误'}`, 'error');
-      } else {
-        await loadVideoSources();
-        showToast(`${sourceName}${label}采集任务已完成`, 'success');
-      }
-    } catch (err: any) {
-      showToast(`${sourceName}${label}采集失败: ${err.message || '未知错误'}`, 'error');
-    }
+    setSubmittingSources((prev) => ({ ...prev, [sourceCode]: type }));
+    const fn = type === 'increment' ? collectSourceLatest : collectSourceAll;
+    const clearSubmitting = () => {
+      setSubmittingSources((prev) => {
+        if (!(sourceCode in prev)) return prev;
+        const next = { ...prev };
+        delete next[sourceCode];
+        return next;
+      });
+    };
+    void fn(sourceCode)
+      .then((result) => {
+        if (result && !result.success) {
+          showToast(`${sourceName}${label}采集失败: ${result.error || '未知错误'}`, 'error');
+        }
+        return loadVideoSources();
+      })
+      .catch((err: any) => {
+        showToast(`${sourceName}${label}采集失败: ${err.message || '未知错误'}`, 'error');
+      })
+      .finally(() => clearSubmitting());
   };
 
   const handleKeywordSearch = async () => {
@@ -459,6 +486,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
           {videoSources.map((source: VideoSource, index: number) => {
             const health = getHealthLabel(source);
             const collecting = isSourceCollecting(source.code);
+            const submitting = !!submittingSources[source.code];
             const progress = getProgress(source.code);
             const checking = checkingSource === source.code;
 
@@ -533,7 +561,8 @@ export default function SourceManagerScreen({ navigation }: Props) {
                     size="sm"
                     style={styles.sourceActionBtn}
                     textStyle={{ textAlign: 'center' }}
-                    disabled={collecting}
+                    disabled={collecting || submitting}
+                    loading={submitting}
                     onPress={() => handleCollect(source.code, 'increment', source.name)}
                   >
                     <>
@@ -548,7 +577,8 @@ export default function SourceManagerScreen({ navigation }: Props) {
                     size="sm"
                     style={styles.sourceActionBtn}
                     textStyle={{ textAlign: 'center' }}
-                    disabled={collecting}
+                    disabled={collecting || submitting}
+                    loading={submitting}
                     onPress={() => handleCollect(source.code, 'full', source.name)}
                   >
                     <>
@@ -560,12 +590,14 @@ export default function SourceManagerScreen({ navigation }: Props) {
                   </Button>
                 </View>
 
-                {collecting && (
+                {(collecting || submitting) && (
                   <View style={styles.progressContainer}>
                     <View style={styles.progressBar}>
-                      <View style={[styles.progressFill, { width: `${progress}%` }]} />
+                      <View style={[styles.progressFill, { width: `${submitting ? 0 : progress}%` }]} />
                     </View>
-                    <Text style={styles.progressText}>采集中... {progress}%</Text>
+                    <Text style={styles.progressText}>
+                      {submitting ? '正在建立任务...' : `采集中... ${progress}%`}
+                    </Text>
                   </View>
                 )}
               </View>

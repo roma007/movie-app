@@ -1,4 +1,5 @@
 import * as SQLite from 'expo-sqlite';
+import { File, Paths } from 'expo-file-system';
 import {
   PRAGMA_SQL,
   SCHEMA_SQL,
@@ -417,6 +418,11 @@ const MIGRATIONS: Migration[] = [
  */
 export class ExpoSqliteProvider implements DatabaseProvider {
   private db: SQLite.SQLiteDatabase | null = null;
+  private readDb: SQLite.SQLiteDatabase | null = null;
+
+  /** 事务互斥队列：expo 单连接下多个 withTransactionAsync 交错会导致
+   *  「cannot start a transaction within a transaction」；FIFO 串行保证 BEGIN/COMMIT 成对。 */
+  private txQueue: Promise<void> = Promise.resolve();
 
   private wrapWithRetry(db: any): any {
     const isLockError = (error: any): boolean => {
@@ -462,30 +468,113 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async init(): Promise<void> {
     if (this.db) return;
+    const timing: Record<string, number> = {};
+    let stepStart = Date.now();
+    const mark = (label: string) => { timing[label] = Date.now() - stepStart; stepStart = Date.now(); };
+
     const rawDb = await SQLite.openDatabaseAsync('movieapp.db');
     const wrappedDb = this.wrapWithRetry(rawDb);
     this.db = wrappedDb;
+    mark('open_write_db');
 
     // 执行 PRAGMA（PRAGMA 语句无触发器体，可简单按 ; 拆分）
     const pragmas = PRAGMA_SQL.split(';').map((s: string) => s.trim()).filter(Boolean);
     for (const stmt of pragmas) {
       await wrappedDb.execAsync(stmt);
     }
+    mark('pragmas');
 
     await this.runMigrations();
-    await this.fixGenreData();
-    await this.syncHiddenByGenres();
-    
-    await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_episode_media_id ON episode(media_id);');
-    await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source(episode_id);');
-    await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_play_source_source_id_episode_id ON play_source(source_id, episode_id);');
-    await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_favorite_media_id ON favorite(media_id);');
-    await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_watch_history_media_id ON watch_history(media_id);');
+    mark('migrations');
 
     await this.insertDefaultSources();
+    mark('insert_default_sources');
 
-    // 将历史内置 HTTP 源升级为 HTTPS（iOS ATS 会拦截明文 http）
-    await this.upgradeSourceUrlsToHttps();
+    // 独立读连接：WAL 下与写连接并发，采集大量写库时 UI 查询不再排队阻塞。
+    // 读连接必须在前台就绪，否则读方法拿到 null。
+    this.readDb = this.wrapWithRetry(await SQLite.openDatabaseAsync('movieapp.db'));
+    for (const stmt of pragmas) {
+      await this.readDb!.execAsync(stmt);
+    }
+    mark('open_read_db');
+
+    // 首屏必需步骤已就绪即返回；重活（索引/数据修复/WAL收束等）全部移后台执行
+    timing.total_front = Date.now() - stepStart;
+    void this.postInitMaintenance(timing);
+  }
+
+  private async postInitMaintenance(frontTiming: Record<string, number>): Promise<void> {
+    try {
+      const timing: Record<string, number> = {};
+      const t0 = Date.now();
+
+      // fixGenre 历史数据修复：一次性（done 标记）且仅在存在坏数据时才跑。
+      const doneFile = new File(Paths.document, 'genre_fix.done');
+      if (!doneFile.exists) {
+        const tFix = Date.now();
+        const needFix = await this.db!.getFirstAsync<{ id: string; genre: string }>(
+          "SELECT id, genre FROM media WHERE genre IS NOT NULL AND genre LIKE '%[\"%' AND genre LIKE '%,%' LIMIT 1"
+        );
+        if (needFix) {
+          await this.fixGenreData();
+        }
+        doneFile.write('1');
+        timing.post_fixGenre = Date.now() - tFix;
+      } else {
+        timing.post_fixGenre = 0;
+      }
+
+      const tIdx = Date.now();
+      await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_episode_media_id ON episode(media_id);');
+      await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source(episode_id);');
+      await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_play_source_source_id_episode_id ON play_source(source_id, episode_id);');
+      await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_favorite_media_id ON favorite(media_id);');
+      await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_watch_history_media_id ON watch_history(media_id);');
+      timing.post_indexes = Date.now() - tIdx;
+
+      const tSync = Date.now();
+      await this.syncHiddenByGenres();
+      timing.post_syncHidden = Date.now() - tSync;
+
+      const tHttps = Date.now();
+      await this.upgradeSourceUrlsToHttps();
+      timing.post_upgradeHttps = Date.now() - tHttps;
+
+      const tPrune = Date.now();
+      await this.handlePruneOversizedFailedItems();
+      timing.post_prune = Date.now() - tPrune;
+
+      const tWal = Date.now();
+      try {
+        await this.db!.execAsync('PRAGMA wal_checkpoint(TRUNCATE)');
+      } catch (err) {
+        console.error('[DB] WAL checkpoint 失败:', err);
+      }
+      timing.post_walCheckpoint = Date.now() - tWal;
+      timing.post_total = Date.now() - t0;
+
+      const fullTiming = Object.assign({}, frontTiming, timing);
+      try {
+        const f = new File(Paths.document, 'init_timings.json');
+        f.write(JSON.stringify(fullTiming));
+      } catch (e) {
+        console.error('[DB] init_timings 写入失败:', e);
+      }
+    } catch (err) {
+      console.error('[DB] postInitMaintenance 失败:', err);
+    }
+  }
+
+  private async handlePruneOversizedFailedItems(): Promise<void> {
+    try {
+      // 仅清理已结束状态（COMPLETED/FAILED/ABANDONED）的超大失败明细，
+      // 绝不动 RUNNING/PENDING 等未完成任务（其续采依赖 currentPage/failed_items 等）。
+      await this.db!.runAsync(
+        "UPDATE collect_task SET failed_items = NULL WHERE status IN ('COMPLETED','FAILED','ABANDONED') AND failed_items IS NOT NULL AND length(failed_items) > 131072"
+      );
+    } catch (err) {
+      console.error('[DB] 清理超大 failed_items 失败:', err);
+    }
   }
 
   private async runMigrations(): Promise<void> {
@@ -1283,22 +1372,22 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   // —— VideoSource DAO ——
   async getAllVideoSources(): Promise<VideoSource[]> {
-    const rows = await this.db!.getAllAsync<any>('SELECT * FROM video_source ORDER BY id ASC');
+    const rows = await this.readDb!.getAllAsync<any>('SELECT * FROM video_source ORDER BY id ASC');
     return rows.map(rowToVideoSource);
   }
 
   async getEnabledVideoSources(): Promise<VideoSource[]> {
-    const rows = await this.db!.getAllAsync<any>('SELECT * FROM video_source WHERE is_enabled = 1 ORDER BY id ASC');
+    const rows = await this.readDb!.getAllAsync<any>('SELECT * FROM video_source WHERE is_enabled = 1 ORDER BY id ASC');
     return rows.map(rowToVideoSource);
   }
 
   async getVideoSourceById(id: string): Promise<VideoSource | null> {
-    const row = await this.db!.getFirstAsync<any>('SELECT * FROM video_source WHERE id = ?', [id]);
+    const row = await this.readDb!.getFirstAsync<any>('SELECT * FROM video_source WHERE id = ?', [id]);
     return row ? rowToVideoSource(row) : null;
   }
 
   async getVideoSourceByCode(code: string): Promise<VideoSource | null> {
-    const row = await this.db!.getFirstAsync<any>('SELECT * FROM video_source WHERE code = ?', [code]);
+    const row = await this.readDb!.getFirstAsync<any>('SELECT * FROM video_source WHERE code = ?', [code]);
     return row ? rowToVideoSource(row) : null;
   }
 
@@ -1682,7 +1771,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   }
 
   async getCollectTaskById(taskId: string): Promise<CollectTask | null> {
-    const row = await this.db!.getFirstAsync<any>(
+    const row = await this.readDb!.getFirstAsync<any>(
       'SELECT * FROM collect_task WHERE task_id = ?',
       [taskId]
     );
@@ -1691,14 +1780,14 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   }
 
   async getAllCollectTasks(): Promise<CollectTask[]> {
-    const rows = await this.db!.getAllAsync<any>(
+    const rows = await this.readDb!.getAllAsync<any>(
       'SELECT * FROM collect_task ORDER BY created_at DESC'
     );
     return rows.map(rowToCollectTask);
   }
 
   async getRunningTasksBySourceCode(sourceCode: string): Promise<CollectTask[]> {
-    const rows = await this.db!.getAllAsync<any>(
+    const rows = await this.readDb!.getAllAsync<any>(
       "SELECT * FROM collect_task WHERE source_code = ? AND status IN ('PENDING', 'RUNNING') ORDER BY created_at DESC",
       [sourceCode]
     );
@@ -1762,6 +1851,35 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
     params.push(taskId);
     await this.db!.runAsync(`UPDATE collect_task SET ${sqlParts.join(', ')} WHERE task_id = ?`, params);
+
+    if (updates.status && ['COMPLETED', 'FAILED', 'ABANDONED'].includes(updates.status)) {
+      void this.persistCollectPerf(taskId).catch(() => {});
+    }
+  }
+
+  private async persistCollectPerf(taskId: string): Promise<void> {
+    try {
+      const task = await this.getCollectTaskById(taskId);
+      if (!task) return;
+      const endAt = task.completedAt ?? new Date().toISOString();
+      const elapsedMs = task.startedAt ? Date.parse(endAt) - Date.parse(task.startedAt) : 0;
+      const file = new File(Paths.document, 'collect_perf.json');
+      file.write(JSON.stringify({
+        updatedAt: new Date().toISOString(),
+        taskId: task.taskId,
+        sourceCode: task.sourceCode,
+        type: task.type,
+        status: task.status,
+        currentPage: task.currentPage,
+        totalPages: task.totalPages,
+        collected: task.collectedCount,
+        failed: task.failedCount,
+        elapsedMs,
+        error: task.errorMessage || null,
+      }, null, 2));
+    } catch (err) {
+      console.error('[CollectTask] 写 perf 文件失败:', err);
+    }
   }
 
   async deleteCollectTask(taskId: string): Promise<void> {
@@ -1925,5 +2043,27 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async execute(sql: string, params?: any[]): Promise<void> {
     await this.db!.runAsync(sql, params || []);
+  }
+
+  async withTransactionAsync<T>(fn: () => Promise<T>): Promise<T> {
+    const db = this.db!;
+    // 使用 expo-sqlite 模块级事务 API（native 维护事务状态），多源并行时经 FIFO 队列串行，
+    // 避免手写 execAsync('BEGIN') 造成 SQLiteModule 状态错乱。
+    const run = async (): Promise<T> => {
+      let result!: T;
+      await db.withExclusiveTransactionAsync(async () => {
+        result = await fn();
+      });
+      return result;
+    };
+    const prev = this.txQueue;
+    let release!: () => void;
+    this.txQueue = new Promise<void>((res) => { release = res; });
+    try {
+      // prev.catch 兜底：前序事务 throw 也不会吞掉队列，后续事务照常执行
+      return await prev.catch(() => {}).then(run);
+    } finally {
+      release();
+    }
   }
 }

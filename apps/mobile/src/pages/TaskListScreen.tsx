@@ -34,7 +34,7 @@ export default function TaskListScreen({ navigation }: Props) {
   const cardBg = hexToRgba(colors.card, cardOpacity / 100);
   const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100);
   const s = useScaledFontSize();
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [resumingId, setResumingId] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
@@ -77,7 +77,8 @@ export default function TaskListScreen({ navigation }: Props) {
   }
 
   useEffect(() => {
-    loadCollectTasks().finally(() => setIsLoading(false));
+    // 不阻塞渲染：先展示现有 collectTasks（源管理页同款行为），查询到数据后静默刷新
+    loadCollectTasks().catch(() => {});
   }, []);
 
   useFocusEffect(
