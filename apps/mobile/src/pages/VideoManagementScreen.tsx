@@ -288,7 +288,7 @@ export default function VideoManagementScreen({ navigation }: Props) {
   const handleDeleteAll = () => {
     Alert.alert(
       '删除所有视频',
-      '此操作将删除所有视频、剧集、播放源、收藏和观看历史，且不可恢复。确定继续？',
+      '此操作将删除所有视频及剧集播放线路、收藏、观看历史，且不可恢复。已配置的视频源与采集设置不受影响。确定继续？',
       [
         { text: '取消', style: 'cancel' },
         { text: '确认删除', style: 'destructive', onPress: async () => {
@@ -1062,7 +1062,7 @@ export default function VideoManagementScreen({ navigation }: Props) {
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>删除所有视频</Text>
-          <Text style={styles.cardDesc}>删除所有视频数据，包括播放源、剧集、收藏和观看历史。此操作无法撤销。</Text>
+          <Text style={styles.cardDesc}>删除所有视频数据，包括剧集播放线路、收藏和观看历史。已配置的视频源与采集设置不受影响。此操作无法撤销。</Text>
 
           <Button
             variant="destructive"

@@ -53,7 +53,6 @@ import CollectConfigScreen from './src/pages/CollectConfigScreen';
 import AppearanceSettingsScreen from './src/pages/AppearanceSettingsScreen';
 import UsagePreferencesScreen from './src/pages/UsagePreferencesScreen';
 import RecommendationSettingsScreen from './src/pages/RecommendationSettingsScreen';
-import VoiceControlSettingsScreen from './src/pages/VoiceControlSettingsScreen';
 import TaskListScreen from './src/pages/TaskListScreen';
 import HelpCenterScreen from './src/pages/HelpCenterScreen';
 import CollectGuideScreen from './src/pages/CollectGuideScreen';
@@ -66,7 +65,6 @@ import AnimeScreen from './src/pages/AnimeScreen';
 import DocumentaryScreen from './src/pages/DocumentaryScreen';
 import Sidebar from './src/components/Sidebar';
 import CollectProgressDialog from './src/components/CollectProgressDialog';
-import { GlobalVoiceControl } from './src/components/GlobalVoiceControl';
 
 const Stack = createNativeStackNavigator();
 
@@ -97,7 +95,6 @@ function RootNavigator() {
         <Stack.Screen name="AppearanceSettings" component={AppearanceSettingsScreen} />
         <Stack.Screen name="UsagePreferences" component={UsagePreferencesScreen} />
         <Stack.Screen name="RecommendationSettings" component={RecommendationSettingsScreen} />
-        <Stack.Screen name="VoiceControlSettings" component={VoiceControlSettingsScreen} />
         <Stack.Screen name="TaskList" component={TaskListScreen} />
         <Stack.Screen name="HelpCenter" component={HelpCenterScreen} />
         <Stack.Screen name="CollectGuide" component={CollectGuideScreen} />
@@ -106,7 +103,6 @@ function RootNavigator() {
       </Stack.Navigator>
       <Sidebar />
       <CollectProgressDialog />
-      <GlobalVoiceControl />
     </>
   );
 }

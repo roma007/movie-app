@@ -251,6 +251,3 @@ export interface ParsedImportSource {
   errors: string[];
   existingSource?: VideoSource;
 }
-
-// 语音控制相关类型
-export * from './voice';

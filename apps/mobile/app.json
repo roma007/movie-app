@@ -2,7 +2,7 @@
   "expo": {
     "name": "Movie App",
     "slug": "movie-app",
-    "version": "1.0.110",
+    "version": "1.0.112",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -18,8 +18,6 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.mengfeng.movieapp",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "语音控制需要使用麦克风来识别您的语音指令",
-        "NSSpeechRecognitionUsageDescription": "语音控制需要使用语音识别来理解您的指令",
         "NSLocalNetworkUsageDescription": "需要访问本地网络以发现和连接投屏设备",
         "NSBonjourServices": ["_raop._tcp", "_upnp._tcp", "_airplay._tcp"]
       }
@@ -31,7 +29,6 @@
       },
       "package": "com.movie.app",
       "permissions": [
-        "android.permission.RECORD_AUDIO",
         "android.permission.INTERNET"
       ]
     },
@@ -43,10 +40,7 @@
       "expo-image",
       ["expo-video", { "supportsPictureInPicture": true }],
       "expo-screen-orientation",
-      "expo-status-bar",
-      "react-native-vosk",
-      "./plugins/withVoskModel.js",
-      "./plugins/withLocalVendored.js"
+      "expo-status-bar"
     ]
   }
 }

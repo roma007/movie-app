@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, Animated, StyleSheet, StyleProp, ViewStyle } from 'react-native';
-import { Settings, Mic, SkipBack, SkipForward, Pause, Play, PictureInPicture2 } from 'lucide-react-native';
+import { Settings, SkipBack, SkipForward, Pause, Play, PictureInPicture2 } from 'lucide-react-native';
 import Slider from '@react-native-community/slider';
 import { CastButton } from './cast/CastButton';
 
@@ -16,7 +16,6 @@ interface Props {
   onNext?: () => void;
   onOpenSettings: () => void;
   onPiP?: () => void;
-  onVoice?: () => void;
   onCastDeviceSelect?: (device: { id: string; name: string; protocol: string }) => void;
   onCastSearch?: () => void;
   /** 任一交互（点按钮/开始拖动进度）时回调：用于重置自动隐藏计时 */
@@ -58,7 +57,6 @@ export function FullscreenControlBar({
   onNext,
   onOpenSettings,
   onPiP,
-  onVoice,
   onCastDeviceSelect,
   onCastSearch,
   onInteract,
@@ -106,11 +104,6 @@ export function FullscreenControlBar({
       </View>
 
       <View style={styles.buttonsRow}>
-        {onVoice && (
-          <ControlBtn onPress={onVoice}>
-            <Mic size={20} color="#fff" />
-          </ControlBtn>
-        )}
         <ControlBtn onPress={onOpenSettings}>
           <Settings size={20} color="#fff" />
         </ControlBtn>

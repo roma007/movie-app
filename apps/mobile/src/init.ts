@@ -1,7 +1,6 @@
 import { ExpoSqliteProvider } from './db/expoSqliteProvider';
 import { DevSettings } from 'react-native';
 import { createAppStore, CollectorService, getCurrentStoreApiVersion, getStoreApiVersion, type AppStore, type AppState } from '@movie-app/core';
-import { initializeMobileVoiceControl } from './services/mobileVoiceControlSystem';
 
 /**
  * 单例容器挂在 globalThis 上，保证 RN Fast Refresh（模块重执行）后单例不丢失。
@@ -89,19 +88,6 @@ export async function initApp(): Promise<void> {
         void st.getAreasByType(type).catch(() => {});
       }
     }, 6000);
-
-    // 初始化语音控制系统
-    try {
-      await initializeMobileVoiceControl({
-        enabled: true,
-        wakeWordEnabled: true,
-        wakeWord: '小MM',
-        ttsEnabled: true,
-      });
-      console.log('[INIT] 语音控制系统初始化完成');
-    } catch (err) {
-      console.error('[INIT] 语音控制系统初始化失败:', err);
-    }
   })();
   return s.initPromise;
 }

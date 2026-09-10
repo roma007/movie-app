@@ -975,7 +975,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   }
 
   async getYearsByType(type?: string): Promise<number[]> {
-    let whereClause = 'WHERE (hidden IS NULL OR hidden = 0)';
+    let whereClause = 'WHERE (hidden IS NULL OR hidden = 0) AND id NOT IN (SELECT media_id FROM dislike)';
     const params: any[] = [];
     if (type) {
       whereClause += ' AND type = ?';
@@ -2018,19 +2018,6 @@ export class ExpoSqliteProvider implements DatabaseProvider {
       sourceName: row.source_name || undefined,
       details: row.details || undefined,
     }));
-  }
-
-  async getVoiceConfig(key: string): Promise<string | null> {
-    const row = await this.db!.getFirstAsync<any>('SELECT value FROM voice_config WHERE key = ?', [key]);
-    return row ? row.value : null;
-  }
-
-  async setVoiceConfig(key: string, value: string, valueType: string = 'string'): Promise<void> {
-    const now = new Date().toISOString();
-    await this.db!.runAsync(
-      'INSERT OR REPLACE INTO voice_config (key, value, value_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-      [key, value, valueType, now, now]
-    );
   }
 
   async select<T>(sql: string, params?: any[]): Promise<T[]> {

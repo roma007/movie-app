@@ -357,7 +357,7 @@ export default function VideoManagementPage() {
   const handleDeleteAllMedia = async () => {
     const ok = await confirm({
       title: '删除所有视频',
-      description: '确定要删除所有视频吗？此操作无法撤销，所有播放源、剧集、收藏和观看历史都将被删除。',
+      description: '确定要删除所有视频吗？此操作无法撤销，将删除全部剧集播放线路、收藏和观看历史。已配置的视频源与采集设置不受影响。',
       confirmText: '删除',
       variant: 'destructive',
     });
@@ -1218,7 +1218,7 @@ export default function VideoManagementPage() {
               <h2 className="text-lg font-semibold">删除所有视频</h2>
             </div>
             <p className="text-sm text-muted-foreground mb-4">
-              删除所有视频数据，包括播放源、剧集、收藏和观看历史。此操作无法撤销。
+              删除所有视频数据，包括剧集播放线路、收藏和观看历史。已配置的视频源与采集设置不受影响。此操作无法撤销。
             </p>
             <Button
               variant="destructive"

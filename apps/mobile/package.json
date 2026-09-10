@@ -1,6 +1,6 @@
 {
   "name": "@movie-app/mobile",
-  "version": "1.0.110",
+  "version": "1.0.112",
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
@@ -31,12 +31,9 @@
     "react": "19.2.3",
     "react-airplay": "^2.0.2",
     "react-native": "0.86.0",
-    "react-native-openwakeword": "^3.0.0",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.25.2",
     "react-native-svg": "~15.15.5",
-    "react-native-tts": "^4.1.1",
-    "react-native-vosk": "^2.1.7",
     "zustand": "^5.0.0"
   },
   "devDependencies": {

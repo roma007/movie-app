@@ -227,10 +227,6 @@ export interface DatabaseProvider {
   addCollectionLog(log: CollectionLog): Promise<void>;
   getCollectionLogs(filter?: { taskId?: string; sourceCode?: string; level?: string; limit?: number; offset?: number }): Promise<CollectionLog[]>;
 
-  // —— VoiceConfig DAO ——
-  getVoiceConfig(key: string): Promise<string | null>;
-  setVoiceConfig(key: string, value: string, valueType?: string): Promise<void>;
-
   // —— 通用 SQL ——
   select<T>(sql: string, params?: any[]): Promise<T[]>;
   selectOne<T>(sql: string, params?: any[]): Promise<T | null>;

@@ -9,8 +9,8 @@ import { Paths, File } from 'expo-file-system';
 const VideoCache: any = (() => { try { return require('expo-video-cache'); } catch { return null; } })();
 import { getProvider } from '../init';
 import { useAppStore, getStore } from '../useAppStore';
-import { ArrowLeft, Mic, EyeOff, Heart, ThumbsDown, Star, Settings, PictureInPicture2, Maximize, ChevronUp, ChevronDown, ChevronRight, Play, Pause, X } from 'lucide-react-native';
-import { SystemConfigService, getVoiceControlSystem, UNCATEGORIZED_GENRE, VideoDurationService } from '@movie-app/core';
+import { ArrowLeft, EyeOff, Heart, ThumbsDown, Star, Settings, PictureInPicture2, Maximize, ChevronUp, ChevronDown, ChevronRight, Play, Pause, X } from 'lucide-react-native';
+import { SystemConfigService, UNCATEGORIZED_GENRE, VideoDurationService } from '@movie-app/core';
 import { clearCategoryFilterCache } from '../categoryFilterCache';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,7 +20,6 @@ import { useScaledFontSize } from '../themes/useScaledFontSize';
 import { hexToRgba } from '../themes/colorUtils';
 import { NextEpisodeOverlay } from '../components/NextEpisodeOverlay';
 import { SkipForwardOverlay } from '../components/SkipForwardOverlay';
-import { VoiceControlOverlay } from '../components/VoiceControlOverlay';
 import { CastButton } from '../components/cast/CastButton';
 import { CastRemoteControl } from '../components/cast/CastRemoteControl';
 import { useCastManager } from '../hooks/useCastManager';
@@ -174,10 +173,6 @@ export default function PlayScreen({ route, navigation }: Props) {
 
   // 待应用的恢复位置：source 真正就绪后再 seek，避免一次性赋值被丢弃
   const pendingSeekRef = useRef(0);
-
-  // 功能8: 语音控制
-  const [voiceControlVisible, setVoiceControlVisible] = useState(false);
-  const voiceControl = getVoiceControlSystem();
 
   // 功能9: 投屏
   const getVideoUrlRef = useRef(() => videoUrl);
@@ -406,7 +401,7 @@ backgroundColor: 'transparent',
       justifyContent: 'center' as const,
       alignItems: 'center' as const,
     },
-    // 右侧竖排放大 + 白底圆（参照 GlobalVoiceControl 悬浮语音双层圆）
+    // 右侧竖排放大 + 白底圆（悬浮双层圆按钮样式）
     toolbarButtonRound: {
       width: 60,
       height: 60,
@@ -1197,14 +1192,6 @@ backgroundColor: 'transparent',
     skipDismissedRef.current = true;
   };
 
-  const handleVoiceControl = () => {
-    setVoiceControlVisible(true);
-  };
-
-  const handleVoiceControlClose = () => {
-    setVoiceControlVisible(false);
-  };
-
   // 功能11: 源失败自动换源（对齐桌面 handleSourceFail：有剩余线路 1.5s 切下一线；
   // 全部失败 2s 循环回第 0 条重试，不再弹「所有播放线路均失败」）
   const autoRetryRef = useRef({ activePlayIdx, change: handlePlaySourceChange });
@@ -1395,12 +1382,12 @@ backgroundColor: 'transparent',
   useEffect(() => {
     if (!appFullscreen) return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (settingsVisible || episodesSheetVisible || hideModalVisible || voiceControlVisible) return false;
+      if (settingsVisible || episodesSheetVisible || hideModalVisible) return false;
       exitAppFullscreen();
       return true;
     });
     return () => sub.remove();
-  }, [appFullscreen, settingsVisible, episodesSheetVisible, hideModalVisible, voiceControlVisible, exitAppFullscreen]);
+  }, [appFullscreen, settingsVisible, episodesSheetVisible, hideModalVisible, exitAppFullscreen]);
 
   const handleFullscreenSeek = (t: number) => {
     const p = playerRef.current;
@@ -1434,167 +1421,6 @@ backgroundColor: 'transparent',
       await configService.setPlaybackConfig({ showSegmentProgress: next });
     } catch {}
   };
-
-  // 注册语音命令处理器
-  useEffect(() => {
-    if (!voiceControl) return;
-
-    const voiceControlConfig = voiceControl.getConfig();
-    if (!voiceControlConfig.enabled) return;
-
-    // 注册播放控制命令
-    voiceControl.registerCommands([
-      {
-        id: 'pause',
-        name: '暂停',
-        description: '暂停播放',
-        aliases: ['暂停', '停一下', '停止播放', '停'],
-        category: 'playback',
-        execute: async () => {
-          if (playerRef.current) {
-            playerRef.current.pause();
-          }
-        },
-      },
-      {
-        id: 'play',
-        name: '播放',
-        description: '继续播放',
-        aliases: ['播放', '继续', '开始播放', '继续播放'],
-        category: 'playback',
-        execute: async () => {
-          if (playerRef.current) {
-            playerRef.current.play();
-          }
-        },
-      },
-      {
-        id: 'fast_forward',
-        name: '快进',
-        description: '快进指定时间',
-        aliases: ['快进', '前进', '往前'],
-        category: 'playback',
-        parameters: [
-          {
-            name: 'seconds',
-            type: 'number',
-            required: false,
-            defaultValue: 30,
-            description: '快进秒数',
-          },
-        ],
-        execute: async (params) => {
-          const seconds = params?.seconds || 30;
-          handleSkipForward(seconds);
-        },
-      },
-      {
-        id: 'rewind',
-        name: '快退',
-        description: '快退指定时间',
-        aliases: ['快退', '后退', '往回'],
-        category: 'playback',
-        parameters: [
-          {
-            name: 'seconds',
-            type: 'number',
-            required: false,
-            defaultValue: 30,
-            description: '快退秒数',
-          },
-        ],
-        execute: async (params) => {
-          const seconds = params?.seconds || 30;
-          if (playerRef.current) {
-            const p = playerRef.current;
-            p.currentTime = Math.max(p.currentTime - seconds, 0);
-          }
-        },
-      },
-      {
-        id: 'volume_up',
-        name: '音量增加',
-        description: '增加音量',
-        aliases: ['音量增加', '大声点', '提高音量', '大声'],
-        category: 'playback',
-        execute: async () => {
-          if (playerRef.current) {
-            const p = playerRef.current;
-            p.volume = Math.min(p.volume + 0.1, 1.0);
-          }
-        },
-      },
-      {
-        id: 'volume_down',
-        name: '音量减少',
-        description: '减少音量',
-        aliases: ['音量减少', '小声点', '降低音量', '小声'],
-        category: 'playback',
-        execute: async () => {
-          if (playerRef.current) {
-            const p = playerRef.current;
-            p.volume = Math.max(p.volume - 0.1, 0);
-          }
-        },
-      },
-      {
-        id: 'mute',
-        name: '静音',
-        description: '静音',
-        aliases: ['静音', '关闭声音', '取消静音'],
-        category: 'playback',
-        execute: async () => {
-          if (playerRef.current) {
-            const p = playerRef.current;
-            p.muted = !p.muted;
-          }
-        },
-      },
-      {
-        id: 'fullscreen',
-        name: '全屏',
-        description: '切换全屏',
-        aliases: ['全屏', '全屏幕', '切换全屏'],
-        category: 'playback',
-        execute: async () => {
-          if (appFullscreenRef.current) {
-            exitAppFullscreen();
-          } else {
-            enterAppFullscreen();
-          }
-        },
-      },
-      {
-        id: 'next_episode',
-        name: '下一集',
-        description: '播放下一集',
-        aliases: ['下一集', '下一个', '下一集播放'],
-        category: 'playback',
-        execute: async () => {
-          if (nextEpisode) {
-            handleNextEpisode();
-          }
-        },
-      },
-      {
-        id: 'previous_episode',
-        name: '上一集',
-        description: '播放上一集',
-        aliases: ['上一集', '上一个', '上一集播放'],
-        category: 'playback',
-        execute: async () => {
-          const idx = filteredEpisodes.findIndex((ep: Episode) => ep.id === currentEpisodeId);
-          if (idx > 0) {
-            handleEpisodePress(filteredEpisodes[idx - 1]);
-          }
-        },
-      },
-    ]);
-
-    return () => {
-      // 清理命令
-    };
-  }, [voiceControl, playerRef, nextEpisode, filteredEpisodes, currentEpisodeId, enterAppFullscreen, exitAppFullscreen]);
 
   // 功能9: 退出播放页时断开投屏
   useEffect(() => {
@@ -1752,15 +1578,6 @@ backgroundColor: 'transparent',
             >
               <Settings size={18} color="#fff" />
             </TouchableOpacity>
-            {voiceControl?.getConfig().enabled && (
-              <TouchableOpacity
-                style={styles.toolbarButton}
-                activeOpacity={0.7}
-                onPress={handleVoiceControl}
-              >
-                <Mic size={18} color="#fff" />
-              </TouchableOpacity>
-            )}
             {isPictureInPictureSupported() && (
               <TouchableOpacity
                 style={styles.toolbarButton}
@@ -2218,7 +2035,6 @@ backgroundColor: 'transparent',
                 onNext={nextEpisode ? handleNextEpisode : undefined}
                 onOpenSettings={() => setSettingsVisible(true)}
                 onPiP={isPictureInPictureSupported() ? handleFullscreenPiP : undefined}
-                onVoice={voiceControl?.getConfig().enabled ? handleVoiceControl : undefined}
                 onCastDeviceSelect={fsCastOnDeviceSelect}
                 onCastSearch={castManager.searchDevices}
                 onInteract={showFsControlsTemporarily}
@@ -2563,10 +2379,6 @@ backgroundColor: 'transparent',
         </View>
       </View>
     </Modal>
-    <VoiceControlOverlay
-      visible={voiceControlVisible}
-      onClose={handleVoiceControlClose}
-    />
     </>
   );
 }
