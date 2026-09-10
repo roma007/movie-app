@@ -404,6 +404,11 @@ const MIGRATIONS: Migration[] = [
     sql: `CREATE INDEX IF NOT EXISTS idx_media_fingerprint ON media(fingerprint);
           CREATE INDEX IF NOT EXISTS idx_media_vod_id ON media(vod_id);`,
   },
+  {
+    version: 46,
+    description: 'add_failed_pages_to_collect_task',
+    sql: `ALTER TABLE collect_task ADD COLUMN failed_pages TEXT;`,
+  },
 ];
 
 /**
@@ -1652,7 +1657,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async createCollectTask(task: CollectTask): Promise<void> {
     await this.db!.runAsync(
-      'INSERT INTO collect_task (id, task_id, source_code, source_name, type, status, current_page, total_pages, collected_count, failed_count, error_message, error_type, last_error_page, failed_items, created_at, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO collect_task (id, task_id, source_code, source_name, type, status, current_page, total_pages, collected_count, failed_count, error_message, error_type, last_error_page, failed_pages, failed_items, created_at, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         task.id,
         task.taskId,
@@ -1667,6 +1672,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
         task.errorMessage || null,
         task.errorType || null,
         task.lastErrorPage ?? null,
+        task.failedPages || null,
         task.failedItems || null,
         task.createdAt,
         task.startedAt || null,
@@ -1734,6 +1740,10 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     if (updates.lastErrorPage !== undefined) {
       sqlParts.push('last_error_page = ?');
       params.push(updates.lastErrorPage);
+    }
+    if (updates.failedPages !== undefined) {
+      sqlParts.push('failed_pages = ?');
+      params.push(updates.failedPages);
     }
     if (updates.failedItems !== undefined) {
       sqlParts.push('failed_items = ?');
