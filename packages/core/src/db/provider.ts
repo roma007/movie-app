@@ -232,9 +232,12 @@ export interface DatabaseProvider {
   selectOne<T>(sql: string, params?: any[]): Promise<T | null>;
   execute(sql: string, params?: any[]): Promise<void>;
   /**
-   * 在单个事务内执行 fn 中的全部数据库写；fn 抛错则整体回滚。
-   * 移动端：writeDb.withTransactionAsync；桌面端：writeState 长锁 + BEGIN/COMMIT/ROLLBACK。
-   * 用于采集批量写入，把一场页内多次独立 commit 合并，降低写锁竞争。
+   * 在 fn 内执行 DB 写且保证并发安全（写全局串行）。
+   * - 移动端（expo-sqlite 单连接）：真事务（withExclusiveTransactionAsync），fn 抛错整体回滚；
+   * - 桌面端（tauri-plugin-sql 连接池）：伪事务——仅 writeState 长锁串行 fn，无显式 BEGIN/COMMIT
+   *   （连接池 execute('BEGIN') 不 pin 连接，会与后续写语句撞 WAL 写锁导致 database is locked）；
+   *   原子性由「单条 multi-row SQL 原子」保证。
+   * 用于采集批量写入，把一场页内多次独立提交串行化，降低写锁竞争。
    */
   withTransactionAsync<T>(fn: () => Promise<T>): Promise<T>;
 

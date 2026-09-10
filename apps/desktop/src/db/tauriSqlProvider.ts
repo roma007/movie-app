@@ -49,7 +49,10 @@ interface DbSem {
 export class TauriSqlProvider implements DatabaseProvider {
   private db: InstanceType<typeof Database> | null = null;
 
-  /** 事务进行中标志：事务内写操作绕过 writeState acquire（改由 withTransactionAsync 长持锁），避免重入死锁。 */
+  /** 事务进行中标志：事务内写操作绕过 writeState acquire（改由 withTransactionAsync 长持锁），避免重入死锁。
+   *  注意：桌面端 tauri-plugin-sql 使用 sqlx 连接池，显式 BEGIN/COMMIT 会导致 BEGIN 在连接 A、
+   *  后续写在连接 B/C，触发 database is locked。因此 withTransactionAsync 不发 BEGIN/COMMIT，
+   *  仅保留 JS 层写锁串行 + txLockHeld 重入保护；原子性由 SQLite 单语句隐式事务保证。 */
   private txLockHeld = false;
 
   private wrapWithRetry(db: any): any {
@@ -163,28 +166,20 @@ export class TauriSqlProvider implements DatabaseProvider {
   }
 
   private withWriteLock<T>(op: () => Promise<T>): Promise<T> {
-    // 事务内：无论从哪个写方法调用都直接执行（连接已被 withTransactionAsync 长持唯一写锁，事务隔离由 BEGIN/COMMIT 保证）
+    // 事务（伪事务）内：连接已被 withTransactionAsync 长持唯一写锁，直接执行即可（避免重入死锁）。
     if (this.txLockHeld) return op();
     return this.withLock(this.writeState, op);
   }
 
   async withTransactionAsync<T>(fn: () => Promise<T>): Promise<T> {
+    // 注意：桌面底层是 tauri-plugin-sql 连接池（sqlx），execute('BEGIN') 不会 pin 连接，
+    // 事务内后续写语句会被路由到池中其它空闲连接，与 BEGIN 持锁连接撞 WAL 写锁 → 整批
+    // "database is locked"。因此桌面端不建显式事务：仅用 writeState 写锁全局串行化，
+    // 原子性由「单条 multi-row SQL 原子」保证（与逐条 upsert 语义等价，见批量写改造记录）。
     await this.acquire(this.writeState);
     this.txLockHeld = true;
     try {
-      await this.db!.execute('BEGIN');
-      try {
-        const result = await fn();
-        await this.db!.execute('COMMIT');
-        return result;
-      } catch (err) {
-        try {
-          await this.db!.execute('ROLLBACK');
-        } catch (_) {
-          // 事务可能已由底层自动回滚，忽略二次回滚错误
-        }
-        throw err;
-      }
+      return await fn();
     } finally {
       this.txLockHeld = false;
       this.release(this.writeState);
