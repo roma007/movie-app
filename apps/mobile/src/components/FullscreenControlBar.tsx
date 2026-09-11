@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, Animated, StyleSheet, StyleProp, ViewStyle } from 'react-native';
-import { Settings, SkipBack, SkipForward, Pause, Play, PictureInPicture2 } from 'lucide-react-native';
+import { Settings, SkipBack, SkipForward, Pause, Play, PictureInPicture2, Minimize2 } from 'lucide-react-native';
 import Slider from '@react-native-community/slider';
 import { CastButton } from './cast/CastButton';
 
@@ -16,6 +16,7 @@ interface Props {
   onNext?: () => void;
   onOpenSettings: () => void;
   onPiP?: () => void;
+  onExitFullscreen?: () => void;
   onCastDeviceSelect?: (device: { id: string; name: string; protocol: string }) => void;
   onCastSearch?: () => void;
   /** 任一交互（点按钮/开始拖动进度）时回调：用于重置自动隐藏计时 */
@@ -34,12 +35,14 @@ function formatTime(seconds: number): string {
 function ControlBtn({
   onPress,
   children,
+  testID,
 }: {
   onPress?: () => void;
   children: React.ReactNode;
+  testID?: string;
 }) {
   return (
-    <TouchableOpacity style={styles.btn} activeOpacity={0.7} onPress={onPress} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+    <TouchableOpacity style={styles.btn} activeOpacity={0.7} onPress={onPress} testID={testID} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
       {children}
     </TouchableOpacity>
   );
@@ -57,6 +60,7 @@ export function FullscreenControlBar({
   onNext,
   onOpenSettings,
   onPiP,
+  onExitFullscreen,
   onCastDeviceSelect,
   onCastSearch,
   onInteract,
@@ -140,6 +144,11 @@ export function FullscreenControlBar({
             onDeviceSelect={onCastDeviceSelect}
             onSearch={onCastSearch}
           />
+        )}
+        {onExitFullscreen && (
+          <ControlBtn onPress={onExitFullscreen} testID="fullscreen-exit">
+            <Minimize2 size={20} color="#fff" />
+          </ControlBtn>
         )}
       </View>
     </Animated.View>

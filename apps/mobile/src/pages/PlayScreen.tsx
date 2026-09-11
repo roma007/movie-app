@@ -1330,23 +1330,35 @@ backgroundColor: 'transparent',
 
   // 进入全屏时按竖/横片锁定方向（横片强制横屏，对齐现状原生全屏 orientation 行为）；
   // 退出时仅当曾进过全屏才锁回竖屏（避免页面挂载即锁竖屏，保持现状挂载自由旋转）
+  // 用 PORTRAIT_UP 而非 PORTRAIT：iOS 端 PORTRAIT 映射为含 portraitUpsideDown 的 mask，
+  // 带底部安全区（notch/Home 条）的 iPhone 判定 isSupportedByDevice()=false，
+  // lockAsync(PORTRAIT) 抛 UnsupportedOrientationLockException 被吞掉 → 退出全屏滞留横屏。
   const wasFullscreenRef = useRef(false);
   useEffect(() => {
     if (appFullscreen) {
       wasFullscreenRef.current = true;
       try {
         if (isVerticalVideo) {
-          ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
+          ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
         } else {
           ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
         }
       } catch {}
-    } else if (wasFullscreenRef.current) {
-      try {
-        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
-      } catch {}
+} else if (wasFullscreenRef.current) {
+    try {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+    } catch {}
     }
   }, [appFullscreen, isVerticalVideo]);
+
+  // 防御兜底：曾进过全屏的页面卸载时还原正立竖屏，避免全屏横屏态直接返回上级页面时全 App 滞留横屏锁
+  useEffect(() => {
+    return () => {
+      if (wasFullscreenRef.current) {
+        try { ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP); } catch {}
+      }
+    };
+  }, []);
 
   // 偏差 2 修复：全屏中出错（error 置位）统一退出全屏回非全屏错误层，方向随 appFullscreen 解锁，避免层卸载但状态/方向锁滞留
   useEffect(() => {
@@ -2035,6 +2047,7 @@ backgroundColor: 'transparent',
                 onNext={nextEpisode ? handleNextEpisode : undefined}
                 onOpenSettings={() => setSettingsVisible(true)}
                 onPiP={isPictureInPictureSupported() ? handleFullscreenPiP : undefined}
+                onExitFullscreen={exitAppFullscreen}
                 onCastDeviceSelect={fsCastOnDeviceSelect}
                 onCastSearch={castManager.searchDevices}
                 onInteract={showFsControlsTemporarily}
