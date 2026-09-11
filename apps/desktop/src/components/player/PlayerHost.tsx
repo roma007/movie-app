@@ -323,6 +323,7 @@ export function PlayerHost() {
       url: `/?view=pip&d=${encodeURIComponent(JSON.stringify(buildPipPayload(session, currentTime)))}`,
       title: '画中画',
       decorations: false,
+      transparent: true,
       alwaysOnTop: true,
       resizable: true,
       maximizable: false,
@@ -340,21 +341,6 @@ export function PlayerHost() {
       console.error('[PlayerHost] 打开画中画窗口失败:', e);
       setPipActive(false);
     });
-  };
-
-  /** 系统原生画中画（macOS 系统 PiP）：与自定义窗口并存，供对比观感。 */
-  const openNativePiP = async () => {
-    const p = playerRef.current;
-    if (!p) return;
-    if (document.pictureInPictureElement) {
-      p.exitPictureInPicture().catch((err: unknown) => {
-        console.error('[PlayerHost] 退出系统画中画失败:', err);
-      });
-    } else {
-      p.enterPictureInPicture().catch((err: unknown) => {
-        console.error('[PlayerHost] 进入系统画中画失败:', err);
-      });
-    }
   };
 
   const handleNextEpisode = () => {
@@ -445,7 +431,6 @@ export function PlayerHost() {
             keyTarget="document"
             autoPlay={!pipActive}
             onPipOpen={() => void openNativePipWindow()}
-            onNativePipOpen={() => void openNativePiP()}
             sources={session.sources}
             initialSourceId={session.playSourceId ?? undefined}
             initialCurrentTime={session.currentTime}

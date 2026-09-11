@@ -1,4 +1,5 @@
 mod video_fetch;
+mod pip_window;
 mod window_state;
 
 use tauri::{Manager, WindowEvent};
@@ -31,7 +32,8 @@ pub fn run() {
             video_fetch::prewarm,
             video_fetch::log_line,
             window_state::get_window_state,
-            window_state::set_window_remember
+            window_state::set_window_remember,
+            pip_window::style_pip_window
         ]);
 
     #[cfg(desktop)]

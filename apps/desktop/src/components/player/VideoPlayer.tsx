@@ -52,10 +52,8 @@ interface VideoPlayerProps {
   volume?: number;
   muted?: boolean;
   autoPlay?: boolean;
-  /** 自定义画中画入口（Tauri 原生子窗口）；未传则不显示按钮 */
+  /** macOS 下引擎内置画中画被禁用，此回调提供替代入口（原生子窗口）；未传则不显示按钮 */
   onPipOpen?: () => void;
-  /** 系统原生画中画入口（macOS 系统 PiP）；未传则不显示按钮 */
-  onNativePipOpen?: () => void;
   playerRef?: React.Ref<MediaPlayerInstance>;
   keyTarget?: 'document' | 'player';
   /** 空格切换播放/暂停的回调；主窗口由 PlayerHost 统一接管时空格不传此 prop（避免双切换），pip 窗口传入。 */
@@ -75,7 +73,6 @@ export function VideoPlayer({
   muted,
   autoPlay = true,
   onPipOpen,
-  onNativePipOpen,
   playerRef,
   keyTarget = 'document',
   onSpaceToggle,
@@ -613,60 +610,20 @@ export function VideoPlayer({
           smallLayoutWhen={false}
           translations={ZH_TRANSLATIONS}
           slots={{
-            pipButton:
-              onPipOpen || onNativePipOpen ? (
-                <div className="flex items-center gap-1">
-                  {onNativePipOpen &&
-                    typeof document !== 'undefined' &&
-                    document.pictureInPictureEnabled && (
-                      <button
-                        type="button"
-                        className="vds-button"
-                        aria-label="系统画中画"
-                        title="系统画中画"
-                        onClick={() => onNativePipOpen()}
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          width="20"
-                          height="20"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <rect x="3" y="6" width="18" height="14" rx="2" />
-                          <path d="M3 10a3 3 0 0 1 3-3h13a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2" />
-                          <rect x="13" y="13" width="7" height="5" rx="1" fill="currentColor" stroke="none" />
-                        </svg>
-                      </button>
-                    )}
-                  {onPipOpen && (
-                    <button
-                      type="button"
-                      className="vds-button"
-                      aria-label="画中画窗口"
-                      title="画中画窗口"
-                      onClick={() => onPipOpen()}
-                    >
-                      <svg
-                        viewBox="0 0 24 24"
-                        width="20"
-                        height="20"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <rect x="2" y="4" width="20" height="16" rx="2" />
-                        <rect x="12" y="12" width="8" height="6" rx="1" fill="currentColor" stroke="none" />
-                      </svg>
-                    </button>
-                  )}
-                </div>
-              ) : null,
+            pipButton: onPipOpen ? (
+              <button
+                type="button"
+                className="vds-button"
+                aria-label="画中画"
+                title="画中画"
+                onClick={() => onPipOpen()}
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="4" width="20" height="16" rx="2" />
+                  <rect x="12" y="12" width="8" height="6" rx="1" fill="currentColor" stroke="none" />
+                </svg>
+              </button>
+            ) : null,
             settingsMenuItemsStart: (
               <>
                 <ColorControls
