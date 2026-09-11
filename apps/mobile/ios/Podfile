@@ -27,6 +27,11 @@ prepare_react_native_project!
 target 'MovieApp' do
   use_expo_modules!
 
+  # Local dev pod: mirrors the external `libdav1d` (SDWebImage/libdav1d-Xcode) but with
+  # the dav1d submodule vendored in full, because CocoaPods' shallow submodule fetch
+  # fails to materialize dav1d/src in the external-source flow.
+  pod 'libdav1d', :path => './libdav1d-local'
+
   if ENV['EXPO_USE_COMMUNITY_AUTOLINKING'] == '1'
     config_command = ['node', '-e', "process.argv=['', '', 'config'];require('@react-native-community/cli').run()"];
   else

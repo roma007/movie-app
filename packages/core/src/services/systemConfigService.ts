@@ -64,13 +64,13 @@ const DEFAULT_SHORT_DRAMA_CONFIG: ShortDramaConfig = {
 };
 
 const DEFAULT_COLLECT_CONFIG: CollectConfig = {
-  minYear: 2025,
+  minYear: 1950,
   retryTimes: 3,
-  pageSize: 20,
-  maxPages: 100,
-  incrementalMaxPages: 100,
+  pageSize: 100,
+  maxPages: 10000,
+  incrementalMaxPages: 10000,
   maxIncrementalHours: 720,
-  concurrency: 6,
+  concurrency: 20,
   autoEnabled: false,
   autoIntervalHours: 24,
   autoOnStartup: false,

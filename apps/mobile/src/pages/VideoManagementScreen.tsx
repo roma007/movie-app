@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { ArrowLeft, X, Plus } from 'lucide-react-native';
-import { useAppStore } from '../useAppStore';
+import { useAppStore, getProvider } from '../useAppStore';
 import { clearCategoryFilterCache } from '../categoryFilterCache';
+import { formatBytes, getCacheSizeBytes, clearCache } from '../services/cacheManager';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
 import { useScaledFontSize } from '../themes/useScaledFontSize';
@@ -24,6 +25,17 @@ const CONFIG_TABS = [
   { id: 2, badge: '②', label: '探测时长' },
   { id: 3, badge: '③', label: '关键词' },
 ];
+
+function mediaTypeLabel(type: string): string {
+  switch (type) {
+    case 'MOVIE': return '电影';
+    case 'TV': return '电视剧';
+    case 'VARIETY': return '综艺';
+    case 'ANIME': return '动漫';
+    case 'DOCUMENTARY': return '纪录片';
+    default: return '其他';
+  }
+}
 
 interface TagEditorProps {
   items: string[];
@@ -188,6 +200,10 @@ export default function VideoManagementScreen({ navigation }: Props) {
   const [deletingOrphans, setDeletingOrphans] = useState(false);
   const [hiddenCount, setHiddenCount] = useState(0);
 
+  const [mediaStats, setMediaStats] = useState<{ total: number; byType: { type: string; count: number }[] } | null>(null);
+  const [cacheSize, setCacheSize] = useState(0);
+  const [clearingCache, setClearingCache] = useState(false);
+
   const [deleting, setDeleting] = useState(false);
   const [deleteResult, setDeleteResult] = useState<{ deleted: number } | null>(null);
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
@@ -218,6 +234,19 @@ export default function VideoManagementScreen({ navigation }: Props) {
     loadReprobeMediaList();
     loadRunningReprobeTask();
     getFullReprobeMediaCount().then(setFullReprobeMediaCount).catch(() => {});
+    (async () => {
+      try {
+        const provider = getProvider();
+        const [totalRow, byType] = await Promise.all([
+          provider.selectOne<{ count: number }>('SELECT COUNT(*) as count FROM media'),
+          provider.select<{ type: string; count: number }>('SELECT type, COUNT(*) as count FROM media GROUP BY type'),
+        ]);
+        setMediaStats({ total: totalRow?.count || 0, byType: byType || [] });
+      } catch (err) {
+        console.error('[VideoManageStats] 统计加载失败:', err);
+      }
+    })();
+    setTimeout(() => setCacheSize(getCacheSizeBytes()), 150);
   }, []);
 
   useEffect(() => {
@@ -284,6 +313,28 @@ export default function VideoManagementScreen({ navigation }: Props) {
       startReprobePolling(runningReprobeTask.taskId, full);
     }
   }, [runningReprobeTask, startReprobePolling]);
+
+  const handleClearCache = () => {
+    Alert.alert(
+      '清理缓存',
+      `将删除全部缓存文件（当前约 ${formatBytes(cacheSize)}），包括视频分片等临时文件。清理后再次播放时会自动重新缓存。确定清理？`,
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '清理',
+          style: 'destructive',
+          onPress: () => {
+            setClearingCache(true);
+            setTimeout(() => {
+              try { clearCache(); } catch {}
+              setCacheSize(getCacheSizeBytes());
+              setClearingCache(false);
+            }, 60);
+          },
+        },
+      ],
+    );
+  };
 
   const handleDeleteAll = () => {
     Alert.alert(
@@ -549,6 +600,8 @@ export default function VideoManagementScreen({ navigation }: Props) {
     statBox: { flex: 1, alignItems: 'center', paddingVertical: 10, backgroundColor: surfaceBg, borderRadius: radius.md },
     statNumber: { fontSize: s(20), fontWeight: 'bold' },
     statLabel: { fontSize: s(11), color: colors.mutedForeground, marginTop: 2 },
+    statsGridWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    statBoxWide: { width: '30%', alignItems: 'center', paddingVertical: 10, backgroundColor: surfaceBg, borderRadius: radius.md },
     infoRow: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, backgroundColor: surfaceBg, borderRadius: radius.md },
     infoText: { fontSize: s(13), color: colors.textSecondary, flex: 1 },
     infoBold: { fontWeight: '600', color: colors.text },
@@ -578,6 +631,42 @@ export default function VideoManagementScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.content}>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>数据统计</Text>
+          <Text style={styles.cardDesc}>查看视频数据统计与应用缓存占用</Text>
+
+          {mediaStats ? (
+            <View style={styles.statsGridWrap}>
+              <View style={styles.statBoxWide}>
+                <Text style={[styles.statNumber, { color: colors.text }]}>{mediaStats.total}</Text>
+                <Text style={styles.statLabel}>总视频数</Text>
+              </View>
+              <View style={styles.statBoxWide}>
+                <Text style={[styles.statNumber, { color: colors.text }]}>{hiddenCount}</Text>
+                <Text style={styles.statLabel}>已隐藏</Text>
+              </View>
+              {mediaStats.byType.map((item) => (
+                <View key={item.type || 'unknown'} style={styles.statBoxWide}>
+                  <Text style={[styles.statNumber, { color: colors.text }]}>{item.count}</Text>
+                  <Text style={styles.statLabel}>{mediaTypeLabel(item.type)}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          <View style={styles.infoRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoText}>
+                缓存大小：<Text style={styles.infoBold}>{formatBytes(cacheSize)}</Text>
+              </Text>
+              <Text style={styles.configDesc}>视频分片等临时文件，清理后播放时自动重建</Text>
+            </View>
+            <Button variant="destructive" size="sm" loading={clearingCache} onPress={handleClearCache}>
+              清理缓存
+            </Button>
+          </View>
+        </View>
+
         <View style={styles.card}>
           <Text style={styles.cardTitle}>长短剧判断配置</Text>
           <Text style={styles.cardDesc}>配置三层判断逻辑的参数。修改配置后需重新探测才能生效。</Text>

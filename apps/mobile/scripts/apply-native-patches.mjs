@@ -554,7 +554,7 @@ function patchIOSPictureInPicture() {
   );
   content = content.replace(
     '    if self.responds(to: selectorToStartPictureInPicture) {\n      self.perform(selectorToStartPictureInPicture)\n    }\n  }\n\n  func stopPictureInPicture()',
-    '    if self.responds(to: selectorToStartPictureInPicture) {\n      self.perform(selectorToStartPictureInPicture)\n    }\n    }\n  }\n\n  func stopPictureInPicture()'
+    '    if self?.responds(to: selectorToStartPictureInPicture) == true {\n      self?.perform(selectorToStartPictureInPicture)\n    }\n    }\n  }\n\n  func stopPictureInPicture()'
   );
   writeFileSync(file, content);
   console.log('[patch] iOS expo-video PiP 已打补丁（主线程调度 startPictureInPicture）');

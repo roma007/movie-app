@@ -13,8 +13,10 @@ Pod::Spec.new do |s|
 
   s.platform       = :ios, '13.0'
   s.swift_version  = '5.5'
+  s.static_framework = true
 
   s.dependency 'ExpoModulesCore'
+  install_modules_dependencies(s)
 
   s.source_files = '**/*.swift'
 end
