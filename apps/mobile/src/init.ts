@@ -77,17 +77,6 @@ export async function initApp(): Promise<void> {
     } catch (err) {
       console.error('[INIT] 启动推荐分重建调度失败:', err);
     }
-
-    // 预热分类页筛选缓存：与桌面端 init Step 4e 对齐，
-    // 结果写入 createStore 共享筛选缓存，用户首次进分类页即命中（避免首屏聚合查询延迟）。
-    setTimeout(() => {
-      const st = store.getState();
-      for (const type of ['MOVIE', 'TV', 'VARIETY', 'ANIME', 'DOCUMENTARY'] as const) {
-        void st.getSubTypesByType(type, undefined, true).catch(() => {});
-        void st.getYearsByType(type).catch(() => {});
-        void st.getAreasByType(type).catch(() => {});
-      }
-    }, 6000);
   })();
   return s.initPromise;
 }

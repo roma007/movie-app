@@ -239,6 +239,13 @@ export class TauriSqlProvider implements DatabaseProvider {
     } catch (err) {
       console.error('[DB] 清理超大 failed_items 失败:', err);
     }
+
+    // 9. 收束 WAL 文件（异常退出可能残留几百 MB WAL，冷启动慢）：非阻塞，失败不阻断启动
+    try {
+      await this.db!.execute('PRAGMA wal_checkpoint(TRUNCATE);');
+    } catch (err) {
+      console.error('[DB] WAL checkpoint 失败:', err);
+    }
   }
 
   /**
@@ -333,9 +340,21 @@ export class TauriSqlProvider implements DatabaseProvider {
     // 增量迁移：为已有 media 表补齐「越看越懂你」推荐分列
     await this.addColumnIfMissing('media', 'personal_score', 'INTEGER');
     // 清理历史 CMS 评分补充数据（幂等，评分只保留豆瓣抓取结果）
-    await this.db!.execute(
-      `UPDATE media SET rating = NULL, rating_count = NULL, rating_source = NULL, rating_updated_at = NULL WHERE rating_source = 'CMS'`
+    // 一次性数据清理：标记已存在则跳过。历史 CMS 评分只清理一次（已有库 0 匹配时
+    // WHERE rating_source='CMS' 无法走索引，冷启动仍会全表扫约 12s），避免每次启动全表扫。
+    const ratingFixedRows = await this.db!.select<{ value: string }[]>(
+      "SELECT value FROM system_config WHERE key = 'db.cmsRatingCleaned'"
     );
+    if (ratingFixedRows.length === 0) {
+      await this.db!.execute(
+        `UPDATE media SET rating = NULL, rating_count = NULL, rating_source = NULL, rating_updated_at = NULL WHERE rating_source = 'CMS'`
+      );
+      const now = new Date().toISOString();
+      await this.db!.execute(
+        "INSERT INTO system_config (key, value, value_type, created_at, updated_at) VALUES ('db.cmsRatingCleaned', '1', 'string', ?, ?)",
+        [now, now]
+      );
+    }
     // 增量迁移：为已有 video_source 表补齐健康检查相关列
     await this.addColumnIfMissing('video_source', 'last_success_at', 'TEXT');
     await this.addColumnIfMissing('video_source', 'avg_response_time', 'INTEGER');
@@ -417,6 +436,24 @@ export class TauriSqlProvider implements DatabaseProvider {
   }
 
   private async fixGenreData(): Promise<void> {
+    // 一次性数据修复：标记已存在则跳过（历史坏数据只修一次，避免每次启动全表扫 LIKE）
+    const doneRows = await this.db!.select<{ value: string }[]>(
+      "SELECT value FROM system_config WHERE key = 'db.genreFixDone'"
+    );
+    if (doneRows.length > 0) return;
+
+    const now = new Date().toISOString();
+    const probe = await this.db!.select<{ id: string }[]>(
+      "SELECT id, genre FROM media WHERE genre IS NOT NULL AND genre LIKE '%[\"%' AND genre LIKE '%,%' LIMIT 1"
+    );
+    if (probe.length === 0) {
+      await this.db!.execute(
+        "INSERT INTO system_config (key, value, value_type, created_at, updated_at) VALUES ('db.genreFixDone', '1', 'string', ?, ?)",
+        [now, now]
+      );
+      return;
+    }
+
     const rows = await this.db!.select<{ id: string; genre: string }[]>(
       "SELECT id, genre FROM media WHERE genre IS NOT NULL AND genre LIKE '%[\"%' AND genre LIKE '%,%'"
     );
@@ -434,6 +471,10 @@ export class TauriSqlProvider implements DatabaseProvider {
         }
       } catch { /* skip invalid JSON */ }
     }
+    await this.db!.execute(
+      "INSERT INTO system_config (key, value, value_type, created_at, updated_at) VALUES ('db.genreFixDone', '1', 'string', ?, ?)",
+      [now, now]
+    );
     if (fixed > 0) {
       console.log(`Fixed ${fixed} media records with comma-separated genre in first element`);
     }
@@ -511,8 +552,10 @@ export class TauriSqlProvider implements DatabaseProvider {
    */
   private async rebuildFts5(): Promise<void> {
     // ── 阶段 1：检测 FTS5 是否可用 ──
+    // 用 rowid LIMIT 1 探测（2ms）而非 count(*)（约 14s 全扫 23 万行 FTS 索引）：
+    // FTS5 损坏时同样抛错进入修复分支，语义等价但启动零成本。
     try {
-      await this.db!.execute('SELECT count(*) FROM media_fts LIMIT 1');
+      await this.db!.execute('SELECT rowid FROM media_fts LIMIT 1');
       return; // FTS5 正常，跳过重建
     } catch {
       // FTS5 不可用，继续修复
@@ -1230,6 +1273,16 @@ export class TauriSqlProvider implements DatabaseProvider {
   }
 
   async syncHiddenByGenres(): Promise<number> {
+    // 指纹跳过：hidden_genre 未变化则无需重扫 media（避免每次启动 20 万行全表扫 12s+）
+    const genreRows = await this.db!.select<{ sub_type: string }[]>(
+      'SELECT sub_type FROM hidden_genre ORDER BY sub_type'
+    );
+    const fingerprint = JSON.stringify(genreRows.map((r) => r.sub_type));
+    const cfgRows = await this.db!.select<{ value: string }[]>(
+      "SELECT value FROM system_config WHERE key = 'db.hiddenGenreFingerprint'"
+    );
+    if (cfgRows.length > 0 && cfgRows[0].value === fingerprint) return 0;
+
     const uncategorizedCondition =
       "(genre IS NULL OR genre = '' OR genre = '[]' OR json_extract(genre, '$[0]') IS NULL OR json_extract(genre, '$[0]') = '')";
     const whereClause =
@@ -1249,6 +1302,11 @@ export class TauriSqlProvider implements DatabaseProvider {
         params
       );
     }
+    const now = new Date().toISOString();
+    await this.db!.execute(
+      "INSERT INTO system_config (key, value, value_type, created_at, updated_at) VALUES ('db.hiddenGenreFingerprint', ?, 'string', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+      [fingerprint, now, now]
+    );
     return matched;
   }
 

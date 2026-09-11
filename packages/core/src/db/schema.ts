@@ -254,6 +254,9 @@ export const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_collection_log_task ON collection_log(task_id);
 
   CREATE INDEX IF NOT EXISTS idx_episode_media_season_source ON episode(media_id, season_number, source_id);
+  -- 视频源统计聚合查询（getMediaCountBySourceIdMap）的覆盖索引：
+  -- COUNT(DISTINCT media_id) GROUP BY source_id 避免全表扫 + 两个 TEMP B-TREE（590 万行耗时 25s）
+  CREATE INDEX IF NOT EXISTS idx_episode_source_id_media_id ON episode(source_id, media_id);
   CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source(episode_id);
   CREATE INDEX IF NOT EXISTS idx_play_source_source_id ON play_source(source_id);
   CREATE INDEX IF NOT EXISTS idx_favorite_media_id ON favorite(media_id);

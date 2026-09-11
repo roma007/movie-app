@@ -29,6 +29,23 @@ function clearMediaFilterCache(): void {
   mediaFilterCache.clear();
 }
 
+// 视频源统计计数缓存：getMediaCountBySourceIdMap 对 590 万行 episode 全表扫 + 两个 TEMP B-TREE
+// 实测 25s，且源管理页采集轮询每 5s 触发一次。TTL 60s 内复用上次结果，采集完成后 clearVideoSourceCountCache 失效。
+let videoSourceCountCache: { t: number; data: Map<string, number> } | null = null;
+const VIDEO_SOURCE_COUNT_TTL = 60 * 1000;
+
+async function getVideoSourceCountMap(db: DatabaseProvider): Promise<Map<string, number>> {
+  const cached = videoSourceCountCache;
+  if (cached && Date.now() - cached.t < VIDEO_SOURCE_COUNT_TTL) return cached.data;
+  const data = await db.getMediaCountBySourceIdMap();
+  videoSourceCountCache = { t: Date.now(), data };
+  return data;
+}
+
+function clearVideoSourceCountCache(): void {
+  videoSourceCountCache = null;
+}
+
 // 自动刷新 globalThis 上的当前指纹，与 store 实例创建时打的指纹对比，不一致说明单例是旧代码建的，
 // init 层 getStore() 据此整包重载。无需手动维护版本号。
 function fingerprintSource(src: string): string {
@@ -485,7 +502,7 @@ export function createAppStore(db: DatabaseProvider) {
         set({ error: err.message });
         return;
       }
-      db.getMediaCountBySourceIdMap()
+      getVideoSourceCountMap(db)
         .then((countMap) => {
           set({
             videoSources: get().videoSources.map((s) => ({
@@ -829,6 +846,7 @@ export function createAppStore(db: DatabaseProvider) {
     collectSourceLatest: async (sourceCode: string) => {
       try {
         const result = await collectorService.collectSourceLatest(sourceCode);
+        clearVideoSourceCountCache();
         await get().loadMediaList();
         await get().loadVideoSources();
         return { success: true, taskId: result.taskId, collected: result.collected };
@@ -857,6 +875,7 @@ export function createAppStore(db: DatabaseProvider) {
       try {
         const result = await collectorService.collectSourceAll(sourceCode);
         clearMediaFilterCache();
+        clearVideoSourceCountCache();
         await get().loadMediaList();
         await get().loadVideoSources();
         return { success: true, taskId: result.taskId, collected: result.collected, pages: result.pages };
@@ -884,6 +903,7 @@ export function createAppStore(db: DatabaseProvider) {
     resumeCollectTask: async (taskId: string) => {
       try {
         const result = await collectorService.resumeCollectTask(taskId);
+        clearVideoSourceCountCache();
         await get().loadMediaList();
         await get().loadVideoSources();
         await get().loadCollectTasks();
@@ -899,6 +919,7 @@ export function createAppStore(db: DatabaseProvider) {
     retryFailedItems: async (taskId: string) => {
       try {
         const result = await collectorService.retryFailedItems(taskId);
+        clearVideoSourceCountCache();
         await get().loadMediaList();
         await get().loadVideoSources();
         await get().loadCollectTasks();
@@ -1201,6 +1222,7 @@ export function createAppStore(db: DatabaseProvider) {
 
     deleteMediaWithoutPlaySource: async () => {
       const deletedCount = await db.deleteMediaWithoutPlaySource();
+      clearVideoSourceCountCache();
       await get().loadMediaList();
       await get().loadVideoSources();
       return deletedCount;

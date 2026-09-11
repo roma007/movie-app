@@ -417,6 +417,11 @@ const MIGRATIONS: Migration[] = [
           DROP INDEX IF EXISTS idx_episode_source_id;
           DROP INDEX IF EXISTS idx_play_source_source_id_episode_id;`,
   },
+  {
+    version: 48,
+    description: 'add_episode_source_id_media_id_covering_index',
+    sql: `CREATE INDEX IF NOT EXISTS idx_episode_source_id_media_id ON episode(source_id, media_id);`,
+  },
 ];
 
 /**
@@ -532,9 +537,8 @@ export class ExpoSqliteProvider implements DatabaseProvider {
       }
 
       const tIdx = Date.now();
-      await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_episode_media_id ON episode(media_id);');
+      await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_episode_source_id_media_id ON episode(source_id, media_id);');
       await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source(episode_id);');
-      await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_play_source_source_id_episode_id ON play_source(source_id, episode_id);');
       await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_favorite_media_id ON favorite(media_id);');
       await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_watch_history_media_id ON watch_history(media_id);');
       timing.post_indexes = Date.now() - tIdx;
@@ -1290,6 +1294,17 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   }
 
   async syncHiddenByGenres(): Promise<number> {
+    // 指纹跳过：hidden_genre 未变化则无需重扫 media（避免每次启动全表扫）
+    const genreRows = await this.db!.getAllAsync<{ sub_type: string }>(
+      'SELECT sub_type FROM hidden_genre ORDER BY sub_type'
+    );
+    const fingerprint = JSON.stringify(genreRows.map((r) => r.sub_type));
+    const cfgRows = await this.db!.getAllAsync<{ value: string }>(
+      "SELECT value FROM system_config WHERE key = 'db.hiddenGenreFingerprint'"
+    );
+    const existingFp = cfgRows.length > 0 ? cfgRows[0].value : null;
+    if (existingFp !== null && existingFp === fingerprint) return 0;
+
     const uncategorizedCondition =
       "(genre IS NULL OR genre = '' OR genre = '[]' OR json_extract(genre, '$[0]') IS NULL OR json_extract(genre, '$[0]') = '')";
     const whereClause =
@@ -1309,6 +1324,11 @@ export class ExpoSqliteProvider implements DatabaseProvider {
         params
       );
     }
+    const now = new Date().toISOString();
+    await this.db!.runAsync(
+      "INSERT INTO system_config (key, value, value_type, created_at, updated_at) VALUES ('db.hiddenGenreFingerprint', ?, 'string', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+      [fingerprint, now, now]
+    );
     return matched;
   }
 
