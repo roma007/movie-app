@@ -1539,8 +1539,10 @@ const title = await normalizer.normalizeTitle(item.vod_name);
           lastErrorMsg = errMsg;
           lastErrorType = errType;
           failed++;
+          const exceedPagecount = knownPagecount > 0 && page > knownPagecount;
           await this.db.updateCollectTask(taskId, {
-            currentPage: page,
+            currentPage: knownPagecount > 0 ? Math.min(page, knownPagecount) : page,
+            ...(knownPagecount > 0 ? { totalPages: Math.min(knownPagecount, config.incrementalMaxPages) } : {}),
             failedCount: failed,
             errorMessage: getFriendlyErrorMessage(errType, page),
             errorType: errType,
@@ -1548,6 +1550,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
           });
 
           page++;
+          if (exceedPagecount) break;
         }
       }
 
@@ -1755,8 +1758,10 @@ const title = await normalizer.normalizeTitle(item.vod_name);
           lastErrorMsg = errMsg;
           lastErrorType = errType;
           failed++;
+          const exceedPagecount = knownPagecount > 0 && page > knownPagecount;
           await this.db.updateCollectTask(taskId, {
-            currentPage: page,
+            currentPage: knownPagecount > 0 ? Math.min(page, knownPagecount) : page,
+            ...(knownPagecount > 0 ? { totalPages: Math.min(knownPagecount, config.maxPages) } : {}),
             failedCount: failed,
             errorMessage: getFriendlyErrorMessage(errType, page),
             errorType: errType,
@@ -1764,6 +1769,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
           });
 
           page++;
+          if (exceedPagecount) break;
         }
       }
 
