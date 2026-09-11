@@ -211,16 +211,25 @@ export class TauriSqlProvider implements DatabaseProvider {
     // 3. 检测并清理旧数据库（经历过 Rust 迁移的数据库）
     await this.migrateFromOldSchema();
 
-    // 4. 执行完整 schema（幂等，全部 IF NOT EXISTS）
+    // 4. 清理历史冗余索引（释放空间，不影响查询）
+    try {
+      await this.db!.execute('DROP INDEX IF EXISTS idx_episode_media_id;');
+      await this.db!.execute('DROP INDEX IF EXISTS idx_episode_source_id;');
+      await this.db!.execute('DROP INDEX IF EXISTS idx_play_source_source_id_episode_id;');
+    } catch (err) {
+      console.error('[DB] 清理冗余索引失败:', err);
+    }
+
+    // 5. 执行完整 schema（幂等，全部 IF NOT EXISTS）
     await this.initSchema();
 
-    // 5. 插入默认视频源
+    // 6. 插入默认视频源
     await this.insertDefaultSources();
 
-    // 6. 将历史内置 HTTP 源升级为 HTTPS（iOS ATS 会拦截明文 http）
+    // 7. 将历史内置 HTTP 源升级为 HTTPS（iOS ATS 会拦截明文 http）
     await this.upgradeSourceUrlsToHttps();
 
-    // 7. 清理历史超大 failed_items blob（早期版本逐页累积无上限）：仅清理已结束
+    // 8. 清理历史超大 failed_items blob（早期版本逐页累积无上限）：仅清理已结束
     //    状态（COMPLETED/FAILED/ABANDONED）的 >128KB 失败明细，绝不动 RUNNING/PENDING
     //    未完成任务（其续采依赖 currentPage/failed_items 等）。
     try {

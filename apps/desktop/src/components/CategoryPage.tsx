@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import type { Media } from '@movie-app/core';
+import type { Media, PaginatedResponse } from '@movie-app/core';
 import { useAppStore } from '../useAppStore';
 import { getProvider, getStore } from '../init';
 import { openMediaPlay } from '../utils/openMediaPlay';
@@ -135,7 +135,7 @@ const typeNames: Record<string, string> = {
 };
 
 export default function CategoryPage({ type }: CategoryPageProps) {
-  const { mediaList, mediaMeta, isLoading, loadMediaList, getSubTypesByType, getYearsByType, getAreasByType, hasShortDrama } = useAppStore();
+  const { getSubTypesByType, getYearsByType, getAreasByType, hasShortDrama } = useAppStore();
   const setBgImage = useBackgroundStore((s) => s.setBgImage);
   const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -165,6 +165,9 @@ export default function CategoryPage({ type }: CategoryPageProps) {
   const [showColumnsMenu, setShowColumnsMenu] = useState(false);
   const [showShortDramaFilter, setShowShortDramaFilter] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
+  const [localMediaList, setLocalMediaList] = useState<Media[]>([]);
+  const [localMediaMeta, setLocalMediaMeta] = useState<PaginatedResponse<Media>['meta'] | null>(null);
+  const [localIsLoading, setLocalIsLoading] = useState(true);
   const hasRestoredScroll = useRef(false);
   const hasTriggeredLoad = useRef(false);
   const columnsMenuRef = useRef<HTMLDivElement>(null);
@@ -183,7 +186,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
   }, [showColumnsMenu]);
 
   useEffect(() => {
-    const first = mediaList[0];
+    const first = localMediaList[0];
     if (!first?.posterUrl) {
       setBgImage(null);
       return () => clearBgImage();
@@ -191,7 +194,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
 
     setBgImage(first.posterUrl);
     return () => clearBgImage();
-  }, [mediaList, setBgImage, clearBgImage]);
+  }, [localMediaList, setBgImage, clearBgImage]);
 
   useEffect(() => {
     const subType = searchParams.get('subType');
@@ -215,26 +218,46 @@ export default function CategoryPage({ type }: CategoryPageProps) {
   };
 
   useEffect(() => {
-    loadMediaList({ page: currentPage, pageSize, type, sort, subType: activeSubType, year: activeYear, area: activeArea, isShortDrama: activeEpisodeType === 'short' ? true : activeEpisodeType === 'long' ? false : undefined });
+    let cancelled = false;
+    const load = async () => {
+      setLocalIsLoading(true);
+      try {
+        const result = await getProvider().listMedia({
+          page: currentPage, pageSize, type, sort,
+          subType: activeSubType, year: activeYear, area: activeArea,
+          isShortDrama: activeEpisodeType === 'short' ? true : activeEpisodeType === 'long' ? false : undefined,
+        });
+        if (!cancelled) {
+          setLocalMediaList(result.items);
+          setLocalMediaMeta(result.meta);
+        }
+      } catch (err) {
+        console.error('[CategoryPage] 加载列表失败:', err);
+      } finally {
+        if (!cancelled) setLocalIsLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
   }, [type, sort, activeSubType, activeYear, activeArea, activeEpisodeType, currentPage]);
 
   // 「越看越懂你」：记录每页展示；到达惩罚边界则触发重算
   useEffect(() => {
-    if (mediaList.length === 0) return;
+    if (localMediaList.length === 0) return;
     const shownAt = new Date().toISOString();
     void getProvider()
-      .recordImpressions(mediaList.map((m) => ({ mediaId: m.id, shownAt })))
+      .recordImpressions(localMediaList.map((m) => ({ mediaId: m.id, shownAt })))
       .then(() => {
         getStore().getState().scheduleRecommendationRecompute();
       })
       .catch((e) => console.error('记录列表展示失败:', e));
-  }, [mediaList]);
+  }, [localMediaList]);
 
   useEffect(() => {
-    if (isLoading) {
+    if (localIsLoading) {
       hasTriggeredLoad.current = true;
     }
-    if (!hasRestoredScroll.current && hasTriggeredLoad.current && !isLoading && mediaList.length > 0) {
+    if (!hasRestoredScroll.current && hasTriggeredLoad.current && !localIsLoading && localMediaList.length > 0) {
       hasRestoredScroll.current = true;
       const saved = sessionStorage.getItem(scrollKey);
       if (saved) {
@@ -245,7 +268,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
         }, 50);
       }
     }
-  }, [isLoading, mediaList]);
+  }, [localIsLoading, localMediaList]);
 
   useEffect(() => {
     fetchFilters();
@@ -320,7 +343,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
     });
   };
 
-  const totalPages = mediaMeta?.totalPages || 1;
+  const totalPages = localMediaMeta?.totalPages || 1;
 
   const displayedSubTypes = activeSubType && !subTypes.includes(activeSubType)
     ? [activeSubType, ...subTypes]
@@ -602,7 +625,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
             </div>
           </div>
 
-          {isLoading ? (
+          {localIsLoading ? (
             viewMode === 'grid' ? (
               <div className="grid grid-cols-6 gap-4">
                 {Array.from({ length: 18 }).map((_, i) => (
@@ -620,7 +643,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
             )
           ) : viewMode === 'grid' ? (
             <MediaGrid
-              items={mediaList}
+              items={localMediaList}
               navigateState={{ page: currentPage, type, sort, subType: activeSubType, year: activeYear, area: activeArea, episodeType: activeEpisodeType }}
               onBeforeNavigate={saveScrollPosition}
             />
@@ -640,7 +663,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {mediaList.map((m) => (
+                  {localMediaList.map((m) => (
                     <tr
                       key={m.id}
                       className="hover:bg-hover cursor-pointer transition-colors"

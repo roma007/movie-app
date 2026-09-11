@@ -28,10 +28,6 @@ export interface Rect {
 interface PlayerState {
   session: PlaybackSession | null;
   slotRect: Rect | null;
-  miniPos: { x: number; y: number } | null;
-  miniSize: { width: number; height: number };
-  collapsed: boolean;
-  miniPrefsInitialized: boolean;
   volume: number;
   muted: boolean;
 
@@ -47,13 +43,6 @@ interface PlayerState {
   handleTimeUpdate: (currentTime: number, duration: number) => void;
   updateNextEpisode: () => void;
   setSlotRect: (rect: Rect | null) => void;
-  setMiniPos: (pos: { x: number; y: number }) => void;
-  setMiniSize: (size: { width: number; height?: number }) => void;
-  setCollapsed: (collapsed: boolean) => void;
-  initMiniPrefs: () => void;
-  miniPlayerEnabled: boolean;
-  setMiniPlayerEnabled: (enabled: boolean) => void;
-  loadMiniPlayerPref: () => Promise<void>;
 
   pipActive: boolean;
   pipResumePlay: boolean;
@@ -62,12 +51,7 @@ interface PlayerState {
   applyPipTime: (currentTime: number, duration: number) => void;
 }
 
-const MINI_POS_KEY = 'movie_app_mini_pos';
-const MINI_SIZE_KEY = 'movie_app_mini_size';
 const VOLUME_KEY = 'movie_app_volume';
-const MINI_HEADER_H = 36;
-const MINI_WIDTH_MIN = 240;
-const MINI_HEIGHT_MIN = 160;
 
 const currentTimeRef = { value: 0 };
 const durationRef = { value: 0 };
@@ -121,17 +105,6 @@ async function finalSave(session: PlaybackSession | null): Promise<void> {
   }
 }
 
-function clampMiniSize(size: { width: number; height?: number }): { width: number; height: number } {
-  const maxW = Math.max(MINI_WIDTH_MIN, Math.floor(window.innerWidth));
-  const w = Math.min(maxW, Math.max(MINI_WIDTH_MIN, Math.round(size.width)));
-  const maxH = Math.max(MINI_HEIGHT_MIN, Math.floor(window.innerHeight));
-  const h = Math.min(
-    maxH,
-    Math.max(MINI_HEIGHT_MIN, Math.round(size.height ?? (w * 9) / 16 + MINI_HEADER_H)),
-  );
-  return { width: w, height: h };
-}
-
 function loadVolumePrefs(): { volume: number; muted: boolean } {
   try {
     const p = localStorage.getItem(VOLUME_KEY);
@@ -156,11 +129,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
   return {
     session: null,
     slotRect: null,
-    miniPos: null,
-    miniSize: { width: 400, height: Math.round((400 * 9) / 16) + MINI_HEADER_H },
-    collapsed: false,
-    miniPrefsInitialized: false,
-    miniPlayerEnabled: true,
     volume: volumePrefs.volume,
     muted: volumePrefs.muted,
 
@@ -169,40 +137,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       saveVolumePrefs(volume, muted);
     },
 
-    initMiniPrefs: () => {
-    if (get().miniPrefsInitialized) return;
-    let pos = null;
-    let size = null;
-    try {
-      const p = localStorage.getItem(MINI_POS_KEY);
-      if (p) pos = JSON.parse(p);
-      const s = localStorage.getItem(MINI_SIZE_KEY);
-      if (s) size = JSON.parse(s);
-    } catch {}
-    set({
-      miniPos: pos && typeof pos.x === 'number' && typeof pos.y === 'number' ? pos : null,
-      miniSize: size && typeof size.width === 'number' ? clampMiniSize(size) : { width: 400, height: Math.round((400 * 9) / 16) + MINI_HEADER_H },
-      miniPrefsInitialized: true,
-    });
-  },
-
-    setMiniPos: (pos) => set({ miniPos: pos }),
-    setMiniSize: (size) => set({ miniSize: clampMiniSize(size) }),
-    setCollapsed: (collapsed) => set({ collapsed }),
-
-    setMiniPlayerEnabled: (enabled) => set({ miniPlayerEnabled: enabled }),
-
-    loadMiniPlayerPref: async () => {
-      try {
-        const configService = new SystemConfigService(getProvider());
-        const cfg = await configService.getPlaybackConfig();
-        set({ miniPlayerEnabled: cfg.miniPlayerEnabled });
-      } catch (err) {
-        console.error('[playerStore] 读取小窗播放偏好失败:', err);
-      }
-    },
-
-  setSlotRect: (rect) => {
+    setSlotRect: (rect) => {
     const cur = get().slotRect;
     if (
       cur &&
@@ -498,7 +433,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     currentTimeRef.value = 0;
     durationRef.value = 0;
     lastSaveRef.value = 0;
-    set({ session: null, slotRect: null, collapsed: false });
+    set({ session: null, slotRect: null });
   },
 
   pipActive: false,

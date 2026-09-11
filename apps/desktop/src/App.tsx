@@ -51,7 +51,7 @@ function MainApp() {
         setError(`初始化超时，当前步骤: ${loadingStep}`);
         setReady(true);
       }
-    }, 60000);
+    }, 120000);
 
     initApp((step) => {
         setLoadingStep(step);
@@ -59,14 +59,12 @@ function MainApp() {
       .then(() => {
         console.log('初始化成功');
         setReady(true);
+        setError(null);
       })
       .catch((err) => {
         console.error('初始化失败:', err);
         setError(err?.message || String(err));
         setReady(true);
-      })
-      .finally(() => {
-        clearTimeout(timeoutId);
       });
 
     const logInterval = setInterval(() => {
@@ -78,6 +76,7 @@ function MainApp() {
     }, 2000);
 
     return () => {
+      clearTimeout(timeoutId);
       clearInterval(logInterval);
     };
   }, [ready, loadingStep]);

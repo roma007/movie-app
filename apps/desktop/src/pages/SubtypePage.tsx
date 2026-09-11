@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { useAppStore } from '../useAppStore';
+import type { Media, PaginatedResponse } from '@movie-app/core';
 import { getProvider, getStore } from '../init';
 import { useBackgroundStore } from '../themes/backgroundStore';
 import { MediaGrid } from '@/components/MediaCard';
@@ -31,7 +31,6 @@ export default function SubtypePage() {
   const { type = '', subType = '' } = useParams<{ type: string; subType: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { mediaList, mediaMeta, isLoading, loadMediaList } = useAppStore();
   const setBgImage = useBackgroundStore((s) => s.setBgImage);
   const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
   const [currentPage, setCurrentPage] = useState(() => {
@@ -41,6 +40,9 @@ export default function SubtypePage() {
   const [sort, setSort] = useState<'latest' | 'recommend'>(() => {
     return searchParams.get('sort') === 'latest' ? 'latest' : 'recommend';
   });
+  const [localMediaList, setLocalMediaList] = useState<Media[]>([]);
+  const [localMediaMeta, setLocalMediaMeta] = useState<PaginatedResponse<Media>['meta'] | null>(null);
+  const [localIsLoading, setLocalIsLoading] = useState(true);
 
   useEffect(() => {
     if (!type || !subType) return;
@@ -51,19 +53,35 @@ export default function SubtypePage() {
 
   useEffect(() => {
     if (!type || !subType) return;
-    loadMediaList({ page: currentPage, pageSize, type, subType, sort });
-  }, [type, subType, currentPage, sort, loadMediaList]);
+    let cancelled = false;
+    const load = async () => {
+      setLocalIsLoading(true);
+      try {
+        const result = await getProvider().listMedia({ page: currentPage, pageSize, type, subType, sort });
+        if (!cancelled) {
+          setLocalMediaList(result.items);
+          setLocalMediaMeta(result.meta);
+        }
+      } catch (err) {
+        console.error('[SubtypePage] 加载列表失败:', err);
+      } finally {
+        if (!cancelled) setLocalIsLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [type, subType, currentPage, sort]);
 
   useEffect(() => {
-    if (!type || !subType || mediaList.length === 0) return;
+    if (!type || !subType || localMediaList.length === 0) return;
     const shownAt = new Date().toISOString();
     void getProvider()
-      .recordImpressions(mediaList.map((m) => ({ mediaId: m.id, shownAt })))
+      .recordImpressions(localMediaList.map((m) => ({ mediaId: m.id, shownAt })))
       .then(() => {
         getStore().getState().scheduleRecommendationRecompute();
       })
       .catch((e) => console.error('记录列表展示失败:', e));
-  }, [type, subType, mediaList]);
+  }, [type, subType, localMediaList]);
 
   const loadPage = (page: number) => {
     setCurrentPage(page);
@@ -84,16 +102,17 @@ export default function SubtypePage() {
   };
 
   useEffect(() => {
-    const first = mediaList[0];
+    if (!type || !subType) return;
+    const first = localMediaList[0];
     if (!first?.posterUrl) {
       setBgImage(null);
       return () => clearBgImage();
     }
     setBgImage(first.posterUrl);
     return () => clearBgImage();
-  }, [mediaList, setBgImage, clearBgImage]);
+  }, [type, subType, localMediaList, setBgImage, clearBgImage]);
 
-  const totalPages = mediaMeta?.totalPages || 1;
+  const totalPages = localMediaMeta?.totalPages || 1;
   const typeName = typeNames[type] || type;
   const typeRoute = typeRoutes[type] || '/';
 
@@ -152,14 +171,14 @@ export default function SubtypePage() {
         </Button>
       </div>
 
-      {isLoading && mediaList.length === 0 ? (
+      {localIsLoading && localMediaList.length === 0 ? (
         <div className="grid grid-cols-6 gap-4">
           {Array.from({ length: 18 }).map((_, i) => (
             <Skeleton key={i} className="aspect-[2/3] rounded-lg animate-pulse-skeleton" />
           ))}
         </div>
-      ) : mediaList.length > 0 ? (
-        <MediaGrid items={mediaList} navigateState={navigateState} />
+      ) : localMediaList.length > 0 ? (
+        <MediaGrid items={localMediaList} navigateState={navigateState} />
       ) : (
         <Card className="card-shadow">
           <div className="p-16 text-center text-muted-foreground">
@@ -198,7 +217,7 @@ export default function SubtypePage() {
         </div>
       )}
 
-      {isLoading && mediaList.length > 0 && (
+      {localIsLoading && localMediaList.length > 0 && (
         <div className="text-center text-muted-foreground text-sm py-4">加载中...</div>
       )}
     </div>

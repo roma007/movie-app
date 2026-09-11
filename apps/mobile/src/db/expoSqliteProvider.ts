@@ -410,6 +410,13 @@ const MIGRATIONS: Migration[] = [
     description: 'add_failed_pages_to_collect_task',
     sql: `ALTER TABLE collect_task ADD COLUMN failed_pages TEXT;`,
   },
+  {
+    version: 47,
+    description: 'drop_redundant_episode_play_source_indexes',
+    sql: `DROP INDEX IF EXISTS idx_episode_media_id;
+          DROP INDEX IF EXISTS idx_episode_source_id;
+          DROP INDEX IF EXISTS idx_play_source_source_id_episode_id;`,
+  },
 ];
 
 /**
