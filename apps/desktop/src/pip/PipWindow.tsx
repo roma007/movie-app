@@ -71,7 +71,7 @@ function PipRoot() {
   const reachedOutroRef = useRef(false);
   const [skipForwardVisible, setSkipForwardVisible] = useState(false);
   const skipDismissedRef = useRef(false);
-  const skipEligibleRef = useRef((initialData?.currentTime ?? 0) < 5 * 60);
+  const skipEligibleRef = useRef((initialData?.currentTime ?? 0) < 2 * 60);
   const lastTimeRef = useRef(initialData?.currentTime ?? 0);
 
   useEffect(() => {
@@ -101,7 +101,7 @@ function PipRoot() {
     setOverlayVisible(false);
     overlayDismissedRef.current = false;
     reachedOutroRef.current = false;
-    skipEligibleRef.current = (data?.currentTime ?? 0) < 5 * 60;
+    skipEligibleRef.current = (data?.currentTime ?? 0) < 2 * 60;
     setSkipForwardVisible(false);
     skipDismissedRef.current = false;
     lastTimeRef.current = data?.currentTime ?? 0;
@@ -120,7 +120,9 @@ function PipRoot() {
         void emit('pip://time', { t, d });
       }
       const threshold = (data?.outroThresholdMinutes ?? 10) * 60;
-      const reached = d > threshold && t > 0 && d - t <= threshold;
+      // 短片（时长 ≤ 预热阈值）在剩余 60s 内触发；长片沿用阈值窗口
+      const outroWindow = d <= threshold ? 60 : threshold;
+      const reached = d > 0 && t > 0 && d - t <= outroWindow;
       reachedOutroRef.current = reached;
       const canShow =
         !overlayDismissedRef.current &&
@@ -140,9 +142,9 @@ function PipRoot() {
       }
       if (backwardSeek) {
         skipDismissedRef.current = false;
-        skipEligibleRef.current = t < 5 * 60;
+        skipEligibleRef.current = t < 2 * 60;
       }
-      if (t >= 5 * 60) {
+      if (t >= 2 * 60) {
         setSkipForwardVisible(false);
       } else if (
         skipEligibleRef.current &&

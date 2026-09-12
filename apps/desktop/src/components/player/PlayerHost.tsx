@@ -68,7 +68,7 @@ export function PlayerHost() {
     setOverlayVisible(false);
     overlayDismissedRef.current = false;
     reachedOutroRef.current = false;
-    skipEligibleRef.current = (session?.currentTime ?? 0) < 5 * 60;
+    skipEligibleRef.current = (session?.currentTime ?? 0) < 2 * 60;
     setSkipForwardVisible(false);
     skipDismissedRef.current = false;
     lastTimeRef.current = session?.currentTime ?? 0;
@@ -369,7 +369,9 @@ export function PlayerHost() {
   const handlePlayerTimeUpdate = (currentTime: number, duration: number) => {
     handleTimeUpdate(currentTime, duration);
     const threshold = (session.outroThresholdMinutes ?? 10) * 60;
-    const reachedOutro = duration > threshold && currentTime > 0 && duration - currentTime <= threshold;
+    // 短片（时长 ≤ 预热阈值）在剩余 60s 内触发；长片沿用阈值窗口
+    const outroWindow = duration <= threshold ? 60 : threshold;
+    const reachedOutro = duration > 0 && currentTime > 0 && duration - currentTime <= outroWindow;
     reachedOutroRef.current = reachedOutro;
     const canShow =
       !overlayDismissedRef.current &&
@@ -389,9 +391,9 @@ export function PlayerHost() {
     }
     if (backwardSeek) {
       skipDismissedRef.current = false;
-      skipEligibleRef.current = currentTime < 5 * 60;
+      skipEligibleRef.current = currentTime < 2 * 60;
     }
-    if (currentTime >= 5 * 60) {
+    if (currentTime >= 2 * 60) {
       setSkipForwardVisible(false);
     } else if (
       skipEligibleRef.current &&

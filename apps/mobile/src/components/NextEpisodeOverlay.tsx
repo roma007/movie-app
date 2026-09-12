@@ -13,9 +13,10 @@ interface Props {
   nextEpisodeTitle: string;
   onNext: () => void;
   onClose: () => void;
+  topOffset?: number;
 }
 
-export function NextEpisodeOverlay({ show, nextEpisodeTitle, onNext, onClose }: Props) {
+export function NextEpisodeOverlay({ show, nextEpisodeTitle, onNext, onClose, topOffset }: Props) {
   const colors = useThemeColors();
   const s = useScaledFontSize();
   const cardOpacity = useThemeStore((s) => s.cardOpacity);
@@ -23,7 +24,7 @@ export function NextEpisodeOverlay({ show, nextEpisodeTitle, onNext, onClose }: 
   const styles = useMemo(() => StyleSheet.create({
     container: {
       position: 'absolute',
-      top: 8,
+      top: topOffset ?? 8,
       right: 8,
       zIndex: 30,
       backgroundColor: hexToRgba(colors.card, cardOpacity / 100),
@@ -42,7 +43,7 @@ export function NextEpisodeOverlay({ show, nextEpisodeTitle, onNext, onClose }: 
     closeButton: {
       padding: 2,
     },
-  }), [colors, s, cardOpacity]);
+  }), [colors, s, cardOpacity, topOffset]);
 
   if (!show) return null;
 

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Movie App",
     "slug": "movie-app",
-    "version": "1.0.121",
+    "version": "1.0.122",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -19,7 +19,8 @@
       "bundleIdentifier": "com.mengfeng.movieapp",
       "infoPlist": {
         "NSLocalNetworkUsageDescription": "需要访问本地网络以发现和连接投屏设备",
-        "NSBonjourServices": ["_raop._tcp", "_upnp._tcp", "_airplay._tcp"]
+        "NSBonjourServices": ["_raop._tcp", "_upnp._tcp", "_airplay._tcp"],
+        "UIBackgroundModes": ["audio"]
       }
     },
     "android": {

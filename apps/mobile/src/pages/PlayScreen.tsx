@@ -309,7 +309,7 @@ backgroundColor: 'transparent',
     toolbarVerticalCol: {
       position: 'absolute',
       right: 8,
-      top: screenH * 0.42,
+      bottom: screenH * 0.12,
       zIndex: 16,
       flexDirection: 'column' as const,
       alignItems: 'center',
@@ -605,7 +605,7 @@ backgroundColor: 'transparent',
         }
         setInitialCurrentTime(seekTime);
         pendingSeekRef.current = seekTime;
-        skipEligibleRef.current = seekTime < 5 * 60;
+        skipEligibleRef.current = seekTime < 2 * 60;
         setSkipForwardVisible(false);
         skipForwardVisibleRef.current = false;
         skipDismissedRef.current = false;
@@ -991,6 +991,13 @@ backgroundColor: 'transparent',
     };
   }, [player, videoUrl, showSegmentProgress]);
 
+  const nextEpisode = useMemo(() => {
+    if (!currentEpisodeId || episodes.length === 0 || media?.type === 'MOVIE') return null;
+    const idx = episodes.findIndex((ep: Episode) => ep.id === currentEpisodeId);
+    if (idx < 0 || idx >= episodes.length - 1) return null;
+    return episodes[idx + 1] as Episode;
+  }, [currentEpisodeId, episodes, media?.type]);
+
   // 定时保存进度 (10s) + 下一集浮层检测 + 从头播放快进浮窗
   useEffect(() => {
     if (!player) return;
@@ -1003,13 +1010,15 @@ backgroundColor: 'transparent',
 
         // 下一集浮层检测
         const threshold = outroThresholdMinutes * 60;
+        // 短片（时长 ≤ 预热阈值）在剩余 60s 内触发；长片沿用阈值窗口
+        const outroWindow = dur <= threshold ? 60 : threshold;
         const canShow =
           !overlayDismissedRef.current &&
           showNextEpisodeOverlay &&
           nextEpisode != null &&
-          dur > threshold &&
+          dur > 0 &&
           ct > 0 &&
-          dur - ct <= threshold;
+          dur - ct <= outroWindow;
         if (canShow) {
           setOverlayVisible(true);
           setSkipForwardVisible(false);
@@ -1025,11 +1034,11 @@ backgroundColor: 'transparent',
         }
         if (backwardSeek) {
           skipDismissedRef.current = false;
-          skipEligibleRef.current = ct < 5 * 60;
+          skipEligibleRef.current = ct < 2 * 60;
         }
 
-        // 从头播放快进浮窗（按播放位置：0:00–5:00 内可见，过 5:00 消失）
-        if (ct >= 5 * 60) {
+        // 从头播放快进浮窗（按播放位置：0:00–2:00 内可见，过 2:00 消失）
+        if (ct >= 2 * 60) {
           setSkipForwardVisible(false);
           skipForwardVisibleRef.current = false;
         } else if (
@@ -1046,7 +1055,7 @@ backgroundColor: 'transparent',
       }
     }, 5000);
     return () => clearInterval(interval);
-  }, [player, outroThresholdMinutes, showNextEpisodeOverlay]);
+  }, [player, outroThresholdMinutes, showNextEpisodeOverlay, nextEpisode]);
 
   const togglePlayPause = () => {
     const p = playerRef.current;
@@ -1157,13 +1166,6 @@ backgroundColor: 'transparent',
 
   // 功能2: 下一集
   const filteredEpisodes = episodes;
-
-  const nextEpisode = useMemo(() => {
-    if (!currentEpisodeId || filteredEpisodes.length === 0 || media?.type === 'MOVIE') return null;
-    const idx = filteredEpisodes.findIndex((ep: Episode) => ep.id === currentEpisodeId);
-    if (idx < 0 || idx >= filteredEpisodes.length - 1) return null;
-    return filteredEpisodes[idx + 1] as Episode;
-  }, [currentEpisodeId, filteredEpisodes, media?.type]);
 
   const handleNextEpisode = () => {
     if (nextEpisode) {
@@ -1547,6 +1549,7 @@ backgroundColor: 'transparent',
             player={player}
             contentFit={(isImmersive && isVerticalVideo) ? 'cover' : 'contain'}
             allowsPictureInPicture={isPictureInPictureSupported()}
+            startsPictureInPictureAutomatically={isActuallyPlaying && !appFullscreen}
             nativeControls={!isImmersive}
             fullscreenOptions={{ enable: false }}
           />
@@ -1567,11 +1570,13 @@ backgroundColor: 'transparent',
           nextEpisodeTitle={nextEpisodeTitle}
           onNext={handleNextEpisode}
           onClose={handleOverlayClose}
+          topOffset={96}
         />
         <SkipForwardOverlay
           show={skipForwardVisible}
           onSkip={handleSkipForward}
           onClose={handleSkipForwardClose}
+          topOffset={96}
         />
         {showSegmentProgress && videoUrl && (
           <SegmentProgress
@@ -1716,6 +1721,13 @@ backgroundColor: 'transparent',
             )}
             {/* 右侧竖排功能键（红果式：悬浮视频右侧、屏高 55% 起、距右缘 8） */}
             <View style={styles.toolbarVerticalCol}>
+              {!isVerticalVideo && (
+                <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={enterAppFullscreen}>
+                  <View style={styles.toolbarIconRound}>
+                    <Maximize size={22} color="#222" />
+                  </View>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={handleFav}>
                 <View style={styles.toolbarIconRound}>
                   <Heart size={22} color={isFav ? '#ff9d2e' : '#222'} fill={isFav ? '#ff9d2e' : 'none'} />
@@ -1744,13 +1756,6 @@ backgroundColor: 'transparent',
                 style={styles.toolbarButtonRound}
                 roundedWhite
               />
-              {!isVerticalVideo && (
-                <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={enterAppFullscreen}>
-                  <View style={styles.toolbarIconRound}>
-                    <Maximize size={22} color="#222" />
-                  </View>
-                </TouchableOpacity>
-              )}
             </View>
             {/* 底部选集横条（红果式：视频底部独立水平条，默认常显） */}
             <TouchableOpacity style={styles.episodeBar} activeOpacity={0.7} onPress={() => setEpisodesSheetVisible(true)}>
@@ -2021,6 +2026,7 @@ backgroundColor: 'transparent',
             player={player}
             contentFit={isVerticalVideo ? 'cover' : 'contain'}
             allowsPictureInPicture={isPictureInPictureSupported()}
+            startsPictureInPictureAutomatically={isActuallyPlaying && appFullscreen}
             nativeControls={false}
             onPictureInPictureStart={() => {
               if (appFullscreenRef.current) exitAppFullscreen();

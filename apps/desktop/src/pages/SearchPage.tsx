@@ -1,26 +1,35 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import type { Media } from '@movie-app/core';
-import { useAppStore } from '../useAppStore';
+import type { Media, PaginatedResponse } from '@movie-app/core';
 import { getProvider, getStore } from '../init';
 import { useBackgroundStore } from '../themes/backgroundStore';
 import { MediaGrid } from '@/components/MediaCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Search, X, Database, Clock, Flame } from 'lucide-react';
+import { ArrowLeft, Search, X, Database, Clock, Flame, ChevronLeft, ChevronRight } from 'lucide-react';
+
+const pageSize = 30;
 
 const resultCache = new Map<string, Media[]>();
+const metaCache = new Map<string, PaginatedResponse<Media>['meta']>();
 
 export default function SearchPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { searchMedia } = useAppStore();
   const setBgImage = useBackgroundStore((s) => s.setBgImage);
   const clearBgImage = useBackgroundStore((s) => s.clearBgImage);
   const q = (searchParams.get('q') ?? '').trim();
+  const currentPage = Math.max(1, Number(searchParams.get('page')) || 1);
   const [keyword, setKeyword] = useState(q);
-  const [results, setResults] = useState<Media[]>(() => (q ? resultCache.get(q) ?? [] : []));
-  const [searching, setSearching] = useState(() => !!q && !resultCache.has(q));
+  const [results, setResults] = useState<Media[]>(() => {
+    if (!q) return [];
+    return resultCache.get(`${q}#${currentPage}`) ?? [];
+  });
+  const [resultMeta, setResultMeta] = useState<PaginatedResponse<Media>['meta'] | null>(() => {
+    if (!q) return null;
+    return metaCache.get(`${q}#${currentPage}`) ?? null;
+  });
+  const [searching, setSearching] = useState(() => !!q && !resultCache.has(`${q}#${currentPage}`));
   const [searchHistory, setSearchHistory] = useState<{ keyword: string; count: number }[]>([]);
   const [hotSearches, setHotSearches] = useState<{ keyword: string; count: number }[]>([]);
   const reqRef = useRef(0);
@@ -31,42 +40,46 @@ export default function SearchPage() {
     p.getHotSearches(10).then(setHotSearches).catch(() => {});
   }, []);
 
-  const runSearch = useCallback(async (kw: string) => {
+  const runSearch = useCallback(async (kw: string, page: number) => {
     const trimKw = kw.trim();
     if (!trimKw) return;
     const id = ++reqRef.current;
-    setKeyword(trimKw);
-    const cached = resultCache.get(trimKw);
+    const cacheKey = `${trimKw}#${page}`;
+    const cached = resultCache.get(cacheKey);
     if (cached) {
       setResults(cached);
+      setResultMeta(metaCache.get(cacheKey) ?? null);
       return;
     }
     setSearching(true);
     try {
-      await getProvider().addSearchHistory(trimKw);
-      await searchMedia(trimKw);
-      const items = getStore().getState().mediaList;
+      const result = await getProvider().searchMedia(trimKw, { page, pageSize });
       if (id !== reqRef.current) return;
-      resultCache.set(trimKw, items);
-      setResults(items);
+      resultCache.set(cacheKey, result.items);
+      metaCache.set(cacheKey, result.meta);
+      setResults(result.items);
+      setResultMeta(result.meta);
       getStore().getState().scheduleRecommendationRecompute();
-      refreshHistory();
     } catch (err) {
       console.error('搜索失败:', err);
     } finally {
       if (id === reqRef.current) setSearching(false);
     }
-  }, [searchMedia, refreshHistory]);
+  }, []);
 
   useEffect(() => {
-    if (q) {
-      runSearch(q);
-    } else {
+    if (!q) {
       setKeyword('');
       setResults([]);
+      setResultMeta(null);
       refreshHistory();
+      return;
     }
-  }, [q, runSearch]);
+    setKeyword(q);
+    refreshHistory();
+    getProvider().addSearchHistory(q).catch(() => {});
+    runSearch(q, currentPage);
+  }, [q, currentPage, runSearch, refreshHistory]);
 
   useEffect(() => {
     const first = results[0];
@@ -81,12 +94,38 @@ export default function SearchPage() {
   const handleSubmit = () => {
     const kw = keyword.trim();
     if (!kw) return;
-    setSearchParams({ q: kw });
+    setSearchParams((prev) => {
+      prev.set('q', kw);
+      prev.delete('page');
+      return prev;
+    });
   };
 
   const handleBack = () => {
     if (window.history.length > 1) navigate(-1);
     else navigate('/');
+  };
+
+  const totalPages = resultMeta?.totalPages || 1;
+
+  const handlePageChange = (page: number) => {
+    if (page < 1 || page > totalPages) return;
+    setSearchParams((prev) => {
+      prev.set('page', String(page));
+      return prev;
+    });
+    const main = document.getElementById('main-content');
+    if (main) main.scrollTop = 0;
+  };
+
+  const getPageNumbers = () => {
+    const pages: number[] = [];
+    const start = Math.max(1, currentPage - 2);
+    const end = Math.min(totalPages, start + 4);
+    for (let i = start; i <= end; i++) {
+      pages.push(i);
+    }
+    return pages;
   };
 
   const activeKw = q;
@@ -128,7 +167,38 @@ export default function SearchPage() {
           {searching ? (
             <div className="flex items-center justify-center h-64 text-muted-foreground">搜索中...</div>
           ) : results.length > 0 ? (
-            <MediaGrid items={results} navigateState={{ searchKeyword: activeKw }} />
+            <>
+              <MediaGrid items={results} navigateState={{ searchKeyword: activeKw, page: currentPage }} />
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-1 pt-2">
+                  <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => handlePageChange(1)}>
+                    首页
+                  </Button>
+                  <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => handlePageChange(currentPage - 1)}>
+                    <ChevronLeft className="size-4" />
+                  </Button>
+                  {getPageNumbers().map((p) => (
+                    <Button
+                      key={p}
+                      variant={p === currentPage ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handlePageChange(p)}
+                    >
+                      {p}
+                    </Button>
+                  ))}
+                  <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => handlePageChange(currentPage + 1)}>
+                    <ChevronRight className="size-4" />
+                  </Button>
+                  <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => handlePageChange(totalPages)}>
+                    尾页
+                  </Button>
+                  <span className="text-sm text-muted-foreground ml-2">
+                    {currentPage}/{totalPages}
+                  </span>
+                </div>
+              )}
+            </>
           ) : (
             <div className="text-center text-muted-foreground py-8">未找到相关内容</div>
           )}
