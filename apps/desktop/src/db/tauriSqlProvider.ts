@@ -362,6 +362,8 @@ export class TauriSqlProvider implements DatabaseProvider {
     await this.addColumnIfMissing('video_source', 'last_incremental_collected_at', 'TEXT');
     // 增量迁移：为已有 watch_history 表补齐播放源/播放线路列（续播按「同源同线路」判定）
     await this.addColumnIfMissing('watch_history', 'source_id', 'TEXT');
+    // 增量迁移：为已有 play_source 表补齐语言列（多语言版本合并的语言层数据承载）
+    await this.addColumnIfMissing('play_source', 'language', 'TEXT');
     await this.addColumnIfMissing('watch_history', 'play_source_id', 'TEXT');
 
     // 删除 video_source 表的 rate_limit 列（重建表）
@@ -1341,16 +1343,51 @@ export class TauriSqlProvider implements DatabaseProvider {
     return rows.map(rowToPlaySource);
   }
 
+  async hasVersionEpisodes(mediaId: string, sourceId: string): Promise<boolean> {
+    const rows = await this.db!.select<{ r: number }[]>(
+      `SELECT EXISTS(
+         SELECT 1 FROM play_source ps
+         JOIN episode e ON e.id = ps.episode_id
+         WHERE e.media_id = ? AND e.source_id = ?
+           AND ps.language IS NOT NULL AND ps.language <> ''
+       ) AS r`,
+      [mediaId, sourceId]
+    );
+    return (rows[0]?.r ?? 0) === 1;
+  }
+
+  async getPlaySourceUrlsByMediaAndSource(mediaId: string, sourceId: string): Promise<string[]> {
+    const rows = await this.db!.select<{ url: string }[]>(
+      `SELECT ps.url FROM play_source ps
+       JOIN episode e ON e.id = ps.episode_id
+       WHERE e.media_id = ? AND e.source_id = ?`,
+      [mediaId, sourceId]
+    );
+    return rows.map((r) => r.url);
+  }
+
+  async getPlaySourceLanguagesByMedia(mediaId: string): Promise<{ language: string; episodeId: string; sourceId: string }[]> {
+    const rows = await this.db!.select<{ language: string; episode_id: string; source_id: string }[]>(
+      `SELECT DISTINCT ps.language, e.id AS episode_id, e.source_id
+       FROM play_source ps
+       JOIN episode e ON e.id = ps.episode_id
+       WHERE e.media_id = ? AND ps.language IS NOT NULL AND ps.language <> ''`,
+      [mediaId]
+    );
+    return rows.map((r) => ({ language: r.language, episodeId: r.episode_id, sourceId: r.source_id }));
+  }
+
   async upsertPlaySource(playSource: PlaySource): Promise<void> {
     await this.db!.execute(
-      `INSERT INTO play_source (id, episode_id, source_id, source_name, url, quality, is_active, fail_count, last_fail_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO play_source (id, episode_id, source_id, source_name, url, quality, language, is_active, fail_count, last_fail_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          url = excluded.url,
-         quality = excluded.quality`,
+         quality = excluded.quality,
+         language = excluded.language`,
       [
         playSource.id, playSource.episodeId, playSource.sourceId, playSource.sourceName || null,
-        playSource.url, playSource.quality || null, 1, 0, null,
+        playSource.url, playSource.quality || null, playSource.language || null, 1, 0, null,
       ]
     );
   }
@@ -1359,17 +1396,18 @@ export class TauriSqlProvider implements DatabaseProvider {
     const CHUNK = 100;
     for (let i = 0; i < playSources.length; i += CHUNK) {
       const chunk = playSources.slice(i, i + CHUNK);
-      const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       const params: unknown[] = [];
       for (const p of chunk) {
-        params.push(p.id, p.episodeId, p.sourceId, p.sourceName || null, p.url, p.quality || null, 1, 0, null);
+        params.push(p.id, p.episodeId, p.sourceId, p.sourceName || null, p.url, p.quality || null, p.language || null, 1, 0, null);
       }
       await this.db!.execute(
-        `INSERT INTO play_source (id, episode_id, source_id, source_name, url, quality, is_active, fail_count, last_fail_at)
+        `INSERT INTO play_source (id, episode_id, source_id, source_name, url, quality, language, is_active, fail_count, last_fail_at)
          VALUES ${placeholders}
          ON CONFLICT(id) DO UPDATE SET
            url = excluded.url,
-           quality = excluded.quality`,
+           quality = excluded.quality,
+           language = excluded.language`,
         params
       );
     }

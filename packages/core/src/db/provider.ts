@@ -81,6 +81,8 @@ export interface DatabaseProvider {
   /** 写入单集已探测到的视频时长（秒），供播放页剧集列表复用，避免重复探测。 */
   updateEpisodeDuration(episodeId: string, duration: number | null): Promise<void>;
   deleteEpisodesByMediaIdAndSourceId(mediaId: string, sourceId: string): Promise<void>;
+  /** 判断指定媒体+源下是否存在「版本合并痕迹」（play_source.language 非空），用于 commitItem 保护：存在时跳过先删后写，防止覆盖已追加的其他语言线路。 */
+  hasVersionEpisodes(mediaId: string, sourceId: string): Promise<boolean>;
   getSeasonsByMediaId(mediaId: string): Promise<number[]>;
 
   // —— Media 批量操作 ——
@@ -100,9 +102,13 @@ export interface DatabaseProvider {
 
   // —— PlaySource DAO ——
   getPlaySourcesByEpisodeId(episodeId: string): Promise<PlaySource[]>;
+  /** 合并保护：返回指定媒体+源下已入库的全部线路 URL，用于判定是否存在「非本轮写入」的外部线路（追加自其他版本条目）。 */
+  getPlaySourceUrlsByMediaAndSource(mediaId: string, sourceId: string): Promise<string[]>;
   upsertPlaySource(playSource: PlaySource): Promise<void>;
   /** 批量 upsert 播放源：单条 multi-row INSERT ... ON CONFLICT 分块，语义与逐条 upsertPlaySource 等价。 */
   upsertPlaySourcesBatch(playSources: PlaySource[]): Promise<void>;
+  /** 播放页语言层：返回指定 media 下全部「语言 ↔ 剧集 ↔ 片源」去重映射，一次查询构建语言集合与语言→源→剧集过滤关系。 */
+  getPlaySourceLanguagesByMedia(mediaId: string): Promise<{ language: string; episodeId: string; sourceId: string }[]>;
 
   // —— VideoSource DAO ——
   getAllVideoSources(): Promise<VideoSource[]>;

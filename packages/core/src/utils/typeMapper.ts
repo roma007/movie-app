@@ -51,6 +51,9 @@ const VERSION_TYPE_KEYWORDS = [
 
 const NON_DRAMA_SUFFIXES = ['剧情片', '剧场面', '剧本', '剧评', '剧照'];
 
+/** 「XX剧」但实为整片/舞台演出的类目（音乐剧、舞台剧…），不是电视剧。 */
+const MOVIE_LIKE_DRAMA_WORDS = ['音乐剧', '歌舞剧', '舞台剧', '歌剧', '话剧', '戏曲'];
+
 export function mapType(
   typeName: string,
   remarks: string,
@@ -108,6 +111,10 @@ export function mapType(
   for (const kw of MOVIE_KEYWORDS) {
     if (r.includes(kw)) return 'MOVIE';
   }
+
+  // 「XX片」结尾（喜剧片/爱情片/恐怖片…）及舞台类剧种是电影类目固有命名，不是电视剧。
+  // 动画片/纪录片已在前置分支返回，不会落到这里；此判定必须先于下方含「剧」兜底。
+  if (/片$/.test(t) || MOVIE_LIKE_DRAMA_WORDS.some((w) => t.includes(w))) return 'MOVIE';
 
   const isDramaWord = t.includes('剧') && !NON_DRAMA_SUFFIXES.some(s => t.includes(s));
   if (isDramaWord) return 'TV';

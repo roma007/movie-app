@@ -1,11 +1,12 @@
 import { CMSAdapter } from './cmsAdapter';
 import { normalizer, DEFAULT_MIN_YEAR } from '../utils/normalizer';
 import { mapType, refineTypeByEpisodes, isVersionTitle, needsShortDramaCheck } from '../utils/typeMapper';
+import { computeBaseTitle, extractLanguage, shortUrlHash, stripVersionSuffix, stripTrailingYear } from '../utils/versionMerge';
 import { SOURCE_ID_TO_NAME_MAP, PLAY_SOURCE_TYPE_MAP, isPlayableMediaUrl } from '../utils/constants';
 import { isKnownDeadPosterUrl, isUsablePosterUrl } from '../utils/posterHost';
 import type { DatabaseProvider } from '../db/provider';
 import { UNCATEGORIZED_GENRE } from '../db/provider';
-import type { CMSMediaItem, CMSListResponse, Media, Episode, PlaySource, VideoSource, CollectTask, TaskStatus, TaskErrorType, CollectionLog, CollectPreviewItem, HiddenCollectItem, SavePreviewResult, FailedItem } from '../types';
+import type { CMSMediaItem, CMSListResponse, Media, Episode, PlaySource, VideoSource, CollectTask, TaskStatus, TaskErrorType, CollectionLog, CollectPreviewItem, HiddenCollectItem, SavePreviewResult, FailedItem, MediaType } from '../types';
 import { SystemConfigService } from './systemConfigService';
 import type { ShortDramaConfig } from './systemConfigService';
 import { VideoDurationService } from './videoDurationService';
@@ -31,6 +32,20 @@ interface PreparedMedia {
   seasonNumber: number;
   sources: string[];
   epGroups: { title: string; url: string }[][];
+  /** 剥离版本词/尾部年份后的基准标题（与 title 相同则为普通条目） */
+  baseTitle: string;
+  /** 标题含版本词/尾部年份 → 可合并的版本条目候选 */
+  isVersionCandidate: boolean;
+  /** 基准指纹（剥离后），版本条目候选按此成对合并 */
+  baseFingerprint: string;
+  /** 版本条目独立存活时的原始指纹（剥离前）；普通条目为 null */
+  originalFingerprint: string | null;
+  /** 该条目语言（从标题提取）；null=未标明 */
+  language: string | null;
+  /** 合并模式：true=走「只增不删」追加路径，不写 media 行 */
+  mergeMode: boolean;
+  /** 合并目标 media id（主条目） */
+  mergeTargetId: string | null;
 }
 
 /** 根据错误特征归类错误类型，用于前端按类型筛选/展示 */
@@ -122,6 +137,8 @@ export class CollectorService {
   private activeAbortControllers = new Map<string, AbortController>();
   private onLogCallback?: (log: CollectionLog) => void;
   private recommendationService: RecommendationService;
+  /** 存量同名合并节流：60s 窗口内只真正执行一次，避免每个采集入口都触发全表扫描 */
+  private lastVersionMergeAt = 0;
 
   constructor(private db: DatabaseProvider) {
     this.recommendationService = new RecommendationService(db);
@@ -202,9 +219,12 @@ export class CollectorService {
 
       let mediaType = mapType(typeName, remarks, vodPlayFrom, rawGenres);
 
+      // 类型二次判定只看「可播放」的播放组：跳过被过滤成空组的第一线路（如电影天堂 dytt
+      // 是分享页），否则空组会让救回电影逻辑短路，把本应判为电影的正片固化成长剧。
       let firstGroupEps: { title: string; number: number }[] = [];
-      if (epGroups.length > 0) {
-        firstGroupEps = epGroups[0].map((ep, idx) => ({
+      const firstPlayableGroup = epGroups.find((g) => g.length > 0);
+      if (firstPlayableGroup) {
+        firstGroupEps = firstPlayableGroup.map((ep, idx) => ({
           title: ep.title,
           number: idx + 1,
         }));
@@ -212,10 +232,25 @@ export class CollectorService {
       mediaType = refineTypeByEpisodes(firstGroupEps, mediaType, title);
 
       const seasonNumber = normalizer.extractSeasonNumber(title) || 1;
-      const fingerprint = await trace('fingerprint', () => normalizer.generateFingerprint(title, year, mediaType, seasonNumber));
+
+      // —— 多语言版本合并：基准标题（剥离尾部语言后缀/尾部年份=year）+ 语言提取 ——
+      const { baseTitle, isVersionItem } = computeBaseTitle(title, year);
+      const language = extractLanguage(title, ...epGroups.flatMap((g) => g.map((x) => x.title)));
+      const baseFingerprint = await trace('fingerprint', () =>
+        normalizer.generateFingerprint(baseTitle, year, mediaType, seasonNumber)
+      );
+      const originalFingerprint = isVersionItem
+        ? await trace('fingerprint.orig', () => normalizer.generateFingerprint(title, year, mediaType, seasonNumber))
+        : null;
+      // 版本条目候选默认按基准指纹合并；未成对（库中及批内均无同名主）时由 planBatchMerge 回退原始指纹保证独立
+      const fingerprint = baseFingerprint;
 
       const existing = await trace('dbLookup', () => this.db.getMediaByFingerprint(fingerprint));
       let mediaId = existing?.id || generateId();
+
+      // 成对命中（库中已有同名主条目）→ 合并路径：不写 media 行，仅追加播放资源
+      const mergeMode = isVersionItem && existing != null;
+      const mergeTargetId = mergeMode ? existing.id : null;
 
       let genres: string[] = [];
       let directors: string[] = [];
@@ -383,6 +418,13 @@ sourceUpdatedAt,
         seasonNumber,
         sources,
         epGroups,
+        baseTitle,
+        isVersionCandidate: isVersionItem,
+        baseFingerprint,
+        originalFingerprint,
+        language,
+        mergeMode,
+        mergeTargetId,
       };
     } catch (err) {
       console.error("[Collector] prepareItem 失败:", err instanceof Error ? err.message : String(err));
@@ -400,8 +442,11 @@ sourceUpdatedAt,
       ? <T>(label: string, fn: () => Promise<T>) => meter.trace(label, fn)
       : <T>(_label: string, fn: () => Promise<T>) => fn();
     const media = prep.media;
+    const mergeInto = prep.mergeMode ? prep.mergeTargetId : null;
     return this.db.withTransactionAsync(async () => {
-      if (prep.existing) {
+      if (mergeInto) {
+        // 合并路径（只增不删）：不写 media 行，主条目元数据（标题/海报/简介）保持不被版本条目覆盖
+      } else if (prep.existing) {
         if (prep.needsStatusUpdate) {
           await trace('dbWrite.media', async () => {
             await this.db.updateMediaStatusAndEpisodes(media.id, prep.bestStatus ?? 'PUBLISHED', prep.bestEpisodes, prep.bestTotal, new Date().toISOString());
@@ -421,14 +466,19 @@ sourceUpdatedAt,
       // 防止并发竞态：upsertMedia 的 ON CONFLICT(fingerprint) 可能保留了已存在的 id，
       // 而非当前生成的 mediaId，重新查询实际 id 后用其构造并写入 episodes/playSources
       let writeMediaId = media.id;
-      const actualMedia = await trace('dbLookup', () => this.db.getMediaByFingerprint(media.fingerprint));
-      if (actualMedia) {
-        writeMediaId = actualMedia.id;
-        media.id = actualMedia.id;
+      if (mergeInto) {
+        writeMediaId = mergeInto;
+      } else {
+        const actualMedia = await trace('dbLookup', () => this.db.getMediaByFingerprint(media.fingerprint));
+        if (actualMedia) {
+          writeMediaId = actualMedia.id;
+          media.id = actualMedia.id;
+        }
       }
 
       // 源侧更新时间落盘（existing 走的 updateMediaStatusAndEpisodes 分支不写该列，统一在此补齐）
-      if (prep.sourceUpdatedAt || prep.itemVodId != null) {
+      // 合并路径不写主条目的 sourceUpdatedAt，避免同名版本互相干扰「未变更跳过」判定
+      if (!mergeInto && (prep.sourceUpdatedAt || prep.itemVodId != null)) {
         await trace('dbWrite.sourceUpdatedAt', () => this.db.updateSourceSync(writeMediaId, prep.sourceUpdatedAt, prep.itemVodId != null ? String(prep.itemVodId) : null));
       }
 
@@ -438,6 +488,8 @@ sourceUpdatedAt,
       const playSourcesBatch: PlaySource[] = [];
       const epGroups = prep.epGroups;
       const sources = prep.sources;
+      const isMerge = mergeInto != null;
+      const lang = prep.language;
 
       for (let sourceIdx = 0; sourceIdx < epGroups.length; sourceIdx++) {
         const sourceNameFromList = sources[sourceIdx] || `线路${sourceIdx + 1}`;
@@ -450,13 +502,15 @@ sourceUpdatedAt,
           const epNumber = epIdx + 1;
           const isVersion = isVersionTitle(ep.title) && media.type === 'MOVIE';
 
-          const episodeKey = isVersion
-            ? `movie_${writeMediaId}_src_${sourceId}`
-            : `s${seasonNumber}_e${epNumber}_src_${sourceId}`;
-
-          const episodeId = isVersion
-            ? `ep_${writeMediaId}_movie_src_${sourceId}`
-            : `ep_${writeMediaId}_s${seasonNumber}_e${epNumber}_src_${sourceId}`;
+          // 合并路径：id 语言化（无语言版本共享主 id，play_source 以 urlHash 区分为多线路）
+          const langSuffix = isMerge && lang ? `_${lang}` : '';
+          const episodeId = isMerge
+            ? (isVersion
+                ? `ep_${writeMediaId}_movie${langSuffix}_src_${sourceId}`
+                : `ep_${writeMediaId}_s${seasonNumber}_e${epNumber}${langSuffix}_src_${sourceId}`)
+            : (isVersion
+                ? `ep_${writeMediaId}_movie_src_${sourceId}`
+                : `ep_${writeMediaId}_s${seasonNumber}_e${epNumber}_src_${sourceId}`);
 
           episodesBatch.push({
             id: episodeId,
@@ -468,20 +522,37 @@ sourceUpdatedAt,
             sourceId,
           });
 
+          // 合并路径语言取标题提取值；普通路径取该线路自身（剧集标题/线路质量）的语言
+          const lineLanguage = isMerge ? (lang || null) : (extractLanguage(ep.title, mappedQuality) ?? null);
+          const psId = isMerge ? `ps_${episodeId}_${shortUrlHash(ep.url)}` : `ps_${episodeId}_${sourceIdx}`;
           playSourcesBatch.push({
-            id: `ps_${episodeId}_${sourceIdx}`,
+            id: psId,
             episodeId,
             sourceId,
             sourceName: sourceDisplayName,
             url: ep.url,
             quality: isVersion ? ep.title : (mappedQuality || null),
+            language: lineLanguage,
           });
         }
       }
 
-      await trace('dbWrite.epsDel', () => this.db.deleteEpisodesByMediaIdAndSourceId(writeMediaId, sourceId));
-      await trace('dbWrite.eps', () => this.db.upsertEpisodesBatch(episodesBatch));
-      await trace('dbWrite.ps', () => this.db.upsertPlaySourcesBatch(playSourcesBatch));
+      if (isMerge) {
+        // 合并路径：只增不删（追加 + URL 级幂等）
+        await trace('dbWrite.eps', () => this.db.upsertEpisodesBatch(episodesBatch));
+        await trace('dbWrite.ps', () => this.db.upsertPlaySourcesBatch(playSourcesBatch));
+      } else {
+        // 合并保护：若该媒体+源已存在「非本轮写入」的外部线路（其他版本条目追加而来），
+        // 跳过「先删后写」，改为纯 upsert，避免覆盖已合并进主条目的其他语言版本。
+        const existingUrls = await trace('dbRead.existingUrls', () => this.db.getPlaySourceUrlsByMediaAndSource(writeMediaId, sourceId));
+        const writeUrls = new Set(playSourcesBatch.map((p) => p.url));
+        const hasForeignLines = existingUrls.some((u) => !writeUrls.has(u));
+        if (!hasForeignLines) {
+          await trace('dbWrite.epsDel', () => this.db.deleteEpisodesByMediaIdAndSourceId(writeMediaId, sourceId));
+        }
+        await trace('dbWrite.eps', () => this.db.upsertEpisodesBatch(episodesBatch));
+        await trace('dbWrite.ps', () => this.db.upsertPlaySourcesBatch(playSourcesBatch));
+      }
 
       return media;
     });
@@ -532,17 +603,18 @@ sourceUpdatedAt,
     }
 
     // 第2级：实际探测视频时长（逐集探测，成功1集即停）
-    if (epGroups.length > 0) {
-      const firstGroup = epGroups[0];
-      const probeCount = Math.min(config.probeEpisodeCount, firstGroup.length);
+    // 取「可播放」的第一组：第一组若是分享页等被过滤成的空组，探测必然失败，白白回退关键词兜底。
+    const firstPlayableGroup = epGroups.find((g) => g.length > 0);
+    if (firstPlayableGroup) {
+      const probeCount = Math.min(config.probeEpisodeCount, firstPlayableGroup.length);
       console.log(`[长短剧判断] 第1级未命中，尝试第2级(实际探测) 最多${probeCount}集`);
 
       const durationService = new VideoDurationService();
       for (let i = 0; i < probeCount; i++) {
         const probeLog = (msg: string) => this.logToDb(`[M3U8探测详情] "${title}" ${msg}`);
         const duration = meter
-          ? await meter.trace('probe.m3u8', () => durationService.getDurationFromM3U8(firstGroup[i].url, probeLog))
-          : await durationService.getDurationFromM3U8(firstGroup[i].url, probeLog);
+          ? await meter.trace('probe.m3u8', () => durationService.getDurationFromM3U8(firstPlayableGroup[i].url, probeLog))
+          : await durationService.getDurationFromM3U8(firstPlayableGroup[i].url, probeLog);
         if (duration !== null) {
           const durationMin = duration / 60;
           console.log(`[长短剧判断] 第2级(探测)命中: 第${i + 1}集成功, ${durationMin.toFixed(1)}分钟 → ${normalizer.isShortDramaByDuration(durationMin, config.durationThresholdMinutes) ? '短剧' : '长剧'}`);
@@ -583,6 +655,9 @@ sourceUpdatedAt,
 
     console.log(`[Collector] collectFromSource: sourceId=${sourceId}, baseUrl=${baseUrl}, page=${page}, pageSize=${pageSize}`);
     console.log(`[Collector] config: minYear=${config.minYear}, concurrency=${config.concurrency}`);
+
+    // 存量同名多版本合并（幂等；60s 节流后台执行，不阻塞本页采集）
+    void this.runVersionMergeOnce();
 
     const adapter = new CMSAdapter(baseUrl);
 
@@ -777,6 +852,10 @@ sourceUpdatedAt,
 
     await Promise.all(workers);
 
+    // 阶段1.5 批内同名归组：同一批同时出现的「功夫」与「功夫粤语」按基准指纹合并，
+    // 未成对的版本候选回退原始指纹保持独立（不与「她以为我不懂粤语」这类真实片名误合并）
+    await this.planBatchMerge(prepared);
+
     // 阶段2 页面末尾串行提交：每 media 单事务（commitItem），避免 6 worker 并发写风暴
     for (let i = 0; i < prepared.length; i++) {
       const prep = prepared[i];
@@ -805,6 +884,85 @@ sourceUpdatedAt,
     }
 
     return { failedCount, failedItems, skippedCount };
+  }
+
+  /**
+   * 批内同名归组（阶段1.5：prepare 并行完成后、commit 串行前统一决策）。
+   *
+   * 组内基准指纹相同的条目分为三类决策：
+   * 1. 存在「普通主条目」（标题=基准标题，非版本候选）→ 主条目按基准指纹入库，其余版本条目合并到它；
+   * 2. 无普通主、但 prepare 已跨库成对（库中已有同名主）→ 组内全走合并路径，目标为库中主条目；
+   * 3. 无普通主且库中无主 → 选标题最短者按基准标题（baseTitle）入库当主，其余合并到它。
+   *
+   * 单条版本条目（组大小=1）且未成对 → 回退原始指纹独立入库，避免把「她以为我不懂粤语」
+   * 这类真实片名误卷入合并。
+   */
+  private async planBatchMerge(prepared: (PreparedMedia | null)[]): Promise<void> {
+    const groups = new Map<string, number[]>();
+    for (let i = 0; i < prepared.length; i++) {
+      const p = prepared[i];
+      if (!p) continue;
+      const arr = groups.get(p.baseFingerprint);
+      if (arr) arr.push(i);
+      else groups.set(p.baseFingerprint, [i]);
+    }
+
+    for (const [fingerprint, indices] of groups) {
+      if (indices.length === 1) {
+        const p = prepared[indices[0]]!;
+        if (p.isVersionCandidate && !p.mergeMode && p.originalFingerprint) {
+          p.media.fingerprint = p.originalFingerprint;
+        }
+        continue;
+      }
+
+      const preps = indices.map((i) => prepared[i]!);
+      const pure = preps.find((p) => !p.isVersionCandidate);
+
+      if (pure) {
+        // 情况1：普通主条目在批内（永远以它为主）
+        pure.mergeMode = false;
+        pure.mergeTargetId = null;
+        for (const p of preps) {
+          if (p === pure) continue;
+          p.mergeMode = true;
+          p.mergeTargetId = pure.media.id;
+          p.media.fingerprint = fingerprint;
+        }
+        continue;
+      }
+
+      const preExisting = preps.find((p) => p.mergeMode && p.mergeTargetId);
+      if (preExisting) {
+        // 情况2：无普通主、但库中已有同名主（prepare 已成对）
+        const targetId = preExisting.mergeTargetId!;
+        for (const p of preps) {
+          p.mergeMode = true;
+          p.mergeTargetId = targetId;
+          p.media.fingerprint = fingerprint;
+        }
+        continue;
+      }
+
+      // 情况3：全为版本候选且库中无主 → 最短标题当主，标题归一为基准标题后入库
+      let mainIdx = 0;
+      for (let i = 1; i < preps.length; i++) {
+        if ((preps[i].media.title || '').length < (preps[mainIdx].media.title || '').length) mainIdx = i;
+      }
+      const main = preps[mainIdx];
+      main.mergeMode = false;
+      main.mergeTargetId = null;
+      main.media.fingerprint = fingerprint;
+      if (main.baseTitle && main.baseTitle !== main.media.title) {
+        main.media.title = main.baseTitle;
+      }
+      for (let i = 0; i < preps.length; i++) {
+        if (i === mainIdx) continue;
+        preps[i].mergeMode = true;
+        preps[i].mergeTargetId = main.media.id;
+        preps[i].media.fingerprint = fingerprint;
+      }
+    }
   }
 
   /**
@@ -855,9 +1013,10 @@ sourceUpdatedAt,
       ]),
     ];
     let mediaType = mapType(typeName, remarks, vodPlayFrom, rawGenres);
-    if (epGroups.length > 0) {
+    const firstPlayableGroup = epGroups.find((g) => g.length > 0);
+    if (firstPlayableGroup) {
       mediaType = refineTypeByEpisodes(
-        epGroups[0].map((ep, idx) => ({ title: ep.title, number: idx + 1 })),
+        firstPlayableGroup.map((ep, idx) => ({ title: ep.title, number: idx + 1 })),
         mediaType,
         title
       );
@@ -869,6 +1028,19 @@ sourceUpdatedAt,
     if (fpExisting?.sourceUpdatedAt) {
       const lastMs = Date.parse(fpExisting.sourceUpdatedAt);
       if (!Number.isNaN(lastMs) && vodTimeMs <= lastMs) return fpExisting;
+    }
+
+    // 版本候选：基准指纹（剥离版本词/尾部年份后）命中的主条目同样视为已处理（已并入主条目）
+    const { baseTitle, isVersionItem } = computeBaseTitle(title, year);
+    if (isVersionItem && baseTitle !== title) {
+      const baseFp = await normalizer.generateFingerprint(baseTitle, year, mediaType, seasonNumber);
+      if (baseFp !== fingerprint) {
+        const baseExisting = await this.db.getMediaByFingerprint(baseFp);
+        if (baseExisting?.sourceUpdatedAt) {
+          const lastMs = Date.parse(baseExisting.sourceUpdatedAt);
+          if (!Number.isNaN(lastMs) && vodTimeMs <= lastMs) return baseExisting;
+        }
+      }
     }
     return null;
   }
@@ -918,6 +1090,10 @@ sourceUpdatedAt,
     const sources = await this.db.getEnabledVideoSources();
     const configService = new SystemConfigService(this.db);
     const config = await configService.getCollectConfig();
+
+    await this.repairMediaTypeMismatches();
+    // 存量同名多版本合并（60s 节流后台执行，不阻塞搜索）
+    void this.runVersionMergeOnce();
 
     const results: Media[] = [];
 
@@ -1040,6 +1216,10 @@ const title = await normalizer.normalizeTitle(item.vod_name);
     let saved = 0;
     const hiddenItems: HiddenCollectItem[] = [];
 
+    await this.repairMediaTypeMismatches();
+    // 存量同名多版本合并（60s 节流后台执行，不阻塞保存预览）
+    void this.runVersionMergeOnce();
+
     const effectiveMinYear = overrides?.unlimitedYear ? 0 : config.minYear;
 
     const hiddenGenres = await this.db.getHiddenGenres();
@@ -1068,6 +1248,246 @@ const title = await normalizer.normalizeTitle(item.vod_name);
     return { saved, hiddenItems };
   }
 
+  /**
+   * 存量纠错：合并历史「电影被误判为电视剧」产生的重复指纹记录。
+   * 规则：存在 `tv:<title>:<year>:s1` 且存在同 title+year 的 `movie:<title>:<year>` 双胞胎时，
+   * 若 tv 记录结构符合「被误判电影」特征（无剧集或全部集标题为版式词，如 HD国语），
+   * 则把 tv 记录的播放资源并入电影记录、引用表转指、删除 tv 记录。
+   * 幂等、best-effort：单条失败不影响其余与调用方；重跑结果一致。不做 schema 变更。
+   */
+  async repairMediaTypeMismatches(): Promise<number> {
+    const tvRows = await this.db.select<{ id: string; fingerprint: string }>(`SELECT id, fingerprint FROM media WHERE type = 'TV' AND fingerprint LIKE 'tv:%:s1'`);
+    if (tvRows.length === 0) return 0;
+
+    const movieRows = await this.db.select<{ id: string; fingerprint: string }>(`SELECT id, fingerprint FROM media WHERE type = 'MOVIE' AND fingerprint LIKE 'movie:%'`);
+    const movieIdByFp = new Map(movieRows.map((r) => [r.fingerprint, r.id]));
+
+    let repaired = 0;
+    for (const row of tvRows) {
+      try {
+        const match = row.fingerprint.match(/^tv:([^:]+):(\d{4}):s1$/);
+        if (!match) continue;
+        const movieId = movieIdByFp.get(`movie:${match[1]}:${match[2]}`);
+        if (!movieId || movieId === row.id) continue;
+
+        // 护栏：仅当 tv 记录无剧集或全部剧集标题为版式词时才判定为误判电影，
+        // 避免把同名同年的真实剧集误并入电影记录。
+        const tvEpisodes = await this.db.getEpisodesByMediaId(row.id);
+        if (tvEpisodes.length > 0) {
+          const moviesLike = tvEpisodes.every((ep) => isVersionTitle(ep.title || ''));
+          if (!moviesLike) continue;
+        }
+
+        const movieTitle = (await this.db.selectOne<{ title: string }>(`SELECT title FROM media WHERE id = ?`, [movieId]))?.title || movieId;
+        await this.mergeTvIntoMovie(row.id, movieId);
+        repaired++;
+        await this.logToDb(`类型纠错：合并误判剧集记录 → 电影 «${movieTitle}»，删除 ${row.id.slice(0, 8)}…`, 'info', { sourceId: `tv:${match[1]}` });
+      } catch (err) {
+        console.error(`[Collector] 类型纠错失败 (${row.id}):`, err);
+      }
+    }
+    return repaired;
+  }
+
+  /** 把「误判为电视剧」记录（tvId）的播放资源并入电影记录（movieId），随后删除 tv 记录。 */
+  private async mergeTvIntoMovie(tvId: string, movieId: string): Promise<void> {
+    await this.db.withTransactionAsync(async () => {
+      const tvEpisodes = await this.db.getEpisodesByMediaId(tvId);
+
+      // 1) 按 source 归组：每个 source 对齐到电影记录的一条 movie 版剧集，播放源并入
+      const sources = Array.from(new Set(tvEpisodes.map((ep) => ep.sourceId || 'default')));
+      for (const sourceId of sources) {
+        const srcEps = tvEpisodes.filter((ep) => (ep.sourceId || 'default') === sourceId);
+
+        let movieEp = (await this.db.getEpisodesByMediaId(movieId, 1, sourceId))[0];
+        if (!movieEp) {
+          movieEp = {
+            id: `ep_${movieId}_movie_src_${sourceId}`,
+            mediaId: movieId,
+            seasonNumber: 1,
+            episodeNumber: 1,
+            title: null,
+            duration: srcEps.find((ep) => ep.duration != null)?.duration ?? null,
+            sourceId,
+          };
+          await this.db.upsertEpisode(movieEp);
+        }
+
+        const existingUrls = new Set((await this.db.getPlaySourcesByEpisodeId(movieEp.id)).map((ps) => ps.url));
+        for (const srcEp of srcEps) {
+          const psList = await this.db.getPlaySourcesByEpisodeId(srcEp.id);
+          for (const ps of psList) {
+            if (existingUrls.has(ps.url)) {
+              await this.db.execute('DELETE FROM play_source WHERE id = ?', [ps.id]);
+              continue;
+            }
+            await this.db.execute('UPDATE play_source SET episode_id = ? WHERE id = ?', [movieEp.id, ps.id]);
+            existingUrls.add(ps.url);
+          }
+        }
+      }
+
+      // 2) 删除 tv 记录的旧剧集（播放源已并入/清理，剧集本身无残留价值）
+      for (const ep of tvEpisodes) {
+        await this.db.execute('DELETE FROM episode WHERE id = ?', [ep.id]);
+      }
+
+      // 3) 引用表转指到电影记录；TV 记录的播放进度/线路进度指向已删除剧集，直接丢弃
+      await this.db.execute('DELETE FROM watch_history WHERE media_id = ?', [tvId]);
+      await this.db.execute('DELETE FROM watch_line_progress WHERE media_id = ?', [tvId]);
+      const repointUnique = async (table: string): Promise<void> => {
+        await this.db.execute(`DELETE FROM ${table} WHERE media_id = ? AND EXISTS (SELECT 1 FROM ${table} WHERE media_id = ?)`, [tvId, movieId]);
+        await this.db.execute(`UPDATE ${table} SET media_id = ? WHERE media_id = ?`, [movieId, tvId]);
+      };
+      await repointUnique('favorite');
+      await repointUnique('impression');
+      await repointUnique('dislike');
+      await repointUnique('recommend_snapshot');
+      await repointUnique('media_change_log');
+
+      // 4) 删除被合并的 tv 记录（episode/play_source 外键级联兜底清理）
+      await this.db.execute('DELETE FROM media WHERE id = ?', [tvId]);
+    });
+  }
+
+  /**
+   * 存量同名多版本合并（一次性工具，幂等）：扫描全表，把库中已存在同名主条目的
+   * 版本条目（国语/粤语/英语/尾部年份等）并入主条目——episode/play_source id 语言化重写，
+   * 引用表转指，随后删除被并条目。每轮采集前执行，渐进收敛；被并条目源数据无主时将保持独立，
+   * 待同名主条目入库后下一轮再合并。
+   */
+  /** 存量同名合并入口（60s 节流 + 错误隔离；force 用于主采集入口并行执行）。 */
+  private async runVersionMergeOnce(force = false): Promise<void> {
+    const now = Date.now();
+    if (!force && now - this.lastVersionMergeAt < 60_000) return;
+    this.lastVersionMergeAt = now;
+    try {
+      await this.mergeExistingVersionDuplicates();
+    } catch (err) {
+      console.error('[Collector] 存量同名合并失败:', err);
+    }
+  }
+
+  async mergeExistingVersionDuplicates(): Promise<number> {
+    const startedAt = Date.now();
+    const rows = await this.db.select<{ id: string; title: string; year: number | null; fingerprint: string; type: string }>(
+      `SELECT id, title, year, fingerprint, type FROM media`
+    );
+    console.log(`[Collector] 存量同名合并: 扫描 ${rows.length} 条 media 开始`);
+    const byFingerprint = new Map<string, (typeof rows)[number]>();
+    for (const r of rows) byFingerprint.set(r.fingerprint, r);
+
+    // 指纹层面直接剥离版本词/尾部年份得到基准指纹（纯同步字符串运算），
+    // 避免对每条候选重复走 generateFingerprint 的 opencc 转换拖慢全表扫描。
+    // 版本词（粤语/国语/英语等）在清洗后的指纹 title 中仍保持原样，剥离结果与
+    // 「normalizeTitle→generateFingerprint(baseTitle)」一致，可安全用于成对判定。
+    const baseFpOf = (r: (typeof rows)[number]): string | null => {
+      const { baseTitle, isVersionItem } = computeBaseTitle(r.title, r.year ?? null);
+      if (!isVersionItem || baseTitle === r.title) return null;
+      const m = r.fingerprint.match(/^(movie|tv|anime|variety|documentary):([^:]+):(\d{4})(?::s(\d+))?$/);
+      if (!m) return null;
+      const cleanBase = stripTrailingYear(stripVersionSuffix(m[2]), r.year ?? null);
+      if (cleanBase === m[2]) return null;
+      return `${m[1]}:${cleanBase}:${m[3]}${m[4] ? `:s${m[4]}` : ''}`;
+    };
+
+    const groups = new Map<string, (typeof rows)[number][]>();
+    for (const r of rows) {
+      const baseFp = baseFpOf(r);
+      if (!baseFp || baseFp === r.fingerprint) continue;
+      const arr = groups.get(baseFp);
+      if (arr) arr.push(r);
+      else groups.set(baseFp, [r]);
+    }
+    console.log(`[Collector] 存量同名合并: 版本候选 ${groups.size} 组`);
+
+    let merged = 0;
+    for (const [baseFp, members] of groups) {
+      const main = byFingerprint.get(baseFp);
+      if (!main) continue; // 库中尚无同名主条目，等待交叉采集补齐
+      for (const v of members) {
+        if (v.id === main.id) continue;
+        try {
+          await this.mergeVersionIntoMain(v, main);
+          merged++;
+          if (merged % 200 === 0) {
+            console.log(`[Collector] 存量同名合并: 已合并 ${merged} 条…`);
+          }
+        } catch (err) {
+          console.error(`[Collector] 存量合并失败 (${v.id}):`, err);
+        }
+      }
+    }
+    console.log(`[Collector] 存量同名合并: 完成，合并 ${merged} 条，耗时 ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
+    if (merged > 0) {
+      await this.logToDb(`存量同名多版本合并：${merged} 条并入主条目`, 'info', { sourceCode: 'merge_versions' });
+    }
+    return merged;
+  }
+
+  /** 单条版本条目并入主条目：episode/play_source id 语言化重写追加，引用表转指，删除被并行。
+   *  写库聚合为批量 upsert（upsertEpisodesBatch/upsertPlaySourcesBatch），避免逐条 DB 调用拖慢全表合并。 */
+  private async mergeVersionIntoMain(
+    v: { id: string; title: string; fingerprint: string; type: string },
+    main: { id: string; title: string }
+  ): Promise<void> {
+    await this.db.withTransactionAsync(async () => {
+      const lang = extractLanguage(v.title) ?? null;
+      const langSfx = lang ? `_${lang}` : '';
+      const srcEps = await this.db.getEpisodesByMediaId(v.id);
+      const urlSeen = new Set<string>();
+      const epsBatch: Episode[] = [];
+      const psBatch: PlaySource[] = [];
+      const dedupPsIds: string[] = [];
+      const delEpIds: string[] = [];
+
+      for (const ep of srcEps) {
+        const newEpId =
+          v.type === 'MOVIE'
+            ? `ep_${main.id}_movie${langSfx}_src_${ep.sourceId || 'default'}`
+            : `ep_${main.id}_s${ep.seasonNumber || 1}_e${ep.episodeNumber}${langSfx}_src_${ep.sourceId || 'default'}`;
+        epsBatch.push({ ...ep, id: newEpId, mediaId: main.id });
+
+        const psList = await this.db.getPlaySourcesByEpisodeId(ep.id);
+        for (const ps of psList) {
+          if (urlSeen.has(ps.url)) {
+            dedupPsIds.push(ps.id);
+            continue;
+          }
+          urlSeen.add(ps.url);
+          psBatch.push({
+            ...ps,
+            id: `ps_${newEpId}_${shortUrlHash(ps.url)}`,
+            episodeId: newEpId,
+            sourceId: ps.sourceId || 'default',
+            language: lang ?? ps.language,
+          });
+        }
+        delEpIds.push(ep.id);
+      }
+
+      if (epsBatch.length > 0) await this.db.upsertEpisodesBatch(epsBatch);
+      if (psBatch.length > 0) await this.db.upsertPlaySourcesBatch(psBatch);
+      for (const id of delEpIds) await this.db.execute('DELETE FROM episode WHERE id = ?', [id]);
+      for (const id of dedupPsIds) await this.db.execute('DELETE FROM play_source WHERE id = ?', [id]);
+
+      // 播放进度指向语言化后的新剧集，直接丢弃（与 mergeTvIntoMovie 同策略）
+      await this.db.execute('DELETE FROM watch_history WHERE media_id = ?', [v.id]);
+      await this.db.execute('DELETE FROM watch_line_progress WHERE media_id = ?', [v.id]);
+      const repointUnique = async (table: string): Promise<void> => {
+        await this.db.execute(`DELETE FROM ${table} WHERE media_id = ? AND EXISTS (SELECT 1 FROM ${table} WHERE media_id = ?)`, [v.id, main.id]);
+        await this.db.execute(`UPDATE ${table} SET media_id = ? WHERE media_id = ?`, [main.id, v.id]);
+      };
+      await repointUnique('favorite');
+      await repointUnique('impression');
+      await repointUnique('dislike');
+      await repointUnique('recommend_snapshot');
+      await repointUnique('media_change_log');
+
+      await this.db.execute('DELETE FROM media WHERE id = ?', [v.id]);
+    });
+  }
+
   async collectLatest(
     page: number = 1,
     pageSize: number = 20,
@@ -1087,10 +1507,17 @@ const title = await normalizer.normalizeTitle(item.vod_name);
 
     console.log(`[Collector] collectLatest: ${sources.length} sources, incrementalMaxPages=${config.incrementalMaxPages}, maxIncrementalHours=${config.maxIncrementalHours}`);
 
+    // 存量纠错：合并历史「电影误判为电视剧」的重复指纹（幂等，失败不影响本次采集）
+    await this.repairMediaTypeMismatches();
+    // 存量同名多版本合并与采集并行：不阻塞首帧进度回调，UI 立即进入「增量采集中」状态
+    const versionMergePromise = this.runVersionMergeOnce(true);
+
     const batchMeter = new PerfMeter();
-    await Promise.all(sources.map(async (source, si) => {
-      const sourceMeter = new PerfMeter();
-      const now = new Date().toISOString();
+    await Promise.all([
+      versionMergePromise,
+      ...sources.map(async (source, si) => {
+        const sourceMeter = new PerfMeter();
+        const now = new Date().toISOString();
 
       // 断点续采: 计算时间窗口
       let hours: number | undefined;
@@ -1255,7 +1682,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
         this.logPerf('SOURCE', { src: source.name, taskId, pages: currentPage, collected, failed, status: 'failed', error: errorMsg }, sourceMeter);
         batchMeter.merge(sourceMeter);
       }
-    }));
+    })]);
 
     this.logPerf('BATCH', { mode: 'incremental' }, batchMeter);
 

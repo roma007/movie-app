@@ -52,6 +52,8 @@ export default function PlayPage() {
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [episodeListSwitching, setEpisodeListSwitching] = useState(false);
   const [movieLines, setMovieLines] = useState<{ episodeId: string; source: PlaySource }[]>([]);
+  const [tvLangInfo, setTvLangInfo] = useState<{ language: string; episodeId: string; sourceId: string }[]>([]);
+  const [selectedLanguage, setSelectedLanguage] = useState<string | null>(null);
   const [castExpanded, setCastExpanded] = useState(false);
   const [castOverflow, setCastOverflow] = useState(false);
   const castRef = useRef<HTMLDivElement | null>(null);
@@ -102,6 +104,13 @@ export default function PlayPage() {
         );
         if (cancelled) return;
         setMovieLines(lists.flat().filter((l) => !!l.source.url));
+        // 自动选第一个语言（仅首次或当前选择无效时）
+        const unique = [...new Set(lists.flat().map((l) => l.source.language).filter(Boolean))] as string[];
+        if (unique.length > 1) {
+          setSelectedLanguage((prev) => (prev && unique.includes(prev) ? prev : unique[0]));
+        } else {
+          setSelectedLanguage(null); // 不足两种语言时不显示语言筛选
+        }
       } catch {
         if (!cancelled) setMovieLines([]);
       }
@@ -110,6 +119,60 @@ export default function PlayPage() {
       cancelled = true;
     };
   }, [ready, media?.id, media?.type]);
+
+  useEffect(() => {
+    if (!ready || !media?.id || media.type === 'MOVIE') {
+      setTvLangInfo([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const provider = getProvider();
+        const info = await provider.getPlaySourceLanguagesByMedia(media.id);
+        if (cancelled) return;
+        setTvLangInfo(info);
+        const langs = [...new Set(info.map((i) => i.language).filter(Boolean))] as string[];
+        setSelectedLanguage((prev) => (prev && langs.includes(prev) ? prev : (langs.length > 1 ? langs[0] : null)));
+      } catch {
+        if (!cancelled) setTvLangInfo([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, media?.id, media?.type]);
+
+  const tvLangMap = useMemo(() => new Map(tvLangInfo.map((i) => [i.episodeId, i.language])), [tvLangInfo]);
+  const tvLangSources = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const i of tvLangInfo) {
+      if (!m.has(i.language)) m.set(i.language, new Set());
+      m.get(i.language)!.add(i.sourceId);
+    }
+    return m;
+  }, [tvLangInfo]);
+  const tvLanguages = useMemo(() => [...tvLangSources.keys()], [tvLangSources]);
+  const shownSources = useMemo(() => {
+    if (!selectedLanguage) return episodeSources;
+    const langs = tvLangSources.get(selectedLanguage);
+    if (!langs) return episodeSources;
+    const filtered = episodeSources.filter((s) => langs.has(s.id));
+    return filtered.length > 0 ? filtered : episodeSources;
+  }, [episodeSources, selectedLanguage, tvLangSources]);
+  const filteredEpisodes = useMemo(() => {
+    if (!selectedLanguage) return episodes;
+    return episodes.filter((ep: any) => tvLangMap.get(ep.id) === selectedLanguage);
+  }, [episodes, selectedLanguage, tvLangMap]);
+
+  // TV：首帧选中语言默认切换到该语言的首个片源（当前源不含该语言时），剧集列表不空
+  useEffect(() => {
+    if (media?.type === 'MOVIE' || !selectedLanguage || !selectedSourceId) return;
+    const srcs = tvLangSources.get(selectedLanguage);
+    if (!srcs || srcs.has(selectedSourceId)) return;
+    const first = srcs.values().next().value;
+    if (first && first !== selectedSourceId) switchCmsSource(first);
+  }, [selectedLanguage, selectedSourceId, tvLangSources, media?.type, switchCmsSource]);
 
   useEffect(() => {
     if (episodes.length === 0) return;
@@ -330,11 +393,18 @@ export default function PlayPage() {
 
   const lineEntries = useMemo(() => {
     if (media?.type === 'MOVIE') {
-      if (movieLines.length > 0) return movieLines;
+      if (movieLines.length > 0) {
+        // 语言层：仅展示当前选中语言的线路；无语言标记/选择失效时回退全部
+        const langs = Array.from(new Set(movieLines.map((l) => l.source.language).filter(Boolean))) as string[];
+        if (langs.length > 1 && selectedLanguage && langs.includes(selectedLanguage)) {
+          return movieLines.filter((l) => (l.source.language ?? null) === selectedLanguage);
+        }
+        return movieLines;
+      }
       return activeSession ? sources.map((s) => ({ episodeId: activeSession.episodeId, source: s })) : [];
     }
     return activeSession ? sources.map((s) => ({ episodeId: activeSession.episodeId, source: s })) : [];
-  }, [media?.type, movieLines, sources, activeSession]);
+  }, [media?.type, movieLines, sources, activeSession, selectedLanguage]);
 
   useEffect(() => {
     const pending = pendingLineRef.current;
@@ -601,6 +671,27 @@ export default function PlayPage() {
             )}
 
             <div className="space-y-2">
+              {media?.type === 'MOVIE' &&
+                (() => {
+                  const langs = Array.from(new Set(movieLines.map((l) => l.source.language).filter(Boolean))) as string[];
+                  if (langs.length <= 1) return null;
+                  return (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-sm text-muted-foreground">语言</span>
+                      {langs.map((lang) => (
+                        <Button
+                          key={lang}
+                          variant={selectedLanguage === lang ? 'default' : 'outline'}
+                          size="sm"
+                          className={selectedLanguage === lang ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-text'}
+                          onClick={() => setSelectedLanguage(lang)}
+                        >
+                          {lang}
+                        </Button>
+                      ))}
+                    </div>
+                  );
+                })()}
               <div className="text-sm text-muted-foreground">
                 {lineEntries.length > 0 ? '播放线路' : '暂无播放线路'}
               </div>
@@ -640,6 +731,37 @@ export default function PlayPage() {
         </div>
 
         <div className="space-y-4">
+          {media?.type !== 'MOVIE' &&
+            (() => {
+              if (tvLanguages.length <= 1) return null;
+              return (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-sm text-muted-foreground">语言</span>
+                  {tvLanguages.map((lang) => (
+                    <Button
+                      key={lang}
+                      variant={selectedLanguage === lang ? 'default' : 'outline'}
+                      size="sm"
+                      className={selectedLanguage === lang ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-text'}
+                      onClick={() => {
+                        setSelectedLanguage(lang);
+                        const srcs = tvLangSources.get(lang);
+                        if (srcs && selectedSourceId && !srcs.has(selectedSourceId)) {
+                          const first = srcs.values().next().value;
+                          if (first && first !== selectedSourceId) {
+                            setEpisodeListSwitching(true);
+                            switchCmsSource(first);
+                          }
+                        }
+                      }}
+                    >
+                      {lang}
+                    </Button>
+                  ))}
+                </div>
+              );
+            })()}
+
           {displaySeasons.length > 1 && (
             <div className="space-y-1">
               <div className="flex gap-2 flex-wrap">
@@ -664,9 +786,9 @@ export default function PlayPage() {
           {media?.type !== 'MOVIE' && (
             <div className="rounded-md overflow-hidden">
               <div className="flex">
-                {episodeSources.length > 1 && (
+                {shownSources.length > 1 && (
                   <div className="shrink-0 flex flex-col items-end gap-1.5">
-                    {episodeSources.map((cms: any) => (
+                    {shownSources.map((cms: any) => (
                       <button
                         key={cms.id}
                         type="button"
@@ -692,9 +814,9 @@ export default function PlayPage() {
                       <Loader2 className="size-4 animate-spin text-muted-foreground" />
                       剧集加载中...
                     </div>
-                  ) : episodes.length > 0 ? (
+                  ) : filteredEpisodes.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
-                      {episodes.map((ep: any) => {
+                      {filteredEpisodes.map((ep: any) => {
                         const dur = episodeDurations[ep.id] ?? ep.duration;
                         return (
                         <button

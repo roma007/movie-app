@@ -98,6 +98,7 @@ export const SCHEMA_SQL = `
     source_name TEXT,
     url TEXT NOT NULL,
     quality TEXT,
+    language TEXT,
     is_active INTEGER DEFAULT 1,
     fail_count INTEGER DEFAULT 0,
     last_fail_at TEXT,

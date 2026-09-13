@@ -45,6 +45,10 @@ const typeScreenMap: Record<string, string> = {
   DOCUMENTARY: 'Documentary',
 };
 
+// 沉浸信息卡布局常量：右侧竖排功能键列宽（toolbarButtonRound 60）、卡片与列间距
+const TOOLBAR_COL_WIDTH = 60;
+const VERTICAL_CARD_RIGHT_GAP = 12;
+
 export default function PlayScreen({ route, navigation }: Props) {
   const { episodeId, mediaId: paramMediaId, sourceId: paramSourceId, playSourceId: paramPlaySourceId, title: paramTitle } = route.params;
   const {
@@ -88,6 +92,8 @@ export default function PlayScreen({ route, navigation }: Props) {
   const [hiding, setHiding] = useState(false);
   const [activePlayIdx, setActivePlayIdx] = useState(0);
   const activePlayIdxRef = useRef(activePlayIdx);
+  const [selectedLang, setSelectedLang] = useState<string | null>(null);
+  const [tvLangInfo, setTvLangInfo] = useState<{ language: string; episodeId: string; sourceId: string }[]>([]);
   activePlayIdxRef.current = activePlayIdx;
   const [videoUrl, setVideoUrl] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -261,8 +267,6 @@ export default function PlayScreen({ route, navigation }: Props) {
   const isImmersive = videoUrl != null && !error;
 
   const styles = useMemo(() => {
-    // 信息卡展开内容最大高度：≤40% 屏高（留档「≤60% 上限」以内的取中），超出区域内滚
-    const vInfoMax = Math.min(screenH * 0.24, 400);
     return StyleSheet.create({
     container: { flex: 1 },
     // 播放器整体在屏幕垂直居中：上方留白 spacerTop(flex:1) 与 下方正文 body(flex:1) 上下等分，
@@ -292,14 +296,15 @@ export default function PlayScreen({ route, navigation }: Props) {
     videoContainerImm: { width: '100%', flex: 1, backgroundColor: colors.playerBg },
     // 沉浸态点击视频区 = 播放/暂停（替代已移除的中央圆形按钮，红果式惯例）
     videoTapLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 5 },
-    // 底部悬浮信息卡：红果式左下窄卡（非全宽），叠加在视频上（非弹窗，不受弹窗不透明度规则限制），底部给选集横条留位
+    // 底部悬浮信息卡：红果式左下卡（非全宽），叠加在视频上（非弹窗，不受弹窗不透明度规则限制）。
+    // 宽度自适应：左缘 15，右缘对齐右侧竖排功能键列左缘并留 VERTICAL_CARD_RIGHT_GAP 空隙
     verticalCard: {
       position: 'absolute',
       left: 15,
-      width: screenW * 0.68,
+      right: 8 + TOOLBAR_COL_WIDTH + VERTICAL_CARD_RIGHT_GAP,
       bottom: insets.bottom + 76,
       zIndex: 15,
-backgroundColor: 'transparent',
+      backgroundColor: 'transparent',
       borderRadius: radius.lg,
       paddingTop: 2,
       paddingBottom: 4,
@@ -315,9 +320,9 @@ backgroundColor: 'transparent',
       alignItems: 'center',
       gap: 12,
     },
-    // 信息区 wrapper：内容自然撑高，限高由内部 ScrollView 承担（内容多时才滚动）
+    // 信息区 wrapper：内容自适应高度（不设上限）；overflow hidden 仅防圆角处文本溢出
     verticalInfoWrap: { minWidth: 0, overflow: 'hidden' as const },
-    verticalInfo: { flexGrow: 0, maxHeight: vInfoMax },
+    verticalInfo: { flexGrow: 0 },
     verticalTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
     verticalTitle: { fontSize: sf(15), fontWeight: '700', color: '#fff' },
     verticalEpLabel: {
@@ -331,7 +336,7 @@ backgroundColor: 'transparent',
     },
     verticalSubText: { fontSize: sf(12), color: 'rgba(255,255,255,0.75)', marginBottom: 6 },
     verticalSection: { marginTop: 6 },
-    verticalSectionText: { fontSize: sf(12), color: 'rgba(255,255,255,0.85)', lineHeight: sf(19) },
+    verticalSectionText: { flex: 1, fontSize: sf(12), color: 'rgba(255,255,255,0.85)', lineHeight: sf(19) },
     verticalDetailRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
     verticalSectionTag: { fontSize: sf(12), fontWeight: '600', color: '#fff', marginTop: 1 },
     verticalExpandLink: { fontSize: sf(12), color: '#fff', marginLeft: 6 },
@@ -452,6 +457,9 @@ backgroundColor: 'transparent',
     settingsChip: { minWidth: 64 },
     section: { padding: 15 },
     sectionLabel: { fontSize: sf(14), color: colors.mutedForeground, marginBottom: 10 },
+    languageRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 10 },
+    languageLabel: { fontSize: sf(14), color: colors.mutedForeground },
+    languageChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.sm, minWidth: 48 },
     episodeListEntry: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, marginBottom: 10, marginHorizontal: 12, paddingVertical: 12, paddingHorizontal: 16, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
     episodesSheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
     episodesSheet: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: 18, maxHeight: '75%' },
@@ -526,6 +534,8 @@ backgroundColor: 'transparent',
     (async () => {
       setIsLoading(true);
       setError(null);
+      setPlotOverflow(false);
+      setCastOverflow(false);
       setOverlayVisible(false);
       overlayDismissedRef.current = false;
       try {
@@ -611,6 +621,15 @@ backgroundColor: 'transparent',
         skipDismissedRef.current = false;
         lastTimeRef.current = seekTime;
         setPlaySources(sources);
+        // 语言层：MOVIE 多语言版本时默认选中第一个语言（仅 MOVIE 处理；TV 由剧集语言层 effect 维护，此处不重置）
+        if (media && media.type === 'MOVIE') {
+          const langs = Array.from(new Set(sources.map((s) => s.language).filter(Boolean))) as string[];
+          if (langs.length > 1) {
+            setSelectedLang((prev) => (prev && langs.includes(prev) ? prev : langs[0]));
+          } else {
+            setSelectedLang(null);
+          }
+        }
         if (sources.length > 0) {
           setVideoUrl(sources[pickIdx].url);
           setActivePlayIdx(pickIdx);
@@ -627,6 +646,70 @@ backgroundColor: 'transparent',
     })();
     return () => { cancelled = true; };
   }, [currentEpisodeId]);
+
+  // TV 语言层：该媒体全部语言 ↔ 剧集 ↔ 片源 映射（一次 DAO 查询），选语言后过滤片源与剧集
+  useEffect(() => {
+    if (!mediaId || media?.type === 'MOVIE') {
+      setTvLangInfo([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const info = await getProvider().getPlaySourceLanguagesByMedia(mediaId);
+        if (cancelled) return;
+        setTvLangInfo(info);
+        const langs = Array.from(new Set(info.map((i) => i.language).filter(Boolean))) as string[];
+        setSelectedLang((prev) => (prev && langs.includes(prev) ? prev : (langs.length > 1 ? langs[0] : null)));
+      } catch {
+        if (!cancelled) setTvLangInfo([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mediaId, media?.type]);
+
+  const tvLangMap = useMemo(() => new Map(tvLangInfo.map((i) => [i.episodeId, i.language])), [tvLangInfo]);
+  const tvLangSources = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const i of tvLangInfo) {
+      if (!m.has(i.language)) m.set(i.language, new Set());
+      m.get(i.language)!.add(i.sourceId);
+    }
+    return m;
+  }, [tvLangInfo]);
+  const tvLanguages = useMemo(() => [...tvLangSources.keys()], [tvLangSources]);
+  const applyTvLang = (lang: string) => {
+    setSelectedLang(lang);
+    const srcs = tvLangSources.get(lang);
+    if (srcs && selectedSourceId && !srcs.has(selectedSourceId)) {
+      const first = srcs.values().next().value;
+      if (first && first !== selectedSourceId) handleSourceChange(first);
+    }
+  };
+  const filteredEpisodes = useMemo(() => {
+    if (!selectedLang) return episodes;
+    if (tvLanguages.length <= 1) return episodes;
+    return episodes.filter((ep: Episode) => tvLangMap.get(ep.id) === selectedLang);
+  }, [episodes, selectedLang, tvLanguages, tvLangMap]);
+  const shownSources = useMemo(() => {
+    if (!selectedLang) return episodeSources;
+    if (tvLanguages.length <= 1) return episodeSources;
+    const langs = tvLangSources.get(selectedLang);
+    if (!langs) return episodeSources;
+    const filtered = episodeSources.filter((s) => langs.has(s.id));
+    return filtered.length > 0 ? filtered : episodeSources;
+  }, [episodeSources, selectedLang, tvLanguages, tvLangSources]);
+
+  // TV：首帧选中语言默认切换到该语言的首个片源（当前源不含该语言时），剧集列表不空
+  useEffect(() => {
+    if (media?.type === 'MOVIE' || !selectedLang || !selectedSourceId) return;
+    const srcs = tvLangSources.get(selectedLang);
+    if (!srcs || srcs.has(selectedSourceId)) return;
+    const first = srcs.values().next().value;
+    if (first && first !== selectedSourceId) handleSourceChange(first);
+  }, [selectedLang, selectedSourceId, tvLangSources, media?.type]);
 
   useEffect(() => {
     if (!mediaId) return;
@@ -1165,8 +1248,6 @@ backgroundColor: 'transparent',
   };
 
   // 功能2: 下一集
-  const filteredEpisodes = episodes;
-
   const handleNextEpisode = () => {
     if (nextEpisode) {
       setCurrentEpisodeId(nextEpisode.id);
@@ -1682,23 +1763,41 @@ backgroundColor: 'transparent',
                   })()}
                   {media && media.description && (
                     <View style={styles.verticalSection}>
+                      {/* 隐藏测量文本：与卡片同宽测实际行数，超 1 行才显示「展开」 */}
+                      <Text
+                        style={{ position: 'absolute', left: 0, right: 0, opacity: 0, height: 0 }}
+                        onTextLayout={(e) => setPlotOverflow(e.nativeEvent.lines.length > 1)}
+                      >
+                        {media.description}
+                      </Text>
                       <View style={styles.verticalDetailRow}>
                         <Text style={styles.verticalSectionTag}>简介</Text>
-                        <Text style={styles.verticalSectionText} numberOfLines={2}>{media.description}</Text>
-                        <TouchableOpacity onPress={() => setIntroSheetVisible(true)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
-                          <Text style={styles.verticalExpandLink}>展开</Text>
-                        </TouchableOpacity>
+                        <Text style={styles.verticalSectionText} numberOfLines={1}>{media.description}</Text>
+                        {plotOverflow && (
+                          <TouchableOpacity onPress={() => setIntroSheetVisible(true)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }} style={{ flexShrink: 0 }}>
+                            <Text style={styles.verticalExpandLink}>展开</Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
                     </View>
                   )}
                   {(media && (media.directors.length > 0 || media.actors.length > 0)) && (
                     <View style={styles.verticalSection}>
+                      {/* 隐藏测量文本：与卡片同宽测实际行数，超 2 行才显示「展开」 */}
+                      <Text
+                        style={{ position: 'absolute', left: 0, right: 0, opacity: 0, height: 0 }}
+                        onTextLayout={(e) => setCastOverflow(e.nativeEvent.lines.length > 2)}
+                      >
+                        {vCastText}
+                      </Text>
                       <View style={styles.verticalDetailRow}>
                         <Text style={styles.verticalSectionTag}>导演/演员</Text>
                         <Text style={styles.verticalSectionText} numberOfLines={2}>{vCastText}</Text>
-                        <TouchableOpacity onPress={() => setCastSheetVisible(true)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
-                          <Text style={styles.verticalExpandLink}>展开</Text>
-                        </TouchableOpacity>
+                        {castOverflow && (
+                          <TouchableOpacity onPress={() => setCastSheetVisible(true)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }} style={{ flexShrink: 0 }}>
+                            <Text style={styles.verticalExpandLink}>展开</Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
                     </View>
                   )}
@@ -1935,17 +2034,45 @@ backgroundColor: 'transparent',
 
         {/* 播放线路 (功能5: 质量标签) */}
         {playSources.length > 1 && (() => {
+          const langs = Array.from(new Set(playSources.map((s) => s.language).filter(Boolean))) as string[];
+          const displaySources = langs.length > 1 && selectedLang && langs.includes(selectedLang)
+            ? playSources.filter((s) => (s.language ?? null) === selectedLang)
+            : playSources;
           const sourceKeyMap = new Map<string, number>();
           playSources.forEach(s => {
             const key = `${s.sourceName || ''}_${s.quality || ''}`;
             sourceKeyMap.set(key, (sourceKeyMap.get(key) || 0) + 1);
           });
           const keyIndexMap = new Map<string, number>();
+          const applyLang = (lang: string) => {
+            const currentIdx = playSources.findIndex((s) => (s.language ?? null) === lang);
+            if (currentIdx >= 0 && currentIdx !== activePlayIdx) {
+              handlePlaySourceChange(currentIdx);
+            }
+            setSelectedLang(lang);
+          };
           return (
             <View style={styles.section}>
+              {langs.length > 1 && (
+                <View style={styles.languageRow}>
+                  <Text style={styles.languageLabel}>语言</Text>
+                  {langs.map((lang) => (
+                    <Button
+                      key={lang}
+                      variant="secondary"
+                      size="sm"
+                      active={selectedLang === lang}
+                      style={styles.languageChip}
+                      onPress={() => applyLang(lang)}
+                    >
+                      {lang}
+                    </Button>
+                  ))}
+                </View>
+              )}
               <Text style={styles.sectionLabel}>播放线路（{activePlayIdx + 1}/{playSources.length}）</Text>
               <View style={styles.row}>
-                {playSources.map((s, i) => {
+                {displaySources.map((s, i) => {
                   const key = `${s.sourceName || ''}_${s.quality || ''}`;
                   const count = sourceKeyMap.get(key) || 1;
                   const idx = (keyIndexMap.get(key) || 0) + 1;
@@ -1953,14 +2080,15 @@ backgroundColor: 'transparent',
                   const baseName = s.sourceName || `线路${i + 1}`;
                   const qualityStr = s.quality ? ` · ${s.quality}` : '';
                   const suffix = count > 1 ? ` (${idx})` : '';
+                  const origIdx = playSources.findIndex((x) => x.id === s.id);
                   return (
                     <Button
                       key={s.id}
                       variant="secondary"
                       size="sm"
-                      active={i === activePlayIdx}
+                      active={origIdx === activePlayIdx}
                       style={styles.chip}
-                      onPress={() => handlePlaySourceChange(i)}
+                      onPress={() => handlePlaySourceChange(origIdx)}
                     >
                       {baseName}{qualityStr}{suffix}
                     </Button>
@@ -2296,10 +2424,27 @@ backgroundColor: 'transparent',
                 })}
               </View>
             )}
+            {tvLanguages.length > 1 && (
+              <View style={styles.languageRow}>
+                <Text style={styles.languageLabel}>语言</Text>
+                {tvLanguages.map((lang) => (
+                  <Button
+                    key={lang}
+                    variant="secondary"
+                    size="sm"
+                    active={selectedLang === lang}
+                    style={styles.languageChip}
+                    onPress={() => applyTvLang(lang)}
+                  >
+                    {lang}
+                  </Button>
+                ))}
+              </View>
+            )}
             <View style={styles.sourceEpisodeRow}>
-              {episodeSources.length > 1 && (
+              {shownSources.length > 1 && (
                 <View style={styles.sourceTabCol}>
-                  {episodeSources.map((s: VideoSource) => {
+                  {shownSources.map((s: VideoSource) => {
                     const active = selectedSourceId === s.id;
                     return (
                       <TouchableOpacity

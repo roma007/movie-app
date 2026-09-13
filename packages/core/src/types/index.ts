@@ -56,6 +56,8 @@ export interface PlaySource {
   sourceName?: string | null;
   url: string;
   quality?: string | null;
+  /** 该播放线路的语言（如「国语」「粤语」「英语」）；null 表示未标明（可能在 UI 按地区推断）。 */
+  language?: string | null;
   isActive?: boolean;
   failCount?: number;
   lastFailAt?: string | null;

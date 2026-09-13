@@ -422,6 +422,11 @@ const MIGRATIONS: Migration[] = [
     description: 'add_episode_source_id_media_id_covering_index',
     sql: `CREATE INDEX IF NOT EXISTS idx_episode_source_id_media_id ON episode(source_id, media_id);`,
   },
+  {
+    version: 49,
+    description: 'add_play_source_language_column',
+    sql: `ALTER TABLE play_source ADD COLUMN language TEXT;`,
+  },
 ];
 
 /**
@@ -1363,16 +1368,51 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     return rows.map(rowToPlaySource);
   }
 
+  async hasVersionEpisodes(mediaId: string, sourceId: string): Promise<boolean> {
+    const rows = await this.readDb!.getAllAsync<{ r: number }>(
+      `SELECT EXISTS(
+         SELECT 1 FROM play_source ps
+         JOIN episode e ON e.id = ps.episode_id
+         WHERE e.media_id = ? AND e.source_id = ?
+           AND ps.language IS NOT NULL AND ps.language <> ''
+       ) AS r`,
+      [mediaId, sourceId]
+    );
+    return (rows[0]?.r ?? 0) === 1;
+  }
+
+  async getPlaySourceUrlsByMediaAndSource(mediaId: string, sourceId: string): Promise<string[]> {
+    const rows = await this.readDb!.getAllAsync<{ url: string }>(
+      `SELECT ps.url FROM play_source ps
+       JOIN episode e ON e.id = ps.episode_id
+       WHERE e.media_id = ? AND e.source_id = ?`,
+      [mediaId, sourceId]
+    );
+    return rows.map((r) => r.url);
+  }
+
+  async getPlaySourceLanguagesByMedia(mediaId: string): Promise<{ language: string; episodeId: string; sourceId: string }[]> {
+    const rows = await this.readDb!.getAllAsync<{ language: string; episode_id: string; source_id: string }>(
+      `SELECT DISTINCT ps.language, e.id AS episode_id, e.source_id
+       FROM play_source ps
+       JOIN episode e ON e.id = ps.episode_id
+       WHERE e.media_id = ? AND ps.language IS NOT NULL AND ps.language <> ''`,
+      [mediaId]
+    );
+    return rows.map((r) => ({ language: r.language, episodeId: r.episode_id, sourceId: r.source_id }));
+  }
+
   async upsertPlaySource(playSource: PlaySource): Promise<void> {
     await this.db!.runAsync(
-      `INSERT INTO play_source (id, episode_id, source_id, source_name, url, quality, is_active, fail_count, last_fail_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO play_source (id, episode_id, source_id, source_name, url, quality, language, is_active, fail_count, last_fail_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          url = excluded.url,
-         quality = excluded.quality`,
+         quality = excluded.quality,
+         language = excluded.language`,
       [
         playSource.id, playSource.episodeId, playSource.sourceId, playSource.sourceName || null,
-        playSource.url, playSource.quality || null, 1, 0, null,
+        playSource.url, playSource.quality || null, playSource.language || null, 1, 0, null,
       ]
     );
   }
@@ -1381,17 +1421,18 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     const CHUNK = 100;
     for (let i = 0; i < playSources.length; i += CHUNK) {
       const chunk = playSources.slice(i, i + CHUNK);
-      const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       const params: any[] = [];
       for (const p of chunk) {
-        params.push(p.id, p.episodeId, p.sourceId, p.sourceName || null, p.url, p.quality || null, 1, 0, null);
+        params.push(p.id, p.episodeId, p.sourceId, p.sourceName || null, p.url, p.quality || null, p.language || null, 1, 0, null);
       }
       await this.db!.runAsync(
-        `INSERT INTO play_source (id, episode_id, source_id, source_name, url, quality, is_active, fail_count, last_fail_at)
+        `INSERT INTO play_source (id, episode_id, source_id, source_name, url, quality, language, is_active, fail_count, last_fail_at)
          VALUES ${placeholders}
          ON CONFLICT(id) DO UPDATE SET
            url = excluded.url,
-           quality = excluded.quality`,
+           quality = excluded.quality,
+           language = excluded.language`,
         params
       );
     }

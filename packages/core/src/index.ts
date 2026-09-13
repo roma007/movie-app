@@ -21,6 +21,16 @@ export {
   type DefaultSourceConfig,
 } from './utils/constants';
 export { getHttpClient, setHttpClient, type HttpClient } from './utils/httpClient';
+export {
+  computeBaseTitle,
+  extractLanguage,
+  inferLanguageForUnlabeled,
+  regionDefaultLanguage,
+  regionLanguageCandidates,
+  shortUrlHash,
+  stripTrailingYear,
+  stripVersionSuffix,
+} from './utils/versionMerge';
 
 // 服务
 export { CMSAdapter } from './services/cmsAdapter';

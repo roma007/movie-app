@@ -423,7 +423,6 @@ export class RecommendationService {
           'SELECT tag, tag_type, created_at FROM interest_tag_blacklist'
         ),
       ]);
-
     const disliked = new Set(dislikedRows.map((r) => r.media_id));
     const tagBlacklist = new Set<string>();
     for (const r of tagBlacklistRows) {

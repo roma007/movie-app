@@ -91,6 +91,7 @@ export function rowToPlaySource(row: any): PlaySource {
     sourceName: row.source_name,
     url: row.url,
     quality: row.quality,
+    language: row.language || null,
     isActive: row.is_active === 1,
     failCount: row.fail_count || 0,
     lastFailAt: row.last_fail_at || null,
