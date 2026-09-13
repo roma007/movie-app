@@ -45,8 +45,9 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
   const [meta, setMeta] = useState<PaginatedMeta | null>(null);
   const metaRef = useRef<PaginatedMeta | null>(null);
   const [page, setPage] = useState(1);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   const [subTypes, setSubTypes] = useState<string[]>([]);
   const [years, setYears] = useState<number[]>([]);
@@ -82,6 +83,8 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
 
       const result = await provider.listMedia(params);
 
+      setLoadError(false);
+
       // 「越看越懂你」：浏览模式记录每页展示；到达惩罚边界则触发重算
       if (result.items.length > 0) {
         const shownAt = new Date().toISOString();
@@ -106,6 +109,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
       setPage(pageNum);
     } catch (err) {
       console.error('loadMediaList failed:', err);
+      setLoadError(true);
     } finally {
       setIsLoading(false);
       isLoadingRef.current = false;
@@ -232,7 +236,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
   );
 
   const renderFooter = () => {
-    if (!isLoading) return null;
+    if (!isLoading || mediaList.length === 0) return null;
     return (
       <View style={styles.footer}>
         <ActivityIndicator size="small" color={colors.mutedForeground} />
@@ -242,7 +246,21 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
   };
 
   const renderEmpty = () => {
-    if (isLoading) return null;
+    if (loadError) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>加载失败</Text>
+        </View>
+      );
+    }
+    if (isLoading) {
+      return (
+        <View style={styles.emptyContainer}>
+          <ActivityIndicator size="small" color={colors.mutedForeground} />
+          <Text style={styles.emptyText}>加载中...</Text>
+        </View>
+      );
+    }
     return (
       <View style={styles.emptyContainer}>
         <Text style={styles.emptyText}>暂无数据</Text>

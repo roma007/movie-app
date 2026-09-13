@@ -168,6 +168,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
   const [localMediaList, setLocalMediaList] = useState<Media[]>([]);
   const [localMediaMeta, setLocalMediaMeta] = useState<PaginatedResponse<Media>['meta'] | null>(null);
   const [localIsLoading, setLocalIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const hasRestoredScroll = useRef(false);
   const hasTriggeredLoad = useRef(false);
   const columnsMenuRef = useRef<HTMLDivElement>(null);
@@ -221,6 +222,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
     let cancelled = false;
     const load = async () => {
       setLocalIsLoading(true);
+      setLoadError(false);
       try {
         const result = await getProvider().listMedia({
           page: currentPage, pageSize, type, sort,
@@ -235,6 +237,7 @@ export default function CategoryPage({ type }: CategoryPageProps) {
         }
       } catch (err) {
         console.error('[CategoryPage] 加载列表失败:', err);
+        if (!cancelled) setLoadError(true);
       } finally {
         if (!cancelled) setLocalIsLoading(false);
       }
@@ -643,6 +646,12 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                 </div>
               </Card>
             )
+          ) : loadError ? (
+            <Card className="card-shadow">
+              <div className="p-16 text-center text-muted-foreground">
+                加载失败，请重试
+              </div>
+            </Card>
           ) : viewMode === 'grid' ? (
             <MediaGrid
               items={localMediaList}

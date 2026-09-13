@@ -780,7 +780,8 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     };
 
     // 「为你推荐」：按推荐快照 position 分页；快照为空（冷启动）回退最新序。
-    // 由快照 position 驱动 + 过滤下沉为 correlated EXISTS（PK 探测 media），
+    // 由快照 position 驱动 + 过滤下沉为 correlated EXISTS（pk 探测 media，
+    // 注意用 mm.id=rs.media_id 而非 rowid——media.id 为 TEXT 主键，rowid 与 id 不对齐）。
     // 消除旧实现「扫 media 8.9 万行 + 一次性临时排序」的 15s 冷读开销。
     if (params.sort === 'recommend') {
       const snapRow = await this.db!.getFirstAsync<{ count: number }>(
@@ -795,7 +796,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
           total = params.knownTotal;
         } else {
           const countRow = await this.db!.getFirstAsync<{ count: number }>(
-            `SELECT COUNT(*) as count FROM recommend_snapshot rs WHERE EXISTS (SELECT 1 FROM media mm WHERE mm.rowid = rs.media_id AND ${mediaCond})`,
+            `SELECT COUNT(*) as count FROM recommend_snapshot rs WHERE EXISTS (SELECT 1 FROM media mm WHERE mm.id = rs.media_id AND ${mediaCond})`,
             qp
           );
           total = countRow?.count || 0;
@@ -803,7 +804,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
         const totalPages = Math.ceil(total / pageSize);
         const rows = await this.db!.getAllAsync<any>(
           `SELECT m.* FROM recommend_snapshot rs JOIN media m ON m.id = rs.media_id
-           WHERE EXISTS (SELECT 1 FROM media mm WHERE mm.rowid = rs.media_id AND ${mediaCond})
+           WHERE EXISTS (SELECT 1 FROM media mm WHERE mm.id = rs.media_id AND ${mediaCond})
            ORDER BY rs.position ASC LIMIT ? OFFSET ?`,
           [...qp, pageSize, offset]
         );
