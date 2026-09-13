@@ -146,6 +146,8 @@ export interface ListParams {
   subType?: string;
   area?: string;
   isShortDrama?: boolean;
+  /** 调用方已持有的总命中数（翻页时复用，跳过 COUNT 全表扫）；筛选条件变化时必须置空重计。 */
+  knownTotal?: number;
 }
 
 /** 列表页 → 详情页跳转携带的来源状态（用于返回还原同一列表状态）。 */

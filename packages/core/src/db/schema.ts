@@ -160,10 +160,13 @@ export const SCHEMA_SQL = `
     updated_at TEXT
   );
 
+  -- trigram 分词器（SQLite 3.34+）：支持中文子串匹配（≥3 字符），
+  -- 供 searchMedia 走索引代替 LIKE 全表扫；<3 字符关键词仍由 LIKE 兜底。
   CREATE VIRTUAL TABLE IF NOT EXISTS media_fts USING fts5(
     title, alias, original_title, director, cast,
     content='media',
-    content_rowid='rowid'
+    content_rowid='rowid',
+    tokenize='trigram'
   );
 
   -- FTS5 外部内容表同步触发器：media 行变化时同步 media_fts 索引行。
@@ -266,6 +269,12 @@ export const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_media_type_updated_at ON media(type, updated_at);
   CREATE INDEX IF NOT EXISTS idx_media_hidden ON media(hidden);
   CREATE INDEX IF NOT EXISTS idx_media_personal_score ON media(personal_score, updated_at);
+
+  -- 分类页无筛选 COUNT / latest SELECT 的部分索引：
+  -- 条件 (hidden IS NULL OR hidden=0) 与业务过滤完全一致，使 COUNT 变成索引内计数，
+  -- 避免在 5.5GB 库上对 22 万行逐行回表判断 hidden（实测无筛选 COUNT 约 18s）。
+  CREATE INDEX IF NOT EXISTS idx_media_type_updated_at_visible ON media(type, updated_at)
+    WHERE (hidden IS NULL OR hidden = 0);
 
   -- 分类页筛选聚合查询（getYearsByType/getAreasByType/getSubTypesByType）的覆盖索引，
   -- 避免每次 DISTINCT/GROUP BY 全表扫（21 万行耗时 6-8s）

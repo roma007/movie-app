@@ -369,8 +369,21 @@ export class TauriSqlProvider implements DatabaseProvider {
     // 删除 video_source 表的 rate_limit 列（重建表）
     await this.dropColumnIfExists('video_source', 'rate_limit');
 
-    // 始终重建 FTS5：确保虚拟表和辅助表状态一致，不受历史损坏影响
-    await this.rebuildFts5();
+    // 始终重建 FTS5：确保虚拟表和辅助表状态一致，不受历史损坏影响。
+    // 分词器升级（trigram，支持中文子串搜索）：旧库 FTS 用默认分词器，MATCH 无法命中子串，
+    // 以 system_config 标记 db.ftsTokenizer 判定，仅首次强制重建一次，之后零成本。
+    const ftsTokenizerRows = await this.db!.select<{ value: string }[]>(
+      "SELECT value FROM system_config WHERE key = 'db.ftsTokenizer'"
+    );
+    const ftsIsTrigram = ftsTokenizerRows.length > 0 && ftsTokenizerRows[0].value === 'trigram';
+    await this.rebuildFts5(!ftsIsTrigram);
+    if (!ftsIsTrigram) {
+      const now = new Date().toISOString();
+      await this.db!.execute(
+        "INSERT OR REPLACE INTO system_config (key, value, value_type, created_at, updated_at) VALUES ('db.ftsTokenizer', 'trigram', 'string', ?, ?)",
+        [now, now]
+      );
+    }
 
     // 升级 media_au 触发器为 WHEN 守卫版：仅 FTS 索引列变化时同步全文索引，
     // 避免 hidden 等非索引列更新（如按子类型隐藏）触发全表 FTS 重建导致卡顿。
@@ -552,15 +565,18 @@ export class TauriSqlProvider implements DatabaseProvider {
    *   2. 尝试常规 DROP（辅助表 + 虚拟表）。
    *   3. 若 DROP 失败（孤立虚拟表），用 writable_schema 清理 sqlite_master 后重建。
    */
-  private async rebuildFts5(): Promise<void> {
+  private async rebuildFts5(force = false): Promise<void> {
     // ── 阶段 1：检测 FTS5 是否可用 ──
     // 用 rowid LIMIT 1 探测（2ms）而非 count(*)（约 14s 全扫 23 万行 FTS 索引）：
     // FTS5 损坏时同样抛错进入修复分支，语义等价但启动零成本。
-    try {
-      await this.db!.execute('SELECT rowid FROM media_fts LIMIT 1');
-      return; // FTS5 正常，跳过重建
-    } catch {
-      // FTS5 不可用，继续修复
+    // force=true（分词器升级为 trigram）时跳过探测，直接走重建。
+    if (!force) {
+      try {
+        await this.db!.execute('SELECT rowid FROM media_fts LIMIT 1');
+        return; // FTS5 正常，跳过重建
+      } catch {
+        // FTS5 不可用，继续修复
+      }
     }
 
     // ── 阶段 2：尝试常规清理 ──
@@ -597,7 +613,8 @@ export class TauriSqlProvider implements DatabaseProvider {
       `CREATE VIRTUAL TABLE IF NOT EXISTS media_fts USING fts5(
         title, alias, original_title, director, cast,
         content='media',
-        content_rowid='rowid'
+        content_rowid='rowid',
+        tokenize='trigram'
       )`
     );
 
@@ -708,25 +725,32 @@ export class TauriSqlProvider implements DatabaseProvider {
         conditions.push(`${col('is_short_drama')} = ?`);
         qp.push(params.isShortDrama ? 1 : 0);
       }
-      return { where: ` WHERE ${conditions.join(' AND ')}`, qp };
+      return { where: ` WHERE ${conditions.join(' AND ')}`, qp, conds: conditions };
     };
 
-    // 「为你推荐」：按推荐快照 position 分页；快照为空（冷启动）回退最新序
+    // 「为你推荐」：按推荐快照 position 分页；快照为空（冷启动）回退最新序。
+    // 由快照 position 驱动 + 过滤下沉为 correlated EXISTS（PK 探测 media），
+    // 消除旧实现「扫 media 8.9 万行 + 一次性临时排序」的 15s 冷读开销。
     if (params.sort === 'recommend') {
       const snapRows = await this.db!.select<{ count: number }[]>(
         `SELECT COUNT(*) as count FROM recommend_snapshot`
       );
       const hasSnapshot = (snapRows[0]?.count || 0) > 0;
       if (hasSnapshot) {
-        const { where, qp } = buildWhere('m');
-        const countRows = await this.db!.select<{ count: number }[]>(
-          `SELECT COUNT(*) as count FROM recommend_snapshot rs JOIN media m ON m.id = rs.media_id${where}`,
-          qp
-        );
-        const total = countRows[0]?.count || 0;
+        const { conds, qp } = buildWhere('mm');
+        const mediaCond = conds.join(' AND ');
+        const total =
+          params.knownTotal ??
+          (await this.db!.select<{ count: number }[]>(
+            `SELECT COUNT(*) as count FROM recommend_snapshot rs WHERE EXISTS (SELECT 1 FROM media mm WHERE mm.rowid = rs.media_id AND ${mediaCond})`,
+            qp
+          ))[0]?.count ??
+          0;
         const totalPages = Math.ceil(total / pageSize);
         const rows = await this.db!.select<any[]>(
-          `SELECT m.* FROM recommend_snapshot rs JOIN media m ON m.id = rs.media_id${where} ORDER BY rs.position ASC LIMIT ? OFFSET ?`,
+          `SELECT m.* FROM recommend_snapshot rs JOIN media m ON m.id = rs.media_id
+           WHERE EXISTS (SELECT 1 FROM media mm WHERE mm.rowid = rs.media_id AND ${mediaCond})
+           ORDER BY rs.position ASC LIMIT ? OFFSET ?`,
           [...qp, pageSize, offset]
         );
         return { items: rows.map(rowToMedia), meta: { page, pageSize, total, totalPages } };
@@ -751,11 +775,13 @@ export class TauriSqlProvider implements DatabaseProvider {
         break;
     }
 
-    const countRows = await this.db!.select<{ count: number }[]>(
-      `SELECT COUNT(*) as count FROM media${where}`,
-      qp
-    );
-    const total = countRows[0]?.count || 0;
+    const total =
+      params.knownTotal ??
+      (await this.db!.select<{ count: number }[]>(
+        `SELECT COUNT(*) as count FROM media${where}`,
+        qp
+      ))[0]?.count ??
+      0;
     const totalPages = Math.ceil(total / pageSize);
 
     const rows = await this.db!.select<any[]>(
@@ -878,8 +904,23 @@ export class TauriSqlProvider implements DatabaseProvider {
     const pageSize = params.pageSize || 20;
     const offset = (page - 1) * pageSize;
 
-    let whereClause = ' WHERE (m.hidden IS NULL OR m.hidden = 0) AND (m.title LIKE ? OR m.alias LIKE ? OR m.original_title LIKE ? OR m.director LIKE ? OR m.cast LIKE ?)';
-    const queryParams: any[] = [`%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`];
+    const trimmed = keyword.trim();
+    // ≥3 字符且不含内部空格才走 trigram FTS 子串索引（JOIN 形态保证 FTS 驱动，避免本就慢的全表扫）；
+    // 含空格/单双字关键词 trigram 不建索引或分词与 LIKE 不一致，退回原 LIKE 语义，结果与旧版一致。
+    const useFts = trimmed.length >= 3 && !/\s/.test(trimmed);
+
+    let whereClause: string;
+    let queryParams: any[];
+    if (useFts) {
+      // 短语查询：命中任一索引列中出现的子串；引号内双写转义。
+      const ftsQuery = `"${trimmed.replace(/"/g, '""')}"`;
+      whereClause = ' WHERE media_fts MATCH ? AND (m.hidden IS NULL OR m.hidden = 0)';
+      queryParams = [ftsQuery];
+    } else {
+      const like = `%${trimmed}%`;
+      whereClause = ' WHERE (m.hidden IS NULL OR m.hidden = 0) AND (m.title LIKE ? OR m.alias LIKE ? OR m.original_title LIKE ? OR m.director LIKE ? OR m.cast LIKE ?)';
+      queryParams = [like, like, like, like, like];
+    }
 
     if (params.type) {
       whereClause += ' AND m.type = ?';
@@ -898,6 +939,24 @@ export class TauriSqlProvider implements DatabaseProvider {
       queryParams.push(`%${params.genre}%`);
     }
 
+    if (useFts) {
+      const countRows = await this.db!.select<{ count: number }[]>(
+        `SELECT COUNT(*) as count FROM media_fts f JOIN media m ON m.rowid = f.rowid${whereClause}`,
+        queryParams
+      );
+      const total = countRows[0]?.count || 0;
+      const totalPages = Math.ceil(total / pageSize);
+
+      const rows = await this.db!.select<any[]>(
+        `SELECT m.* FROM media_fts f JOIN media m ON m.rowid = f.rowid
+         ${whereClause}
+         ORDER BY m.updated_at DESC
+         LIMIT ? OFFSET ?`,
+        [...queryParams, pageSize, offset]
+      );
+      return { items: rows.map(rowToMedia), meta: { page, pageSize, total, totalPages } };
+    }
+
     const countRows = await this.db!.select<{ count: number }[]>(
       `SELECT COUNT(*) as count FROM media m${whereClause}`,
       queryParams
@@ -908,7 +967,7 @@ export class TauriSqlProvider implements DatabaseProvider {
     const rows = await this.db!.select<any[]>(
       `SELECT m.* FROM media m
        ${whereClause}
-       ORDER BY updated_at DESC
+       ORDER BY m.updated_at DESC
        LIMIT ? OFFSET ?`,
       [...queryParams, pageSize, offset]
     );

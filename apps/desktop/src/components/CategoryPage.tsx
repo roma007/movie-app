@@ -226,6 +226,8 @@ export default function CategoryPage({ type }: CategoryPageProps) {
           page: currentPage, pageSize, type, sort,
           subType: activeSubType, year: activeYear, area: activeArea,
           isShortDrama: activeEpisodeType === 'short' ? true : activeEpisodeType === 'long' ? false : undefined,
+          // 翻页（筛选/排序未变）复用总命中数，跳过 COUNT；筛选变更会重置到第 1 页并重计。
+          knownTotal: currentPage > 1 ? localMediaMeta?.total : undefined,
         });
         if (!cancelled) {
           setLocalMediaList(result.items);

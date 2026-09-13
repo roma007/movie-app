@@ -1402,9 +1402,21 @@ const title = await normalizer.normalizeTitle(item.vod_name);
     console.log(`[Collector] 存量同名合并: 版本候选 ${groups.size} 组`);
 
     let merged = 0;
+    let selfPromoted = 0;
     for (const [baseFp, members] of groups) {
-      const main = byFingerprint.get(baseFp);
-      if (!main) continue; // 库中尚无同名主条目，等待交叉采集补齐
+      let main = byFingerprint.get(baseFp);
+      if (!main) {
+        // 库中无无语言主条目：组内至少两条版本候选时自选主合并（如 国语+粤语 版本族），
+        // 单条孤版本（如「她以为我不懂粤语」）保持独立防误伤；主 title 归一为基准名（语言由线路承载）
+        if (members.length < 2) continue;
+        main = members[0];
+        const { baseTitle } = computeBaseTitle(main.title, main.year ?? null);
+        if (baseTitle && baseTitle !== main.title) {
+          await this.db.execute('UPDATE media SET title = ? WHERE id = ?', [baseTitle, main.id]);
+        }
+        selfPromoted++;
+        console.log(`[Collector] 存量同名合并: 组自建主 "${baseTitle || main.title}" (${main.id}), 待并入 ${members.length - 1} 条`);
+      }
       for (const v of members) {
         if (v.id === main.id) continue;
         try {
@@ -1418,9 +1430,9 @@ const title = await normalizer.normalizeTitle(item.vod_name);
         }
       }
     }
-    console.log(`[Collector] 存量同名合并: 完成，合并 ${merged} 条，耗时 ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
+    console.log(`[Collector] 存量同名合并: 完成，合并 ${merged} 条（自建主 ${selfPromoted} 组），耗时 ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
     if (merged > 0) {
-      await this.logToDb(`存量同名多版本合并：${merged} 条并入主条目`, 'info', { sourceCode: 'merge_versions' });
+      await this.logToDb(`存量同名多版本合并：${merged} 条并入主条目${selfPromoted > 0 ? `（含 ${selfPromoted} 组自建主）` : ''}`, 'info', { sourceCode: 'merge_versions' });
     }
     return merged;
   }

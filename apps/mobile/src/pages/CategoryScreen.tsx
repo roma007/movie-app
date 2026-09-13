@@ -43,6 +43,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
 
   const [mediaList, setMediaList] = useState<Media[]>([]);
   const [meta, setMeta] = useState<PaginatedMeta | null>(null);
+  const metaRef = useRef<PaginatedMeta | null>(null);
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -71,6 +72,8 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
     setIsLoading(true);
     try {
       const params: Record<string, any> = { page: pageNum, pageSize: PAGE_SIZE, type, sort };
+      // 翻页（加载更多）复用总命中数，跳过 COUNT 全表/快照序扫描；筛选/排序变更时必重计。
+      if (pageNum > 1 && !replace) params.knownTotal = metaRef.current?.total;
       if (selectedSubType) params.subType = selectedSubType;
       if (selectedYear) params.year = selectedYear;
       if (selectedArea) params.area = selectedArea;
@@ -99,6 +102,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
         });
       }
       setMeta(result.meta);
+      metaRef.current = result.meta;
       setPage(pageNum);
     } catch (err) {
       console.error('loadMediaList failed:', err);

@@ -427,6 +427,49 @@ const MIGRATIONS: Migration[] = [
     description: 'add_play_source_language_column',
     sql: `ALTER TABLE play_source ADD COLUMN language TEXT;`,
   },
+  {
+    version: 50,
+    description: 'rebuild_media_fts_with_trigram_tokenizer',
+    sql: `DROP TRIGGER IF EXISTS media_ai;
+          DROP TRIGGER IF EXISTS media_ad;
+          DROP TRIGGER IF EXISTS media_au;
+          DROP TABLE IF EXISTS media_fts_data;
+          DROP TABLE IF EXISTS media_fts_idx;
+          DROP TABLE IF EXISTS media_fts_content;
+          DROP TABLE IF EXISTS media_fts_docsize;
+          DROP TABLE IF EXISTS media_fts;
+          CREATE VIRTUAL TABLE media_fts USING fts5(
+            title, alias, original_title, director, cast,
+            content='media',
+            content_rowid='rowid',
+            tokenize='trigram'
+          );
+          CREATE TRIGGER media_ai AFTER INSERT ON media BEGIN
+            INSERT INTO media_fts(rowid, title, alias, original_title, director, cast)
+            VALUES (new.rowid, new.title, new.alias, new.original_title, new.director, new.cast);
+          END;
+          CREATE TRIGGER media_ad AFTER DELETE ON media BEGIN
+            INSERT INTO media_fts(media_fts, rowid, title, alias, original_title, director, cast)
+            VALUES ('delete', old.rowid, old.title, old.alias, old.original_title, old.director, old.cast);
+          END;
+          CREATE TRIGGER media_au AFTER UPDATE ON media WHEN
+            old.title IS NOT new.title OR old.alias IS NOT new.alias OR
+            old.original_title IS NOT new.original_title OR
+            old.director IS NOT new.director OR old.cast IS NOT new.cast
+          BEGIN
+            INSERT INTO media_fts(media_fts, rowid, title, alias, original_title, director, cast)
+            VALUES ('delete', old.rowid, old.title, old.alias, old.original_title, old.director, old.cast);
+            INSERT INTO media_fts(rowid, title, alias, original_title, director, cast)
+            VALUES (new.rowid, new.title, new.alias, new.original_title, new.director, new.cast);
+          END;
+          INSERT INTO media_fts(media_fts) VALUES('rebuild');`,
+  },
+  {
+    version: 51,
+    description: 'add_media_type_updated_at_visible_partial_index',
+    sql: `CREATE INDEX IF NOT EXISTS idx_media_type_updated_at_visible ON media(type, updated_at)
+          WHERE (hidden IS NULL OR hidden = 0);`,
+  },
 ];
 
 /**
@@ -733,25 +776,35 @@ export class ExpoSqliteProvider implements DatabaseProvider {
         conditions.push(`${col('is_short_drama')} = ?`);
         qp.push(params.isShortDrama ? 1 : 0);
       }
-      return { where: ` WHERE ${conditions.join(' AND ')}`, qp };
+      return { where: ` WHERE ${conditions.join(' AND ')}`, qp, conds: conditions };
     };
 
-    // 「为你推荐」：按推荐快照 position 分页；快照为空（冷启动）回退最新序
+    // 「为你推荐」：按推荐快照 position 分页；快照为空（冷启动）回退最新序。
+    // 由快照 position 驱动 + 过滤下沉为 correlated EXISTS（PK 探测 media），
+    // 消除旧实现「扫 media 8.9 万行 + 一次性临时排序」的 15s 冷读开销。
     if (params.sort === 'recommend') {
       const snapRow = await this.db!.getFirstAsync<{ count: number }>(
         `SELECT COUNT(*) as count FROM recommend_snapshot`
       );
       const hasSnapshot = (snapRow?.count || 0) > 0;
       if (hasSnapshot) {
-        const { where, qp } = buildWhere('m');
-        const countRow = await this.db!.getFirstAsync<{ count: number }>(
-          `SELECT COUNT(*) as count FROM recommend_snapshot rs JOIN media m ON m.id = rs.media_id${where}`,
-          qp
-        );
-        const total = countRow?.count || 0;
+        const { conds, qp } = buildWhere('mm');
+        const mediaCond = conds.join(' AND ');
+        let total: number;
+        if (params.knownTotal !== undefined) {
+          total = params.knownTotal;
+        } else {
+          const countRow = await this.db!.getFirstAsync<{ count: number }>(
+            `SELECT COUNT(*) as count FROM recommend_snapshot rs WHERE EXISTS (SELECT 1 FROM media mm WHERE mm.rowid = rs.media_id AND ${mediaCond})`,
+            qp
+          );
+          total = countRow?.count || 0;
+        }
         const totalPages = Math.ceil(total / pageSize);
         const rows = await this.db!.getAllAsync<any>(
-          `SELECT m.* FROM recommend_snapshot rs JOIN media m ON m.id = rs.media_id${where} ORDER BY rs.position ASC LIMIT ? OFFSET ?`,
+          `SELECT m.* FROM recommend_snapshot rs JOIN media m ON m.id = rs.media_id
+           WHERE EXISTS (SELECT 1 FROM media mm WHERE mm.rowid = rs.media_id AND ${mediaCond})
+           ORDER BY rs.position ASC LIMIT ? OFFSET ?`,
           [...qp, pageSize, offset]
         );
         return { items: rows.map(rowToMedia), meta: { page, pageSize, total, totalPages } };
@@ -776,11 +829,16 @@ export class ExpoSqliteProvider implements DatabaseProvider {
         break;
     }
 
-    const countResult = await this.db!.getFirstAsync<{ count: number }>(
-      `SELECT COUNT(*) as count FROM media${where}`,
-      qp
-    );
-    const total = countResult?.count || 0;
+    let total: number;
+    if (params.knownTotal !== undefined) {
+      total = params.knownTotal;
+    } else {
+      const countResult = await this.db!.getFirstAsync<{ count: number }>(
+        `SELECT COUNT(*) as count FROM media${where}`,
+        qp
+      );
+      total = countResult?.count || 0;
+    }
     const totalPages = Math.ceil(total / pageSize);
 
     const rows = await this.db!.getAllAsync<any>(
@@ -903,8 +961,23 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     const pageSize = params.pageSize || 20;
     const offset = (page - 1) * pageSize;
 
-    let whereClause = ' WHERE (m.hidden IS NULL OR m.hidden = 0) AND (m.title LIKE ? OR m.alias LIKE ? OR m.original_title LIKE ? OR m.director LIKE ? OR m.cast LIKE ?)';
-    const queryParams: any[] = [`%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`];
+    const trimmed = keyword.trim();
+    // ≥3 字符且不含内部空格才走 trigram FTS 子串索引（JOIN 形态保证 FTS 驱动，避免本就慢的全表扫）；
+    // 含空格/单双字关键词 trigram 不建索引或分词与 LIKE 不一致，退回原 LIKE 语义，结果与旧版一致。
+    const useFts = trimmed.length >= 3 && !/\s/.test(trimmed);
+
+    let whereClause: string;
+    let queryParams: any[];
+    if (useFts) {
+      // 短语查询：命中任一索引列中出现的子串；引号内双写转义。
+      const ftsQuery = `"${trimmed.replace(/"/g, '""')}"`;
+      whereClause = ' WHERE media_fts MATCH ? AND (m.hidden IS NULL OR m.hidden = 0)';
+      queryParams = [ftsQuery];
+    } else {
+      const like = `%${trimmed}%`;
+      whereClause = ' WHERE (m.hidden IS NULL OR m.hidden = 0) AND (m.title LIKE ? OR m.alias LIKE ? OR m.original_title LIKE ? OR m.director LIKE ? OR m.cast LIKE ?)';
+      queryParams = [like, like, like, like, like];
+    }
 
     if (params.type) {
       whereClause += ' AND m.type = ?';
@@ -921,6 +994,24 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     if (params.genre) {
       whereClause += ' AND m.genre LIKE ?';
       queryParams.push(`%${params.genre}%`);
+    }
+
+    if (useFts) {
+      const countResult = await this.db!.getFirstAsync<{ count: number }>(
+        `SELECT COUNT(*) as count FROM media_fts f JOIN media m ON m.rowid = f.rowid${whereClause}`,
+        queryParams
+      );
+      const total = countResult?.count || 0;
+      const totalPages = Math.ceil(total / pageSize);
+
+      const rows = await this.db!.getAllAsync<any>(
+        `SELECT m.* FROM media_fts f JOIN media m ON m.rowid = f.rowid
+         ${whereClause}
+         ORDER BY m.updated_at DESC
+         LIMIT ? OFFSET ?`,
+        [...queryParams, pageSize, offset]
+      );
+      return { items: rows.map(rowToMedia), meta: { page, pageSize, total, totalPages } };
     }
 
     const countResult = await this.db!.getFirstAsync<{ count: number }>(
