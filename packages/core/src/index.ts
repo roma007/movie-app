@@ -21,6 +21,7 @@ export {
   type DefaultSourceConfig,
 } from './utils/constants';
 export { getHttpClient, setHttpClient, type HttpClient } from './utils/httpClient';
+export { isChildSafe } from './utils/kidSafe';
 export {
   computeBaseTitle,
   extractLanguage,
@@ -37,6 +38,7 @@ export { CMSAdapter } from './services/cmsAdapter';
 export { CollectorService } from './services/collectorService';
 export { SystemConfigService, type CollectConfig, type ShortDramaConfig } from './services/systemConfigService';
 export { AutoCollectScheduler } from './services/autoCollectScheduler';
+export { KidLockService } from './services/kidLockService';
 export { VideoDurationService, setVideoFetchFn, getVideoFetchFn } from './services/videoDurationService';
 export { SourceImportService } from './services/sourceImportService';
 export { RecommendationService, type RecommendationOverview, type DislikedMediaItem, type TagBlacklistItem } from './services/recommendationService';

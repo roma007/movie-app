@@ -58,6 +58,7 @@ import HelpCenterScreen from './src/pages/HelpCenterScreen';
 import CollectGuideScreen from './src/pages/CollectGuideScreen';
 import VideoManagementScreen from './src/pages/VideoManagementScreen';
 import TestCollectScreen from './src/pages/TestCollectScreen';
+import KidLockScreen from './src/pages/KidLockScreen';
 import MovieScreen from './src/pages/MovieScreen';
 import TVScreen from './src/pages/TVScreen';
 import VarietyScreen from './src/pages/VarietyScreen';
@@ -100,6 +101,7 @@ function RootNavigator() {
         <Stack.Screen name="CollectGuide" component={CollectGuideScreen} />
         <Stack.Screen name="VideoManagement" component={VideoManagementScreen} />
         <Stack.Screen name="TestCollect" component={TestCollectScreen} />
+        <Stack.Screen name="KidLock" component={KidLockScreen} />
       </Stack.Navigator>
       <Sidebar />
       <CollectProgressDialog />

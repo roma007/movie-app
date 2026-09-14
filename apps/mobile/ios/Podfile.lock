@@ -67,6 +67,8 @@ PODS:
     - ExpoModulesCore
   - ExpoBlur (57.0.2):
     - ExpoModulesCore
+  - ExpoCrypto (57.0.3):
+    - ExpoModulesCore
   - ExpoDlnaCast (0.1.0):
     - boost
     - DoubleConversion
@@ -3014,6 +3016,7 @@ DEPENDENCIES:
   - Expo (from `../../../node_modules/expo`)
   - ExpoAsset (from `../../../node_modules/expo-asset/ios`)
   - ExpoBlur (from `../../../node_modules/expo-blur/ios`)
+  - ExpoCrypto (from `../../../node_modules/expo-crypto/ios`)
   - ExpoDlnaCast (from `../../../packages/expo-dlna-cast/ios`)
   - "ExpoDomWebView (from `../../../node_modules/@expo/dom-webview/ios`)"
   - ExpoFileSystem (from `../../../node_modules/expo-file-system/ios`)
@@ -3139,6 +3142,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/expo-asset/ios"
   ExpoBlur:
     :path: "../../../node_modules/expo-blur/ios"
+  ExpoCrypto:
+    :path: "../../../node_modules/expo-crypto/ios"
   ExpoDlnaCast:
     :path: "../../../packages/expo-dlna-cast/ios"
   ExpoDomWebView:
@@ -3343,6 +3348,7 @@ SPEC CHECKSUMS:
   Expo: 2d2ce720dae367a73b4599028f5e888844924121
   ExpoAsset: c270900c121a250ceabbf692dfecc2f1564ec82f
   ExpoBlur: 69e67b4fbfed6f7325377af2aefa8aa4f00cd2af
+  ExpoCrypto: 3ba3d7fcf244a3ae8cb888c5759e0db70ecc236d
   ExpoDlnaCast: 9da6a04e080198a8d5142b28ac0437996d6af69a
   ExpoDomWebView: 73ba90107a5acc0017a09b06e66d8eb238e089b8
   ExpoFileSystem: e441dae0ae671fc451640517550973d9e024fdf0

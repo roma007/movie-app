@@ -65,6 +65,7 @@ export const SCHEMA_SQL = `
     rating_source TEXT,
     rating_updated_at TEXT,
     hidden INTEGER DEFAULT 0,
+    kid_safe INTEGER,
     personal_score INTEGER DEFAULT 0,
     series_group TEXT,
     series_season INTEGER,
@@ -268,6 +269,7 @@ export const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_media_type ON media(type);
   CREATE INDEX IF NOT EXISTS idx_media_type_updated_at ON media(type, updated_at);
   CREATE INDEX IF NOT EXISTS idx_media_hidden ON media(hidden);
+  CREATE INDEX IF NOT EXISTS idx_media_kid_safe ON media(kid_safe);
   CREATE INDEX IF NOT EXISTS idx_media_personal_score ON media(personal_score, updated_at);
 
   -- 分类页无筛选 COUNT / latest SELECT 的部分索引：
@@ -281,6 +283,19 @@ export const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_media_type_year ON media(type, year);
   CREATE INDEX IF NOT EXISTS idx_media_type_area ON media(type, area);
   CREATE INDEX IF NOT EXISTS idx_media_type_genre ON media(type, genre);
+
+  -- 分类页筛选聚合查询（getYearsByType/getAreasByType/getSubTypesByType/hasShortDrama）的
+  -- 可见部分覆盖索引：hidden 谓词进入索引 WHERE 子句，使 DISTINCT/GROUP BY/COUNT 仅在
+  -- 可见行子集上纯索引扫描，避免逐 rowid 随机回表查 hidden（实测 5.9GB/22.6 万行库上
+  -- MOVIE 侧三查询 15-27s、hasShortDrama(TV) 6-10s，走此索引后亚秒级）。
+  CREATE INDEX IF NOT EXISTS idx_media_type_year_visible ON media(type, year)
+    WHERE (hidden IS NULL OR hidden = 0);
+  CREATE INDEX IF NOT EXISTS idx_media_type_area_visible ON media(type, area)
+    WHERE (hidden IS NULL OR hidden = 0);
+  CREATE INDEX IF NOT EXISTS idx_media_type_genre_visible ON media(type, genre)
+    WHERE (hidden IS NULL OR hidden = 0);
+  CREATE INDEX IF NOT EXISTS idx_media_is_short_drama_visible ON media(type, is_short_drama)
+    WHERE (hidden IS NULL OR hidden = 0);
 
   -- 采集跳过判定的点查（getMediaByFingerprint/getMediaByVodId），全表扫一次 10-30s
   CREATE INDEX IF NOT EXISTS idx_media_fingerprint ON media(fingerprint);

@@ -146,7 +146,7 @@ export default function RecommendationSettingsPage() {
       <Card className="p-4">
         <p className="text-sm text-muted-foreground leading-relaxed">
           「越看越懂你」会根据你的观看行为自动学习偏好：完播一部 +10、连续追多集 +5、收藏 +20、
-          点开弃看 -10、展示多次未点开 -5、搜索命中 +3，并从经常「点开就弃」的子分类中降低推荐权重。
+          搜索命中 +3。展示多次未点开、点开即退仅作统计展示，不影响推荐打分。
           所有信号都来自应用自身数据，可随时「从头学习」。
         </p>
       </Card>
@@ -225,11 +225,11 @@ export default function RecommendationSettingsPage() {
           <Card className="p-5 space-y-3">
             <div className="flex items-center gap-2">
               <ThumbsDown className="size-4 text-muted-foreground" />
-              <h2 className="font-medium">降权子分类（点开即弃比例过高）</h2>
+              <h2 className="font-medium">子分类弃看统计</h2>
             </div>
             {overview.penalizedSubtypes.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                暂无降权子分类。当某个子分类的弃看样本足够多时，会自动降低其推荐权重。
+                暂无弃看率偏高的子分类。该统计仅供信息展示，不影响推荐打分。
               </p>
             ) : (
               <div className="flex flex-wrap gap-2">

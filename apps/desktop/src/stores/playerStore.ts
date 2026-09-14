@@ -16,6 +16,8 @@ export interface PlaybackSession {
   outroThresholdMinutes: number;
   showNextEpisodeOverlay: boolean;
   watchedEpisodes: string[];
+  /** 儿童模式下拦截播放的原因；非空时播放器不启动。 */
+  blockedReason?: string;
 }
 
 export interface Rect {
@@ -193,6 +195,27 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
         provider.getPlaySourcesByEpisodeId(ep.id),
       ]);
       if (seq !== loadSeq) return;
+
+      // 儿童模式拦截：该媒体未标记为适合儿童时不启动播放
+      const kidModeOn = await provider.getKidModeActive();
+      if (seq !== loadSeq) return;
+      if (kidModeOn && media?.kidSafe !== true) {
+        set((s) =>
+          s.session && s.session.episodeId === episodeId
+            ? {
+                session: {
+                  ...s.session,
+                  loading: false,
+                  episode: ep,
+                  media,
+                  sources: [],
+                  blockedReason: '该内容在儿童模式下不可观看',
+                },
+              }
+            : s,
+        );
+        return;
+      }
 
       const activePs = ps;
       const effective = opts?.sourceId ?? ep.sourceId ?? null;

@@ -34,6 +34,8 @@ export interface Media {
   ratingSource?: 'DOUBAN' | null;
   ratingUpdatedAt?: string | null;
   hidden?: boolean;
+  /** 是否适合儿童观看（0/1/null；null=未评估，儿童模式下视为不可见）。 */
+  kidSafe?: boolean;
   personalScore?: number;
   createdAt: string;
   updatedAt: string;

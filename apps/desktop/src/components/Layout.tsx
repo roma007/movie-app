@@ -3,6 +3,7 @@ import { UsageGuideDialog } from './UsageGuideDialog';
 import { AiSourceImportDialog } from './AiSourceImportDialog';
 import { CollectProgressDialog } from './CollectProgressDialog';
 import { BackgroundLayer } from './BackgroundLayer';
+import { KidLockBanner } from './KidLockBanner';
 import { PlayerHost } from './player/PlayerHost';
 import { useImportDialogStore } from '../themes/importDialogStore';
 import {
@@ -93,7 +94,7 @@ function ToastProvider({ children }: { children: ReactNode }) {
 }
 
 export function Layout() {
-  const [appVersion, setAppVersion] = useState('1.0.125');
+  const [appVersion, setAppVersion] = useState('1.0.126');
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [showUsageGuide, setShowUsageGuide] = useState(false);
   const aiImportOpen = useImportDialogStore((s) => s.aiImportOpen);
@@ -180,6 +181,7 @@ export function Layout() {
         </aside>
 
         <div className="flex-1 flex flex-col overflow-hidden">
+          <KidLockBanner />
           <main id="main-content" className="flex-1 overflow-y-auto">
             <Outlet />
           </main>

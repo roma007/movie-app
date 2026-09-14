@@ -535,6 +535,7 @@ export function createAppStore(db: DatabaseProvider) {
     removeVideoSource: async (id: string) => {
       try {
         await db.deleteVideoSource(id);
+        clearMediaFilterCache();
         await get().loadVideoSources();
       } catch (err: any) {
         set({ error: err.message });
@@ -684,7 +685,11 @@ export function createAppStore(db: DatabaseProvider) {
     },
 
     toggleDislike: async (mediaId: string) => {
-      return recommendationService.toggleDislike(mediaId);
+      try {
+        return await recommendationService.toggleDislike(mediaId);
+      } finally {
+        clearMediaFilterCache();
+      }
     },
 
     getDislikedMedia: async () => {
@@ -991,7 +996,7 @@ export function createAppStore(db: DatabaseProvider) {
 
     hasShortDrama: async (type?: string) => {
       try {
-        return await db.hasShortDrama(type);
+        return await withMediaFilterCache(`shortDrama:${type ?? ''}`, () => db.hasShortDrama(type));
       } catch (err: any) {
         set({ error: err.message });
         return false;
@@ -1010,6 +1015,7 @@ export function createAppStore(db: DatabaseProvider) {
     deleteMediaByGenres: async (keywords: string[]) => {
       try {
         const result = await collectorService.deleteMediaByGenres(keywords);
+        clearMediaFilterCache();
         await get().loadMediaList();
         return result;
       } catch (err: any) {
@@ -1213,6 +1219,7 @@ export function createAppStore(db: DatabaseProvider) {
 
     deleteAllMedia: async () => {
       await db.deleteAllMedia();
+      clearMediaFilterCache();
       set({ mediaList: [], currentMedia: null, episodes: [], playSources: [] });
     },
 
@@ -1223,6 +1230,7 @@ export function createAppStore(db: DatabaseProvider) {
     deleteMediaWithoutPlaySource: async () => {
       const deletedCount = await db.deleteMediaWithoutPlaySource();
       clearVideoSourceCountCache();
+      clearMediaFilterCache();
       await get().loadMediaList();
       await get().loadVideoSources();
       return deletedCount;
@@ -1230,12 +1238,14 @@ export function createAppStore(db: DatabaseProvider) {
 
     hideMediaByGenres: async (genres: string[]) => {
       const result = await db.hideMediaByGenres(genres);
+      clearMediaFilterCache();
       await get().loadMediaList();
       return result;
     },
 
     unhideMediaByGenres: async (genres: string[]) => {
       const result = await db.unhideMediaByGenres(genres);
+      clearMediaFilterCache();
       await get().loadMediaList();
       return result;
     },

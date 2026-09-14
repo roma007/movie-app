@@ -470,6 +470,24 @@ const MIGRATIONS: Migration[] = [
     sql: `CREATE INDEX IF NOT EXISTS idx_media_type_updated_at_visible ON media(type, updated_at)
           WHERE (hidden IS NULL OR hidden = 0);`,
   },
+  {
+    version: 52,
+    description: 'add_media_filter_visible_partial_covering_indexes',
+    sql: `CREATE INDEX IF NOT EXISTS idx_media_type_year_visible ON media(type, year)
+          WHERE (hidden IS NULL OR hidden = 0);
+          CREATE INDEX IF NOT EXISTS idx_media_type_area_visible ON media(type, area)
+          WHERE (hidden IS NULL OR hidden = 0);
+          CREATE INDEX IF NOT EXISTS idx_media_type_genre_visible ON media(type, genre)
+          WHERE (hidden IS NULL OR hidden = 0);
+          CREATE INDEX IF NOT EXISTS idx_media_is_short_drama_visible ON media(type, is_short_drama)
+          WHERE (hidden IS NULL OR hidden = 0);`,
+  },
+  {
+    version: 53,
+    description: 'add_media_kid_safe_column_and_index',
+    sql: `ALTER TABLE media ADD COLUMN kid_safe INTEGER;
+          CREATE INDEX IF NOT EXISTS idx_media_kid_safe ON media(kid_safe);`,
+  },
 ];
 
 /**
@@ -479,6 +497,9 @@ const MIGRATIONS: Migration[] = [
 export class ExpoSqliteProvider implements DatabaseProvider {
   private db: SQLite.SQLiteDatabase | null = null;
   private readDb: SQLite.SQLiteDatabase | null = null;
+
+  /** 儿童模式开关缓存（启动时由 system_config 初始化，setKidModeActive 同步更新）。 */
+  private kidModeActive = false;
 
   /** 事务互斥队列：expo 单连接下多个 withTransactionAsync 交错会导致
    *  「cannot start a transaction within a transaction」；FIFO 串行保证 BEGIN/COMMIT 成对。 */
@@ -546,6 +567,13 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
     await this.runMigrations();
     mark('migrations');
+
+    // 初始化儿童模式开关缓存（启动时读一次，作为查询层过滤的唯一依据）
+    const kidModeRow = (await wrappedDb.getFirstAsync(
+      "SELECT value FROM system_config WHERE key = 'parental.kidMode'"
+    )) as { value: string } | null;
+    this.kidModeActive = kidModeRow?.value === '1';
+    mark('kid_mode');
 
     await this.insertDefaultSources();
     mark('insert_default_sources');
@@ -727,9 +755,27 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   }
 
   // —— Media DAO ——
+  async getKidModeActive(): Promise<boolean> {
+    return this.kidModeActive;
+  }
+
+  async setKidModeActive(on: boolean): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db!.runAsync(
+      `INSERT INTO system_config (key, value, value_type, created_at, updated_at)
+       VALUES ('parental.kidMode', ?, 'string', ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      [on ? '1' : '0', now, now]
+    );
+    this.kidModeActive = on;
+  }
+
   async getMediaById(id: string): Promise<Media | null> {
     const row = await this.db!.getFirstAsync<any>('SELECT * FROM media WHERE id = ?', [id]);
-    return row ? rowToMedia(row) : null;
+    if (!row) return null;
+    // 儿童模式下隐藏非适龄内容，保证收藏/历史等经单条直查的入口同样生效
+    if (this.kidModeActive && row.kid_safe !== 1) return null;
+    return rowToMedia(row);
   }
 
   async getMediaByFingerprint(fingerprint: string): Promise<Media | null> {
@@ -751,6 +797,9 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     const buildWhere = (alias: string) => {
       const col = (name: string) => (alias ? `${alias}.${name}` : name);
       const conditions: string[] = [`(${col('hidden')} IS NULL OR ${col('hidden')} = 0)`];
+      if (this.kidModeActive) {
+        conditions.push(`${col('kid_safe')} = 1`);
+      }
       const qp: any[] = [];
       if (params.type) {
         conditions.push(`${col('type')} = ?`);
@@ -779,38 +828,37 @@ export class ExpoSqliteProvider implements DatabaseProvider {
       return { where: ` WHERE ${conditions.join(' AND ')}`, qp, conds: conditions };
     };
 
-    // 「为你推荐」：按推荐快照 position 分页；快照为空（冷启动）回退最新序。
-    // 由快照 position 驱动 + 过滤下沉为 correlated EXISTS（pk 探测 media，
-    // 注意用 mm.id=rs.media_id 而非 rowid——media.id 为 TEXT 主键，rowid 与 id 不对齐）。
-    // 消除旧实现「扫 media 8.9 万行 + 一次性临时排序」的 15s 冷读开销。
-    if (params.sort === 'recommend') {
-      const snapRow = await this.db!.getFirstAsync<{ count: number }>(
-        `SELECT COUNT(*) as count FROM recommend_snapshot`
-      );
-      const hasSnapshot = (snapRow?.count || 0) > 0;
-      if (hasSnapshot) {
-        const { conds, qp } = buildWhere('mm');
-        const mediaCond = conds.join(' AND ');
-        let total: number;
-        if (params.knownTotal !== undefined) {
-          total = params.knownTotal;
-        } else {
-          const countRow = await this.db!.getFirstAsync<{ count: number }>(
-            `SELECT COUNT(*) as count FROM recommend_snapshot rs WHERE EXISTS (SELECT 1 FROM media mm WHERE mm.id = rs.media_id AND ${mediaCond})`,
-            qp
+// 「为你推荐」：按推荐快照 position 分页；快照为空（冷启动）回退最新序。
+        // 以被筛选后的 media 为驱动 JOIN 快照（候选先经可见部分索引缩小再逐行点查快照 PK），
+        // 避免旧实现「对 14.9 万快照行逐行 correlated EXISTS 点查 5.9GB media」的慢查询。
+        if (params.sort === 'recommend') {
+          const snapRow = await this.db!.getFirstAsync<{ count: number }>(
+            `SELECT COUNT(*) as count FROM recommend_snapshot`
           );
-          total = countRow?.count || 0;
+          const hasSnapshot = (snapRow?.count || 0) > 0;
+          if (hasSnapshot) {
+            const { conds, qp } = buildWhere('m');
+            const joinCond = conds.join(' AND ');
+            let total: number;
+            if (params.knownTotal !== undefined) {
+              total = params.knownTotal;
+            } else {
+              const countRow = await this.db!.getFirstAsync<{ count: number }>(
+                `SELECT COUNT(*) as count FROM recommend_snapshot rs JOIN media m ON m.id = rs.media_id WHERE ${joinCond}`,
+                qp
+              );
+              total = countRow?.count || 0;
+            }
+            const totalPages = Math.ceil(total / pageSize);
+            const rows = await this.db!.getAllAsync<any>(
+              `SELECT m.* FROM media m JOIN recommend_snapshot rs ON rs.media_id = m.id
+               WHERE ${joinCond}
+               ORDER BY rs.position ASC LIMIT ? OFFSET ?`,
+              [...qp, pageSize, offset]
+            );
+            return { items: rows.map(rowToMedia), meta: { page, pageSize, total, totalPages } };
+          }
         }
-        const totalPages = Math.ceil(total / pageSize);
-        const rows = await this.db!.getAllAsync<any>(
-          `SELECT m.* FROM recommend_snapshot rs JOIN media m ON m.id = rs.media_id
-           WHERE EXISTS (SELECT 1 FROM media mm WHERE mm.id = rs.media_id AND ${mediaCond})
-           ORDER BY rs.position ASC LIMIT ? OFFSET ?`,
-          [...qp, pageSize, offset]
-        );
-        return { items: rows.map(rowToMedia), meta: { page, pageSize, total, totalPages } };
-      }
-    }
 
     const { where, qp } = buildWhere('');
     let orderBy: string;
@@ -858,10 +906,10 @@ export class ExpoSqliteProvider implements DatabaseProvider {
         description, poster_url, backdrop_url, status, remarks, fingerprint,
         current_episodes, total_episodes, is_short_drama, duration_check_status, episode_duration,
         view_count, rating, rating_count, rating_source, rating_updated_at,
-        hidden, series_group, series_season,
+        hidden, kid_safe, series_group, series_season,
         source_updated_at, vod_id,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(fingerprint) DO UPDATE SET
         title = excluded.title,
         original_title = excluded.original_title,
@@ -896,6 +944,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
         media.viewCount || 0,
         media.rating ?? null, media.ratingCount ?? null, media.ratingSource || null, media.ratingUpdatedAt || null,
         media.hidden ? 1 : 0,
+        media.kidSafe === undefined ? null : (media.kidSafe ? 1 : 0),
         media.seriesGroup || null, media.seriesSeason ?? null,
         media.sourceUpdatedAt || null,
         media.vodId || null,
@@ -978,6 +1027,10 @@ export class ExpoSqliteProvider implements DatabaseProvider {
       const like = `%${trimmed}%`;
       whereClause = ' WHERE (m.hidden IS NULL OR m.hidden = 0) AND (m.title LIKE ? OR m.alias LIKE ? OR m.original_title LIKE ? OR m.director LIKE ? OR m.cast LIKE ?)';
       queryParams = [like, like, like, like, like];
+    }
+
+    if (this.kidModeActive) {
+      whereClause += ' AND m.kid_safe = 1';
     }
 
     if (params.type) {
@@ -1070,7 +1123,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     }
     if (firstOnly) {
       const rows = await this.db!.getAllAsync<{ genre: string }>(
-        `SELECT genre FROM media ${whereClause}`,
+        `SELECT DISTINCT genre FROM media ${whereClause}`,
         params
       );
       return extractFirstSubtypes(rows.map(row => row.genre));

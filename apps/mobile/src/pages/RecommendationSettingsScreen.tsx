@@ -301,7 +301,7 @@ export default function RecommendationSettingsScreen({ navigation }: Props) {
           <View style={[styles.card, styles.cardPadding]}>
             <Text style={styles.intro}>
               「越看越懂你」会根据你的观看行为自动学习偏好：完播一部 +10、连续追多集 +5、收藏 +20、
-              点开弃看 -10、展示多次未点开 -5、搜索命中 +3，并从经常「点开就弃」的子分类中降低推荐权重。
+              搜索命中 +3。展示多次未点开、点开即退仅作统计展示，不影响推荐打分。
               所有信号都来自应用自身数据，可随时「从头学习」。
             </Text>
           </View>
@@ -381,11 +381,11 @@ export default function RecommendationSettingsScreen({ navigation }: Props) {
               <View style={[styles.card, styles.cardPadding]}>
                 <View style={styles.sectionTitle}>
                   <ThumbsDown size={16} color={colors.mutedForeground} />
-                  <Text style={styles.sectionTitleText}>降权子分类（点开即弃比例过高）</Text>
+                  <Text style={styles.sectionTitleText}>子分类弃看统计</Text>
                 </View>
                 {overview.penalizedSubtypes.length === 0 ? (
                   <Text style={styles.emptyText}>
-                    暂无降权子分类。当某个子分类的弃看样本足够多时，会自动降低其推荐权重。
+                    暂无弃看率偏高的子分类。该统计仅供信息展示，不影响推荐打分。
                   </Text>
                 ) : (
                   <View style={styles.chipRow}>

@@ -233,6 +233,12 @@ export interface DatabaseProvider {
   addCollectionLog(log: CollectionLog): Promise<void>;
   getCollectionLogs(filter?: { taskId?: string; sourceCode?: string; level?: string; limit?: number; offset?: number }): Promise<CollectionLog[]>;
 
+  // —— 儿童锁 ——
+  /** 儿童模式是否激活（读 system_config + 内存缓存，启动时初始化）。 */
+  getKidModeActive(): Promise<boolean>;
+  /** 设置儿童模式开关（写 system_config 并同步内存缓存）。 */
+  setKidModeActive(on: boolean): Promise<void>;
+
   // —— 通用 SQL ——
   select<T>(sql: string, params?: any[]): Promise<T[]>;
   selectOne<T>(sql: string, params?: any[]): Promise<T | null>;

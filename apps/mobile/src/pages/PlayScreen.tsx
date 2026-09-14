@@ -48,6 +48,9 @@ const typeScreenMap: Record<string, string> = {
 // 沉浸信息卡布局常量：右侧竖排功能键列宽（toolbarButtonRound 60）、卡片与列间距
 const TOOLBAR_COL_WIDTH = 60;
 const VERTICAL_CARD_RIGHT_GAP = 12;
+// 引导标签让位量：初始时每个按钮行向右多留出该宽度给「图标+文字」标签；
+// 统一固定值（≥最长文字宽+间距），保证所有按钮图标竖排对齐，不随各按钮文字字数参差
+const TOOLBAR_LABEL_EXTRA = 84;
 
 export default function PlayScreen({ route, navigation }: Props) {
   const { episodeId, mediaId: paramMediaId, sourceId: paramSourceId, playSourceId: paramPlaySourceId, title: paramTitle } = route.params;
@@ -144,6 +147,16 @@ export default function PlayScreen({ route, navigation }: Props) {
     });
     return () => sub.remove();
   }, [settingsVisible]);
+
+  // 功能: 右侧竖排按钮栏「图标+文字」引导动画——进页显示各按钮名（文字在图标右侧），5 秒后文字淡出、
+  // 图标缓慢右移到当前版纯图标位置（right:8 右缘）；单一 Animated.Value 0→1 驱动，所有按钮统一让位量保证图标竖排对齐
+  const toolbarHintAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const t = setTimeout(() => {
+      Animated.timing(toolbarHintAnim, { toValue: 1, duration: 1200, useNativeDriver: true }).start();
+    }, 5000);
+    return () => clearTimeout(t);
+  }, [toolbarHintAnim]);
 
   // 自绘全屏（应用内全屏，对齐桌面端全屏浮窗/设置）：appFullscreen 驱动全屏覆盖层渲染与方向锁定
   const [appFullscreen, setAppFullscreen] = useState(false);
@@ -317,8 +330,28 @@ export default function PlayScreen({ route, navigation }: Props) {
       bottom: screenH * 0.12,
       zIndex: 16,
       flexDirection: 'column' as const,
-      alignItems: 'center',
+      alignItems: 'flex-end',
       gap: 12,
+    },
+    // 每个按钮的「图标+文字」行：宽度固定 = 图标 + 统一让位量，右对齐贴 right:8，
+    // 动画中整行右移让文字滑出屏外、图标落到右缘；图标仅平移不淡出
+    toolbarRow: {
+      width: TOOLBAR_COL_WIDTH + TOOLBAR_LABEL_EXTRA,
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      position: 'relative' as const,
+    },
+    // 按钮名引导标签（不占布局、浮动于图标右侧，5 秒后随动画淡出）
+    toolbarLabel: {
+      position: 'absolute' as const,
+      left: TOOLBAR_COL_WIDTH + 8,
+      fontSize: sf(13),
+      fontWeight: '600',
+      color: '#fff',
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      borderRadius: 6,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
     },
     // 信息区 wrapper：内容自适应高度（不设上限）；overflow hidden 仅防圆角处文本溢出
     verticalInfoWrap: { minWidth: 0, overflow: 'hidden' as const },
@@ -553,6 +586,14 @@ export default function PlayScreen({ route, navigation }: Props) {
         // 影片信息
         setMedia(m);
         if (m && !mediaId) setMediaId(m.id);
+
+        // 儿童模式拦截：该媒体未标记为适合儿童时不启动播放
+        const kidModeOn = await provider.getKidModeActive();
+        if (cancelled) return;
+        if (kidModeOn && m?.kidSafe !== true) {
+          setError('该内容在儿童模式下不可观看');
+          return;
+        }
 
         // 播放配置
         const configService = new SystemConfigService(provider);
@@ -1818,43 +1859,74 @@ export default function PlayScreen({ route, navigation }: Props) {
                 </View>
               </View>
             )}
-            {/* 右侧竖排功能键（红果式：悬浮视频右侧、屏高 55% 起、距右缘 8） */}
+            {/* 右侧竖排功能键（红果式：悬浮视频右侧、屏高 55% 起、距右缘 8）——进页先显示「图标+按钮名」，
+                5 秒后仅文字淡出、整行缓慢右移让图标落到右缘（=当前版纯图标位置，图标全程不消失、竖排对齐） */}
             <View style={styles.toolbarVerticalCol}>
               {!isVerticalVideo && (
-                <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={enterAppFullscreen}>
+                <Animated.View style={[styles.toolbarRow, {
+                  transform: [{ translateX: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, TOOLBAR_LABEL_EXTRA] }) }],
+                }]}>
+                  <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={enterAppFullscreen}>
+                    <View style={styles.toolbarIconRound}>
+                      <Maximize size={22} color="#222" />
+                    </View>
+                  </TouchableOpacity>
+                  <Animated.Text style={[styles.toolbarLabel, { opacity: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>全屏</Animated.Text>
+                </Animated.View>
+              )}
+              <Animated.View style={[styles.toolbarRow, {
+                transform: [{ translateX: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, TOOLBAR_LABEL_EXTRA] }) }],
+              }]}>
+                <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={handleFav}>
                   <View style={styles.toolbarIconRound}>
-                    <Maximize size={22} color="#222" />
+                    <Heart size={22} color={isFav ? '#ff9d2e' : '#222'} fill={isFav ? '#ff9d2e' : 'none'} />
                   </View>
                 </TouchableOpacity>
-              )}
-              <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={handleFav}>
-                <View style={styles.toolbarIconRound}>
-                  <Heart size={22} color={isFav ? '#ff9d2e' : '#222'} fill={isFav ? '#ff9d2e' : 'none'} />
-                </View>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={handleDislike}>
-                <View style={styles.toolbarIconRound}>
-                  <ThumbsDown size={22} color={isDisliked ? colors.error : '#222'} />
-                </View>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={openHideModal}>
-                <View style={styles.toolbarIconRound}>
-                  <EyeOff size={22} color="#222" />
-                </View>
-              </TouchableOpacity>
+                <Animated.Text style={[styles.toolbarLabel, { opacity: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>收藏</Animated.Text>
+              </Animated.View>
+              <Animated.View style={[styles.toolbarRow, {
+                transform: [{ translateX: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, TOOLBAR_LABEL_EXTRA] }) }],
+              }]}>
+                <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={handleDislike}>
+                  <View style={styles.toolbarIconRound}>
+                    <ThumbsDown size={22} color={isDisliked ? colors.error : '#222'} />
+                  </View>
+                </TouchableOpacity>
+                <Animated.Text style={[styles.toolbarLabel, { opacity: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>不感兴趣</Animated.Text>
+              </Animated.View>
+              <Animated.View style={[styles.toolbarRow, {
+                transform: [{ translateX: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, TOOLBAR_LABEL_EXTRA] }) }],
+              }]}>
+                <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={openHideModal}>
+                  <View style={styles.toolbarIconRound}>
+                    <EyeOff size={22} color="#222" />
+                  </View>
+                </TouchableOpacity>
+                <Animated.Text style={[styles.toolbarLabel, { opacity: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>隐藏</Animated.Text>
+              </Animated.View>
               {isPictureInPictureSupported() && (
-                <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={handlePictureInPicture}>
-                  <View style={styles.toolbarIconRound}>
-                    <PictureInPicture2 size={22} color="#222" />
-                  </View>
-                </TouchableOpacity>
+                <Animated.View style={[styles.toolbarRow, {
+                  transform: [{ translateX: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, TOOLBAR_LABEL_EXTRA] }) }],
+                }]}>
+                  <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={handlePictureInPicture}>
+                    <View style={styles.toolbarIconRound}>
+                      <PictureInPicture2 size={22} color="#222" />
+                    </View>
+                  </TouchableOpacity>
+                  <Animated.Text style={[styles.toolbarLabel, { opacity: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>画中画</Animated.Text>
+                </Animated.View>
               )}
-              <CastButton
-                onDeviceSelect={handleCastDeviceSelect}
-                onSearch={castManager.searchDevices}
-                style={styles.toolbarButtonRound}
-                roundedWhite
-              />
+              <Animated.View style={[styles.toolbarRow, {
+                transform: [{ translateX: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, TOOLBAR_LABEL_EXTRA] }) }],
+              }]}>
+                <CastButton
+                  onDeviceSelect={handleCastDeviceSelect}
+                  onSearch={castManager.searchDevices}
+                  style={styles.toolbarButtonRound}
+                  roundedWhite
+                />
+                <Animated.Text style={[styles.toolbarLabel, { opacity: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>投屏</Animated.Text>
+              </Animated.View>
             </View>
             {/* 底部选集横条（红果式：视频底部独立水平条，默认常显） */}
             <TouchableOpacity style={styles.episodeBar} activeOpacity={0.7} onPress={() => setEpisodesSheetVisible(true)}>

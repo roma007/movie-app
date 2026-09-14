@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Switch, ActivityIndicator, Animated } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useAppStore, getProvider } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
@@ -13,6 +14,7 @@ import { Input } from '../components/ui/Input';
 import UsageGuideModal from '../components/UsageGuideModal';
 import CategoryHeader from '../components/CategoryHeader';
 import BlurredBackground from '../components/BlurredBackground';
+import { KidLockBanner } from '../components/KidLockBanner';
 import type { Media, Episode, UserUsageType, WatchHistory } from '@movie-app/core';
 import { radius } from '../themes/radiusTokens';
 import { openMediaPlay } from '../utils/openMediaPlay';
@@ -215,6 +217,15 @@ export default function HomeScreen() {
     loadFavorites();
     loadWatchHistory(1);
   }, []);
+
+  // 每次回到首页时刷新列表：保证儿童模式开关后首页立即反映最新过滤结果
+  useFocusEffect(
+    useCallback(() => {
+      loadUserUsageTypes();
+      loadFavorites();
+      loadWatchHistory(1);
+    }, [loadUserUsageTypes, loadFavorites, loadWatchHistory]),
+  );
 
   useEffect(() => {
     if (userUsageTypes.includes('NEW_MOVIES')) {
@@ -739,6 +750,7 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <View style={styles.fixedHeader}>
         <CategoryHeader activeType="首页" tabsHiddenAnim={tabsHidden} />
+        <KidLockBanner onUnlocked={() => { loadFavorites(); loadWatchHistory(1); }} />
         {editMode && (
           <TouchableOpacity
             style={[styles.doneButton, { top: insets.top + 8 }]}

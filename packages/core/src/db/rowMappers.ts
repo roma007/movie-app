@@ -65,6 +65,7 @@ export function rowToMedia(row: any): Media {
     ratingSource: (row.rating_source || null) as 'DOUBAN' | null,
     ratingUpdatedAt: row.rating_updated_at || null,
     hidden: row.hidden === 1,
+    kidSafe: row.kid_safe === undefined ? undefined : row.kid_safe === 1,
     personalScore: row.personal_score ?? 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

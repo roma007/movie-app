@@ -55,6 +55,9 @@ export class TauriSqlProvider implements DatabaseProvider {
    *  仅保留 JS 层写锁串行 + txLockHeld 重入保护；原子性由 SQLite 单语句隐式事务保证。 */
   private txLockHeld = false;
 
+  /** 儿童模式开关缓存（启动时由 system_config 初始化，setKidModeActive 同步更新）。 */
+  private kidModeActive = false;
+
   private wrapWithRetry(db: any): any {
     const originalExecute = db.execute.bind(db);
     const originalSelect = db.select.bind(db);
@@ -427,6 +430,17 @@ export class TauriSqlProvider implements DatabaseProvider {
     // 增量迁移：为已有 collect_task 表补齐失败条目记录列（精准重试用）
     await this.addColumnIfMissing('collect_task', 'failed_items', 'TEXT');
 
+    // 增量迁移：为已有 media 表补齐儿童适龄标记列
+    await this.addColumnIfMissing('media', 'kid_safe', 'INTEGER');
+    // 列在 SCHEMA_SQL 执行后才补上，那之后必须显式补索引（旧库 SCHEMA_SQL 中的
+    // CREATE INDEX idx_media_kid_safe 会因列不存在而失败跳过）
+    await this.db!.execute('CREATE INDEX IF NOT EXISTS idx_media_kid_safe ON media(kid_safe)');
+    // 初始化儿童模式开关缓存（启动时读一次，作为查询层过滤的唯一依据）
+    const kidModeRows = await this.db!.select<{ value: string }[]>(
+      "SELECT value FROM system_config WHERE key = 'parental.kidMode'"
+    );
+    this.kidModeActive = kidModeRows.length > 0 && kidModeRows[0].value === '1';
+
     await this.fixGenreData();
     await this.backfillHiddenGenres();
     await this.syncHiddenByGenres();
@@ -676,9 +690,27 @@ export class TauriSqlProvider implements DatabaseProvider {
   }
 
   // —— Media DAO ——
+  async getKidModeActive(): Promise<boolean> {
+    return this.kidModeActive;
+  }
+
+  async setKidModeActive(on: boolean): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db!.execute(
+      `INSERT INTO system_config (key, value, value_type, created_at, updated_at)
+       VALUES ('parental.kidMode', ?, 'string', ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      [on ? '1' : '0', now, now]
+    );
+    this.kidModeActive = on;
+  }
+
   async getMediaById(id: string): Promise<Media | null> {
     const rows = await this.db!.select<any[]>('SELECT * FROM media WHERE id = ?', [id]);
-    return rows[0] ? rowToMedia(rows[0]) : null;
+    if (!rows[0]) return null;
+    // 儿童模式下隐藏非适龄内容，保证收藏/历史等经单条直查的入口同样生效
+    if (this.kidModeActive && rows[0].kid_safe !== 1) return null;
+    return rowToMedia(rows[0]);
   }
 
   async getMediaByFingerprint(fingerprint: string): Promise<Media | null> {
@@ -700,6 +732,9 @@ export class TauriSqlProvider implements DatabaseProvider {
     const buildWhere = (alias: string) => {
       const col = (name: string) => (alias ? `${alias}.${name}` : name);
       const conditions: string[] = [`(${col('hidden')} IS NULL OR ${col('hidden')} = 0)`];
+      if (this.kidModeActive) {
+        conditions.push(`${col('kid_safe')} = 1`);
+      }
       const qp: any[] = [];
       if (params.type) {
         conditions.push(`${col('type')} = ?`);
@@ -729,28 +764,27 @@ export class TauriSqlProvider implements DatabaseProvider {
     };
 
     // 「为你推荐」：按推荐快照 position 分页；快照为空（冷启动）回退最新序。
-    // 由快照 position 驱动 + 过滤下沉为 correlated EXISTS（pk 探测 media，
-    // 注意用 mm.id=rs.media_id 而非 rowid——media.id 为 TEXT 主键，rowid 与 id 不对齐）。
-    // 消除旧实现「扫 media 8.9 万行 + 一次性临时排序」的 15s 冷读开销。
+    // 以被筛选后的 media 为驱动 JOIN 快照（候选先经可见部分索引缩小再逐行点查快照 PK），
+    // 避免旧实现「对 14.9 万快照行逐行 correlated EXISTS 点查 5.9GB media」的 50s 冷读开销。
     if (params.sort === 'recommend') {
       const snapRows = await this.db!.select<{ count: number }[]>(
         `SELECT COUNT(*) as count FROM recommend_snapshot`
       );
       const hasSnapshot = (snapRows[0]?.count || 0) > 0;
       if (hasSnapshot) {
-        const { conds, qp } = buildWhere('mm');
-        const mediaCond = conds.join(' AND ');
+        const { conds, qp } = buildWhere('m');
+        const joinCond = conds.join(' AND ');
         const total =
           params.knownTotal ??
           (await this.db!.select<{ count: number }[]>(
-            `SELECT COUNT(*) as count FROM recommend_snapshot rs WHERE EXISTS (SELECT 1 FROM media mm WHERE mm.id = rs.media_id AND ${mediaCond})`,
+            `SELECT COUNT(*) as count FROM recommend_snapshot rs JOIN media m ON m.id = rs.media_id WHERE ${joinCond}`,
             qp
           ))[0]?.count ??
           0;
         const totalPages = Math.ceil(total / pageSize);
         const rows = await this.db!.select<any[]>(
-          `SELECT m.* FROM recommend_snapshot rs JOIN media m ON m.id = rs.media_id
-           WHERE EXISTS (SELECT 1 FROM media mm WHERE mm.id = rs.media_id AND ${mediaCond})
+          `SELECT m.* FROM media m JOIN recommend_snapshot rs ON rs.media_id = m.id
+           WHERE ${joinCond}
            ORDER BY rs.position ASC LIMIT ? OFFSET ?`,
           [...qp, pageSize, offset]
         );
@@ -801,10 +835,10 @@ export class TauriSqlProvider implements DatabaseProvider {
         description, poster_url, backdrop_url, status, remarks, fingerprint,
         current_episodes, total_episodes, is_short_drama, duration_check_status, episode_duration,
         view_count, rating, rating_count, rating_source, rating_updated_at,
-        hidden, series_group, series_season,
+        hidden, kid_safe, series_group, series_season,
         source_updated_at, vod_id,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(fingerprint) DO UPDATE SET
         title = excluded.title,
         original_title = excluded.original_title,
@@ -839,6 +873,7 @@ export class TauriSqlProvider implements DatabaseProvider {
         media.viewCount || 0,
         media.rating ?? null, media.ratingCount ?? null, media.ratingSource || null, media.ratingUpdatedAt || null,
         media.hidden ? 1 : 0,
+        media.kidSafe === undefined ? null : (media.kidSafe ? 1 : 0),
         media.seriesGroup || null, media.seriesSeason ?? null,
         media.sourceUpdatedAt || null,
         media.vodId || null,
@@ -921,6 +956,10 @@ export class TauriSqlProvider implements DatabaseProvider {
       const like = `%${trimmed}%`;
       whereClause = ' WHERE (m.hidden IS NULL OR m.hidden = 0) AND (m.title LIKE ? OR m.alias LIKE ? OR m.original_title LIKE ? OR m.director LIKE ? OR m.cast LIKE ?)';
       queryParams = [like, like, like, like, like];
+    }
+
+    if (this.kidModeActive) {
+      whereClause += ' AND m.kid_safe = 1';
     }
 
     if (params.type) {
@@ -1013,7 +1052,7 @@ export class TauriSqlProvider implements DatabaseProvider {
     }
     if (firstOnly) {
       const rows = await this.db!.select<{ genre: string }[]>(
-        `SELECT genre FROM media ${whereClause}`,
+        `SELECT DISTINCT genre FROM media ${whereClause}`,
         params
       );
       return extractFirstSubtypes(rows.map(row => row.genre));

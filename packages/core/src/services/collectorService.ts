@@ -4,6 +4,7 @@ import { mapType, refineTypeByEpisodes, isVersionTitle, needsShortDramaCheck } f
 import { computeBaseTitle, extractLanguage, shortUrlHash, stripVersionSuffix, stripTrailingYear } from '../utils/versionMerge';
 import { SOURCE_ID_TO_NAME_MAP, PLAY_SOURCE_TYPE_MAP, isPlayableMediaUrl } from '../utils/constants';
 import { isKnownDeadPosterUrl, isUsablePosterUrl } from '../utils/posterHost';
+import { isChildSafe } from '../utils/kidSafe';
 import type { DatabaseProvider } from '../db/provider';
 import { UNCATEGORIZED_GENRE } from '../db/provider';
 import type { CMSMediaItem, CMSListResponse, Media, Episode, PlaySource, VideoSource, CollectTask, TaskStatus, TaskErrorType, CollectionLog, CollectPreviewItem, HiddenCollectItem, SavePreviewResult, FailedItem, MediaType } from '../types';
@@ -284,6 +285,8 @@ export class CollectorService {
       let durationCheckStatus: 'SUMMARY' | 'PROBE' | 'FALLBACK' | null = null;
       let episodeDurationSec: number | null = null;
 
+      const kidSafe = isChildSafe({ title, type: mediaType, genres, description });
+
       if (needsShortDramaCheck(mediaType)) {
         // 如果已有确定性判断结果（SUMMARY 或 PROBE），保留不重新判断
         const existingStatus = existing?.durationCheckStatus;
@@ -375,6 +378,7 @@ sourceUpdatedAt,
         ratingSource: null,
         ratingUpdatedAt: null,
         hidden,
+        kidSafe,
         createdAt: existing?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };

@@ -27,6 +27,7 @@ import CollectGuidePage from './pages/CollectGuidePage';
 import AppearanceSettingsPage from './pages/AppearanceSettingsPage';
 import UsagePreferencesPage from './pages/UsagePreferencesPage';
 import RecommendationSettingsPage from './pages/RecommendationSettingsPage';
+import KidLockPage from './pages/KidLockPage';
 import VideoManagementPage from './pages/VideoManagementPage';
 import TestCollectPage from './pages/TestCollectPage';
 import HelpCenterPage from './pages/HelpCenterPage';
@@ -126,6 +127,7 @@ function MainApp() {
                 <Route path="/settings/appearance" element={<AppearanceSettingsPage />} />
                 <Route path="/settings/preferences" element={<UsagePreferencesPage />} />
                 <Route path="/settings/recommendation" element={<RecommendationSettingsPage />} />
+                <Route path="/settings/kids" element={<KidLockPage />} />
                 <Route path="/settings/collect" element={<CollectConfigPage />} />
                 <Route path="/help/guide" element={<CollectGuidePage />} />
                 <Route path="/settings/video" element={<VideoManagementPage />} />

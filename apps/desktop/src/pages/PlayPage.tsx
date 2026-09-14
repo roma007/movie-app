@@ -9,7 +9,7 @@ import { UNCATEGORIZED_GENRE, VideoDurationService, resolveDefaultPlayTarget } f
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
-import { ArrowLeft, ChevronRight, Loader2, EyeOff, Heart, ThumbsDown, Star } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Loader2, EyeOff, Heart, ThumbsDown, Star, Lock } from 'lucide-react';
 import { useToast } from '@/components/Layout';
 
 const typeLabel: Record<string, string> = {
@@ -461,6 +461,25 @@ export default function PlayPage() {
     return (
       <div className="p-6 space-y-4 max-w-7xl mx-auto">
         <Skeleton className="w-full aspect-video rounded-lg animate-pulse-skeleton" />
+      </div>
+    );
+  }
+
+  if (activeSession?.blockedReason) {
+    return (
+      <div className="p-6 max-w-7xl mx-auto">
+        <div className="sticky top-0 z-10 -mx-6 px-6 pb-4">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" onClick={() => navigate(-1)} className="hover:text-text shrink-0">
+              <ArrowLeft className="size-4 mr-2" /> 返回
+            </Button>
+          </div>
+        </div>
+        <div className="mt-10 flex flex-col items-center gap-3 text-center">
+          <Lock className="size-10 text-muted-foreground" />
+          <div className="text-muted-foreground">{activeSession.blockedReason}</div>
+          <div className="text-xs text-muted-foreground">请先在顶部横幅解锁儿童模式后观看</div>
+        </div>
       </div>
     );
   }

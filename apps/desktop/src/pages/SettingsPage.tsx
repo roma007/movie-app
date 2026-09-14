@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
 import { useBackgroundStore } from '../themes/backgroundStore';
-import { Database, ChevronRight, Palette, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { Database, ChevronRight, Lock, Palette, SlidersHorizontal, Sparkles } from 'lucide-react';
 
 export default function SettingsPage() {
   const navigate = useNavigate();
@@ -59,6 +59,16 @@ export default function SettingsPage() {
           <div className="flex items-center gap-3">
             <Database className="size-4 text-muted-foreground" />
             <span>视频管理</span>
+          </div>
+          <ChevronRight className="size-4 text-muted-foreground" />
+        </button>
+        <button
+          className="flex items-center justify-between py-3 w-[calc(100%+2rem)] text-left hover:bg-secondary/50 transition-colors -mx-4 px-4"
+          onClick={() => navigate('/settings/kids')}
+        >
+          <div className="flex items-center gap-3">
+            <Lock className="size-4 text-muted-foreground" />
+            <span>儿童锁</span>
           </div>
           <ChevronRight className="size-4 text-muted-foreground" />
         </button>

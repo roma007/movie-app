@@ -287,19 +287,29 @@ export default function CategoryPage({ type }: CategoryPageProps) {
   };
 
   const fetchFilters = async () => {
-    try {
-      const [subTypeList, yearList, areaList] = await Promise.all([
-        getSubTypesByType(type, undefined, true),
-        getYearsByType(type),
-        getAreasByType(type),
-      ]);
-      setSubTypes(subTypeList);
-      setYears(yearList);
-      setAreas(areaList);
-    } catch (err) {
-      console.error('获取筛选数据失败:', err);
-    }
-  };
+      const loadSubTypes = async () => {
+        try {
+          setSubTypes(await getSubTypesByType(type, undefined, true));
+        } catch (err) {
+          console.error('获取子类型筛选失败:', err);
+        }
+      };
+      const loadYears = async () => {
+        try {
+          setYears(await getYearsByType(type));
+        } catch (err) {
+          console.error('获取年份筛选失败:', err);
+        }
+      };
+      const loadAreas = async () => {
+        try {
+          setAreas(await getAreasByType(type));
+        } catch (err) {
+          console.error('获取地区筛选失败:', err);
+        }
+      };
+      await Promise.all([loadSubTypes(), loadYears(), loadAreas()]);
+    };
 
   const fetchShortDramaFlag = async () => {
     try {
