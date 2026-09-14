@@ -7,13 +7,6 @@ import { Label } from '@/components/ui/label';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, RotateCcw, RefreshCw } from 'lucide-react';
 import { useBackgroundStore } from '../themes/backgroundStore';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 
 export default function CollectConfigPage() {
@@ -35,8 +28,6 @@ export default function CollectConfigPage() {
   });
   const [autoLastRunAt, setAutoLastRunAt] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
-  const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
   const savedConfigRef = useRef('');
 
   useEffect(() => {
@@ -143,25 +134,12 @@ export default function CollectConfigPage() {
     });
   };
 
-  const handleBack = useCallback(() => {
+  const handleBack = useCallback(async () => {
     if (hasChanges) {
-      setPendingNavigation(() => () => navigate('/settings'));
-      setShowUnsavedDialog(true);
-    } else {
-      navigate('/settings');
-    }
-  }, [hasChanges, navigate]);
-
-  const handleDialogClose = async (action: 'save' | 'discard' | 'cancel') => {
-    if (action === 'save') {
       await handleSave();
-      pendingNavigation?.();
-    } else if (action === 'discard') {
-      pendingNavigation?.();
     }
-    setShowUnsavedDialog(false);
-    setPendingNavigation(null);
-  };
+    navigate('/settings');
+  }, [hasChanges, navigate, handleSave]);
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -329,20 +307,6 @@ export default function CollectConfigPage() {
           </div>
         </div>
       </Card>
-
-      <Dialog open={showUnsavedDialog} onOpenChange={(open) => { if (!open) handleDialogClose('cancel'); }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>提示</DialogTitle>
-            <p className="text-sm text-muted-foreground">有未保存的配置，是否保存？</p>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => handleDialogClose('cancel')}>取消</Button>
-            <Button variant="destructive" onClick={() => handleDialogClose('discard')}>不保存</Button>
-            <Button onClick={() => handleDialogClose('save')}>保存</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

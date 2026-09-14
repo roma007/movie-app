@@ -1,6 +1,6 @@
 {
   "name": "@movie-app/core",
-  "version": "1.0.126",
+  "version": "1.0.127",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "scripts": {

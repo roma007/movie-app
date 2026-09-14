@@ -1339,7 +1339,7 @@ export class RecommendationService {
         [RECOMMEND_PARAMS.overviewStrengthFloor]
       ),
       this.db.select<{ id: string; title: string; personal_score: number }>(
-        'SELECT id, title, personal_score FROM media WHERE personal_score > 0 AND (hidden IS NULL OR hidden = 0) ORDER BY personal_score DESC, updated_at DESC LIMIT 10'
+        'SELECT id, title, personal_score FROM media WHERE personal_score > 0 AND IFNULL(hidden, 0) = 0 ORDER BY personal_score DESC, updated_at DESC LIMIT 10'
       ),
       this.db.selectOne<{ count: number }>('SELECT COUNT(*) as count FROM dislike'),
       this.db.select<{ tag: string; tag_type: string; created_at: string }>(

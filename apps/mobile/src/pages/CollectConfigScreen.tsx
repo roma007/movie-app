@@ -135,39 +135,22 @@ export default function CollectConfigScreen({ navigation }: Props) {
   };
 
   useEffect(() => {
-    const unsubscribe = navigation.addListener('beforeRemove', (e: any) => {
+    const unsubscribe = navigation.addListener('beforeRemove', async (e: any) => {
       if (!hasChanges) return;
       e.preventDefault();
-      Alert.alert(
-        '提示',
-        '有未保存的配置，是否保存？',
-        [
-          {
-            text: '不保存',
-            style: 'destructive' as const,
-            onPress: () => navigation.dispatch(e.data.action),
-          },
-          { text: '取消', style: 'cancel' as const },
-          {
-            text: '保存',
-            onPress: async () => {
-              await updateCollectConfig({
-                minYear: parseInt(localConfig.minYear) || 2025,
-                retryTimes: Math.min(10, Math.max(0, parseInt(localConfig.retryTimes) || 3)),
-                pageSize: Math.min(100, Math.max(5, parseInt(localConfig.pageSize) || 20)),
-                maxPages: Math.max(1, parseInt(localConfig.maxPages) || 10),
-                incrementalMaxPages: Math.max(1, parseInt(localConfig.incrementalMaxPages) || 100),
-                maxIncrementalHours: Math.max(0, parseInt(localConfig.maxIncrementalHours) || 720),
-                concurrency: Math.min(20, Math.max(1, parseInt(localConfig.concurrency) || 1)),
-                autoEnabled: localConfig.autoEnabled,
-                autoIntervalHours: Math.min(8760, Math.max(1, parseInt(localConfig.autoIntervalHours) || 24)),
-                autoOnStartup: localConfig.autoOnStartup,
-              });
-              navigation.dispatch(e.data.action);
-            },
-          },
-        ]
-      );
+      await updateCollectConfig({
+        minYear: parseInt(localConfig.minYear) || 2025,
+        retryTimes: Math.min(10, Math.max(0, parseInt(localConfig.retryTimes) || 3)),
+        pageSize: Math.min(100, Math.max(5, parseInt(localConfig.pageSize) || 20)),
+        maxPages: Math.max(1, parseInt(localConfig.maxPages) || 10),
+        incrementalMaxPages: Math.max(1, parseInt(localConfig.incrementalMaxPages) || 100),
+        maxIncrementalHours: Math.max(0, parseInt(localConfig.maxIncrementalHours) || 720),
+        concurrency: Math.min(20, Math.max(1, parseInt(localConfig.concurrency) || 1)),
+        autoEnabled: localConfig.autoEnabled,
+        autoIntervalHours: Math.min(8760, Math.max(1, parseInt(localConfig.autoIntervalHours) || 24)),
+        autoOnStartup: localConfig.autoOnStartup,
+      });
+      navigation.dispatch(e.data.action);
     });
     return () => unsubscribe();
   }, [hasChanges, navigation, localConfig, updateCollectConfig]);
