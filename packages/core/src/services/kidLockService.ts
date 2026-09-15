@@ -1,11 +1,12 @@
 import type { DatabaseProvider } from '../db/provider';
 import type { MediaType } from '../types';
-import { isChildSafe } from '../utils/kidSafe';
+import { isChildSafe, KID_SAFE_RULES_VERSION } from '../utils/kidSafe';
 import { SystemConfigService } from './systemConfigService';
 
 const CONFIG_PIN_HASH = 'parental.pinHash';
 const CONFIG_PIN_SALT = 'parental.salt';
 const CONFIG_BACKFILLED = 'db.kidSafeBackfilled';
+const CONFIG_RULES_VERSION = 'db.kidSafeRulesVersion';
 
 /**
  * 儿童锁服务（两端共享）。
@@ -54,42 +55,67 @@ export class KidLockService {
   }
 
   /**
-   * 是否已完成存量回填。除标记外还校验是否残留未评估行：
-   * 兼容历史 OFFSET 分页 bug（结果集收缩导致跳行）留下的「标记已置但仍有 NULL」状态，
-   * 使该类库在下一次开启时自动补完。
+   * 是否已完成回填且与当前判定规则一致。
+   * 除标记外还校验：
+   * - 是否残留未评估行（兼容历史 OFFSET 分页 bug 留下的「标记已置但仍有 NULL」状态）；
+   * - 是否已按当前 KID_SAFE_RULES_VERSION 重标（词表升级后需全量重估，见 backfillKidSafe）。
    */
   async isBackfilled(): Promise<boolean> {
     const flagged = (await this.config.getString(CONFIG_BACKFILLED, '')) === '1';
     if (!flagged) return false;
+    if ((await this.config.getString(CONFIG_RULES_VERSION, '')) !== KID_SAFE_RULES_VERSION) {
+      return false;
+    }
     const row = await this.db.selectOne<{ c: number }>(
       'SELECT COUNT(*) as c FROM media WHERE kid_safe IS NULL'
     );
     return (row?.c || 0) === 0;
   }
 
-  /** 存量数据回填 kid_safe（幂等，处理完毕才置 db.kidSafeBackfilled 标记）。 */
+  /**
+   * 存量数据回填/重估 kid_safe（幂等）。
+   * - 规则版本不一致 → 对全部 media 按最新词表重算（词表升级自动全量重标）；
+   * - 版本一致且仍有 NULL → 仅增量补齐（兼容历史 OFFSET bug 的残留行）。
+   * 处理完毕才写 db.kidSafeBackfilled 标记与当前规则版本。
+   */
   async backfillKidSafe(progress?: (done: number, total: number) => void): Promise<void> {
     if (await this.isBackfilled()) return;
 
+    const needsFullRemark =
+      (await this.config.getString(CONFIG_RULES_VERSION, '')) !== KID_SAFE_RULES_VERSION;
+    const whereClause = needsFullRemark ? '' : 'WHERE kid_safe IS NULL';
+
     const totalRow = await this.db.selectOne<{ c: number }>(
-      'SELECT COUNT(*) as c FROM media WHERE kid_safe IS NULL'
+      `SELECT COUNT(*) as c FROM media ${whereClause}`
     );
     const total = totalRow?.c || 0;
     if (total === 0) {
       await this.config.setString(CONFIG_BACKFILLED, '1');
+      await this.config.setString(CONFIG_RULES_VERSION, KID_SAFE_RULES_VERSION);
       return;
     }
 
     const BATCH = 400;
     let done = 0;
+    let lastRowId = 0;
     for (;;) {
-      // 恒从 0 偏移扫描：每批处理后结果集（kid_safe IS NULL）从前部收缩，
-      // 若用 OFFSET done 会跳过已收缩位移的剩余行（历史 bug，曾致仅回填约一半）
+      // keyset 分页（按 rowid 推进）：全量重标时结果集不因 UPDATE 收缩，
+      // 不能用「LIMIT 400 不偏移」的增量写法（会无限重处理同一批）；
+      // 增量补 NULL 路径同样安全（收缩集在 lastRowId 左侧，不影响推进）。
       const rows = await this.db.select<
-        { id: string; title: string; type: MediaType; genre: string | null; description: string | null }
+        {
+          rowid: number;
+          id: string;
+          title: string;
+          type: MediaType;
+          genre: string | null;
+          description: string | null;
+        }
       >(
-        'SELECT id, title, type, genre, description FROM media WHERE kid_safe IS NULL LIMIT ?',
-        [BATCH]
+        needsFullRemark
+          ? 'SELECT rowid, id, title, type, genre, description FROM media WHERE rowid > ? ORDER BY rowid LIMIT ?'
+          : 'SELECT rowid, id, title, type, genre, description FROM media WHERE kid_safe IS NULL AND rowid > ? ORDER BY rowid LIMIT ?',
+        [lastRowId, BATCH]
       );
       if (rows.length === 0) break;
 
@@ -124,9 +150,11 @@ export class KidLockService {
         );
       }
       done += rows.length;
+      lastRowId = rows[rows.length - 1].rowid;
       progress?.(done, total);
     }
 
     await this.config.setString(CONFIG_BACKFILLED, '1');
+    await this.config.setString(CONFIG_RULES_VERSION, KID_SAFE_RULES_VERSION);
   }
 }

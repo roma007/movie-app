@@ -7,20 +7,20 @@ export interface CategoryFilterData {
 const filterCache = new Map<string, CategoryFilterData>();
 const shortDramaCache = new Map<string, boolean>();
 
-export function getFilterCache(type: string): CategoryFilterData | undefined {
-  return filterCache.get(type);
+export function getFilterCache(type: string, kidMode: string): CategoryFilterData | undefined {
+  return filterCache.get(`${kidMode}:${type}`);
 }
 
-export function setFilterCache(type: string, data: CategoryFilterData): void {
-  filterCache.set(type, data);
+export function setFilterCache(type: string, kidMode: string, data: CategoryFilterData): void {
+  filterCache.set(`${kidMode}:${type}`, data);
 }
 
-export function getShortDramaCache(type: string): boolean | undefined {
-  return shortDramaCache.get(type);
+export function getShortDramaCache(type: string, kidMode: string): boolean | undefined {
+  return shortDramaCache.get(`${kidMode}:${type}`);
 }
 
-export function setShortDramaCache(type: string, value: boolean): void {
-  shortDramaCache.set(type, value);
+export function setShortDramaCache(type: string, kidMode: string, value: boolean): void {
+  shortDramaCache.set(`${kidMode}:${type}`, value);
 }
 
 export function clearCategoryFilterCache(): void {

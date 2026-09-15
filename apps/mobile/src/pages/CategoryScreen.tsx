@@ -117,7 +117,8 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
   }, [type, sort, selectedSubType, selectedYear, selectedArea, selectedEpisodeType, provider]);
 
   const loadFilterOptions = useCallback(async () => {
-    const cached = getFilterCache(type);
+    const kid = (await provider.getKidModeActive()) ? '1' : '0';
+    const cached = getFilterCache(type, kid);
     if (cached) {
       setSubTypes(cached.subTypes);
       setYears(cached.years);
@@ -130,7 +131,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
         provider.getYearsByType(type),
         provider.getAreasByType(type),
       ]);
-      setFilterCache(type, { subTypes: subs, years: yrs, areas: areasList });
+      setFilterCache(type, kid, { subTypes: subs, years: yrs, areas: areasList });
       setSubTypes(subs);
       setYears(yrs);
       setAreas(areasList);
@@ -151,14 +152,17 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
 
   useEffect(() => {
     if (type === 'TV') {
-      const cached = getShortDramaCache(type);
-      if (cached !== undefined) {
-        setShowShortDramaFilter(cached);
-        return;
-      }
-      provider.hasShortDrama('TV').then((has) => {
-        setShortDramaCache(type, has);
-        setShowShortDramaFilter(has);
+      provider.getKidModeActive().then((on) => {
+        const kid = on ? '1' : '0';
+        const cached = getShortDramaCache(type, kid);
+        if (cached !== undefined) {
+          setShowShortDramaFilter(cached);
+          return;
+        }
+        return provider.hasShortDrama('TV').then((has) => {
+          setShortDramaCache(type, kid, has);
+          setShowShortDramaFilter(has);
+        });
       }).catch(() => setShowShortDramaFilter(false));
     } else {
       setShowShortDramaFilter(false);

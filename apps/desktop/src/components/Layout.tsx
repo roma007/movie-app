@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { useState, useEffect, createContext, useContext, useCallback, type ReactNode } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import { useAppStore } from '../useAppStore';
+import { getKidLockService } from '../stores/kidLockStore';
 
 const navItems = [
   { to: '/', label: '首页', icon: Home },
@@ -94,7 +95,7 @@ function ToastProvider({ children }: { children: ReactNode }) {
 }
 
 export function Layout() {
-  const [appVersion, setAppVersion] = useState('1.0.129');
+  const [appVersion, setAppVersion] = useState('1.0.130');
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [showUsageGuide, setShowUsageGuide] = useState(false);
   const aiImportOpen = useImportDialogStore((s) => s.aiImportOpen);
@@ -109,6 +110,8 @@ export function Layout() {
 
   useEffect(() => {
     loadVideoSources().then(() => setSourcesLoaded(true));
+    // 启动静默检查：若词表升级或残留 NULL，自动全量重标（isBackfilled 幂等，无进度 UI）
+    getKidLockService().backfillKidSafe().catch(() => {});
   }, []);
 
   useEffect(() => {

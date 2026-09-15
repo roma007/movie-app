@@ -1152,6 +1152,9 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     if (!includeHidden) {
       whereClause += ' AND (hidden IS NULL OR hidden = 0)';
     }
+    if (this.kidModeActive) {
+      whereClause += ' AND kid_safe = 1';
+    }
     const params: any[] = [];
     if (type) {
       whereClause += ' AND type = ?';
@@ -1173,6 +1176,9 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async getYearsByType(type?: string): Promise<number[]> {
     let whereClause = 'WHERE (hidden IS NULL OR hidden = 0)';
+    if (this.kidModeActive) {
+      whereClause += ' AND kid_safe = 1';
+    }
     const params: any[] = [];
     if (type) {
       whereClause += ' AND type = ?';
@@ -1193,6 +1199,9 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async getAreasByType(type?: string): Promise<string[]> {
     let whereClause = 'WHERE area IS NOT NULL AND (hidden IS NULL OR hidden = 0)';
+    if (this.kidModeActive) {
+      whereClause += ' AND kid_safe = 1';
+    }
     const params: any[] = [];
     if (type) {
       whereClause += ' AND type = ?';
@@ -1207,6 +1216,9 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async hasShortDrama(type?: string): Promise<boolean> {
     let whereClause = 'WHERE is_short_drama = 1 AND (hidden IS NULL OR hidden = 0)';
+    if (this.kidModeActive) {
+      whereClause += ' AND kid_safe = 1';
+    }
     const params: any[] = [];
     if (type) {
       whereClause += ' AND type = ?';

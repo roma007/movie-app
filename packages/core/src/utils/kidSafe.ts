@@ -9,7 +9,10 @@ import type { MediaType } from '../types';
  * 3. 其余（普通剧情片等）默认适合（kid_safe=1），保持「黑名单过滤为主」的实用性取向。
  *
  * 词表为启发式，后续可在此集中校准。采集入库打标与存量回填共用本函数，口径一致。
+ * 注意：词表变更会随 KID_SAFE_RULES_VERSION 升级触发全量重标（见 kidLockService）。
  */
+
+export const KID_SAFE_RULES_VERSION = '2';
 
 const ADULT_OR_VIOLENT_KEYWORDS = [
   // 成人向
@@ -17,6 +20,11 @@ const ADULT_OR_VIOLENT_KEYWORDS = [
   '艳情', '风月', '儿童不宜', '少儿不宜',
   // 惊悚恐怖/血腥暴力向
   '恐怖', '惊悚', '血腥', '虐杀', '食人',
+  // 犯罪/悬疑/刑侦/黑帮向
+  '犯罪', '刑侦', '探案', '黑帮', '黑道', '卧底', '缉毒', '贩毒', '命案',
+  '凶案', '重案', '特工', '谍战', '法医', '悬疑',
+  // 战争/军事/敏感题材向
+  '战争', '军事', '同性', '宫斗', '权谋',
 ];
 
 const CHILD_FRIENDLY_KEYWORDS = [

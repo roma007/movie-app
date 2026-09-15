@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { File, Paths } from 'expo-file-system';
+import { getKidLockService } from './src/stores/kidLockStore';
 
 // 全局 JS 错误捕获：未捕获异常/未处理 rejection 写入本地 js_error.log（仅写日志，不改变行为）。
 // 用于「播放页返回闪退」一类 JS fatal 的诊断留存；本地开发/线上排障时可取出该文件定位。
@@ -147,6 +148,8 @@ export default function App() {
   useEffect(() => {
     // 移动端后台定时器会被挂起，回前台时补一次自动增量采集检查
     if (!ready) return;
+    // 启动静默检查：若词表升级或残留 NULL，自动全量重标（isBackfilled 幂等，无进度 UI）
+    getKidLockService().backfillKidSafe().catch(() => {});
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         getStore().getState().maybeRunAutoCollect('resume').catch(() => {});

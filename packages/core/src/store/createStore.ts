@@ -358,17 +358,20 @@ export function createAppStore(db: DatabaseProvider) {
     },
 
     getSubTypesByType: async (type?: string, includeHidden?: boolean, firstOnly?: boolean) => {
-      return withMediaFilterCache(`subs:${type ?? ''}:${includeHidden ? 1 : 0}:${firstOnly ? 1 : 0}`, () =>
+      const kid = (await db.getKidModeActive()) ? '1' : '0';
+      return withMediaFilterCache(`subs:${kid}:${type ?? ''}:${includeHidden ? 1 : 0}:${firstOnly ? 1 : 0}`, () =>
         db.getSubTypesByType(type, includeHidden, firstOnly)
       );
     },
 
     getYearsByType: async (type?: string) => {
-      return withMediaFilterCache(`years:${type ?? ''}`, () => db.getYearsByType(type));
+      const kid = (await db.getKidModeActive()) ? '1' : '0';
+      return withMediaFilterCache(`years:${kid}:${type ?? ''}`, () => db.getYearsByType(type));
     },
 
     getAreasByType: async (type?: string) => {
-      return withMediaFilterCache(`areas:${type ?? ''}`, () => db.getAreasByType(type));
+      const kid = (await db.getKidModeActive()) ? '1' : '0';
+      return withMediaFilterCache(`areas:${kid}:${type ?? ''}`, () => db.getAreasByType(type));
     },
 
     loadMediaDetail: async (id: string) => {
@@ -996,7 +999,8 @@ export function createAppStore(db: DatabaseProvider) {
 
     hasShortDrama: async (type?: string) => {
       try {
-        return await withMediaFilterCache(`shortDrama:${type ?? ''}`, () => db.hasShortDrama(type));
+        const kid = (await db.getKidModeActive()) ? '1' : '0';
+        return await withMediaFilterCache(`shortDrama:${kid}:${type ?? ''}`, () => db.hasShortDrama(type));
       } catch (err: any) {
         set({ error: err.message });
         return false;

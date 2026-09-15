@@ -54,6 +54,13 @@ const VERTICAL_CARD_RIGHT_GAP = 12;
 // 统一固定值（≥最长文字宽+间距），保证所有按钮图标竖排对齐，不随各按钮文字字数参差
 const TOOLBAR_LABEL_EXTRA = 84;
 
+// 红果式长按手势：热区比例与判定参数（移动端 PlayScreen）
+const LONG_PRESS_MS = 400; // 长按触发时长（ms）
+const ZONE_LEFT_R = 0.18; // 左侧快进条：< 屏宽 18%
+const ZONE_RIGHT_R = 0.68; // 右侧快进条：> 屏宽 68%
+const LOCK_GESTURE_DY = 24; // 上滑锁定 / 下滑退出位移阈值
+const DOUBLE_TAP_MS = 280; // 双击判定窗口：两次轻点间隔 ≤ 280ms 视为双击（收藏切换）
+
 export default function PlayScreen({ route, navigation }: Props) {
   const { episodeId, mediaId: paramMediaId, sourceId: paramSourceId, playSourceId: paramPlaySourceId, title: paramTitle, playContext: paramPlayContext } = route.params;
   const {
@@ -138,6 +145,10 @@ export default function PlayScreen({ route, navigation }: Props) {
 
   // 功能10: 播放设置菜单（倍速/清晰度/字幕）
   const [settingsVisible, setSettingsVisible] = useState(false);
+  // 红果式长按手势状态
+  const [locked2x, setLocked2x] = useState(false);
+  const [pressHint, setPressHint] = useState<'ff' | 'lock' | 'exit' | null>(null);
+  const [showGuide, setShowGuide] = useState(false);
   // 播放设置内联底部弹层动画（替换 RN Modal：iOS 全屏方向锁定下 present 会因 supportedInterfaceOrientations
   // 混合方向冲突闪退，改页面内覆盖层；Android/iOS 行为一致）
   const settingsAnim = useRef(new Animated.Value(0)).current;
@@ -287,6 +298,35 @@ export default function PlayScreen({ route, navigation }: Props) {
   const isVerticalVideo = effectiveRatio != null && effectiveRatio > 0 && effectiveRatio < 1;
   /** 红果式沉浸：进页即全屏沉浸（横竖屏一致），不再等待视频尺寸探测；探测仅用于 contentFit（竖屏 cover / 横屏 contain） */
   const isImmersive = videoUrl != null && !error;
+
+  // ─── refs 同步最新 state 供 PanResponder（useMemo 依赖为空）读取 ───
+  const videoUrlRef = useRef(videoUrl);
+  videoUrlRef.current = videoUrl;
+  const errorRef = useRef(error);
+  errorRef.current = error;
+  const isImmersiveRef = useRef(isImmersive);
+  isImmersiveRef.current = isImmersive;
+  const settingsVisibleRef = useRef(settingsVisible);
+  settingsVisibleRef.current = settingsVisible;
+  const overlayVisibleRef = useRef(overlayVisible);
+  overlayVisibleRef.current = overlayVisible;
+  const fullscreenControlsVisibleRef = useRef(fullscreenControlsVisible);
+  fullscreenControlsVisibleRef.current = fullscreenControlsVisible;
+  const episodesSheetVisibleRef = useRef(episodesSheetVisible);
+  episodesSheetVisibleRef.current = episodesSheetVisible;
+  const hideModalVisibleRef = useRef(hideModalVisible);
+  hideModalVisibleRef.current = hideModalVisible;
+  // 长按手势专用 ref
+  const locked2xRef = useRef(false);
+  const guideShownRef = useRef(false);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pressRef = useRef<{
+    zone: 'left' | 'right' | 'middle' | null;
+    mode: 'main' | 'fullscreen';
+    phase: 'tracking' | 'longpress' | 'swipe' | null;
+  } | null>(null);
+  // 双击收藏：首击入队单击延迟，280ms 内第二击到 → 取消单击改调 handleFav
+  const doubleTapRef = useRef<{ ts: number; timer: ReturnType<typeof setTimeout> | null }>({ ts: 0, timer: null });
 
   const styles = useMemo(() => {
     return StyleSheet.create({
@@ -508,6 +548,14 @@ export default function PlayScreen({ route, navigation }: Props) {
     genreChipText: { fontSize: sf(13), color: colors.text },
     modalButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
     modalButton: { minWidth: 90 },
+    // 红果式长按手势反馈层
+    lockBadge: { position: 'absolute', top: isImmersive ? 70 : (insets.top + 70), right: 16, zIndex: 25, backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
+    lockBadgeText: { fontSize: sf(12), fontWeight: '600', color: '#fff' },
+    guideBubble: { position: 'absolute', top: isImmersive ? 100 : (insets.top + 100), alignSelf: 'center', zIndex: 25, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
+    guideBubbleText: { fontSize: sf(13), color: '#fff' },
+    pressHintWrap: { position: 'absolute', bottom: insets.bottom + 150, alignSelf: 'center', zIndex: 25, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10 },
+    pressHintTitle: { fontSize: sf(15), fontWeight: '700', color: '#fff' },
+
     settingsOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'flex-end', zIndex: 10000, elevation: 30 },
     settingsBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.5)' },
     settingsSheet: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: 18, paddingBottom: insets.bottom + 28, maxHeight: '75%' },
@@ -1060,7 +1108,23 @@ export default function PlayScreen({ route, navigation }: Props) {
   }, [flushCurrentProgress]);
 
   useEffect(() => {
-    return () => flushCurrentProgress();
+    // 读取首次引导标记（已展示过则不再重复弹引导）
+    (async () => {
+      try {
+        const svc = new SystemConfigService(getProvider());
+        guideShownRef.current = (await svc.getString('playback.longPressGuideShown', '')) === '1';
+      } catch {}
+    })();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      flushCurrentProgress();
+      // 卸载回收：停止长按计时器并复位锁定倍速
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      pressRef.current = null;
+      pressActionsRef.current.resetLocked();
+    };
   }, [flushCurrentProgress]);
 
   // 功能12: 移动端 N 并发分片读取
@@ -1270,6 +1334,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   }), [commitDragSeek]);
 
   const handlePlaySourceChange = async (idx: number) => {
+    pressActionsRef.current.resetLocked();
     const src = playSourcesRef.current[idx];
     if (!src) return;
     // 切换前把当前线路的真实进度落库（返回该线路时从此处恢复）
@@ -1329,6 +1394,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   // 决策树：电视剧/综艺优先切集；有序列表（list/search/recommend）按序切换；
   // 集数到尽头 / 列表到边界 / 无列表上下文（random）→ 随机播放【当前类型】。
   const switchToMediaById = async (targetMediaId: string, newIndex: number) => {
+    pressActionsRef.current.resetLocked();
     try {
       const provider = getProvider();
       const targetMedia = await provider.getMediaById(targetMediaId);
@@ -1471,45 +1537,238 @@ export default function PlayScreen({ route, navigation }: Props) {
     prev: (mode: 'main' | 'fullscreen' = 'main') => void completeSwipe('prev', mode),
   };
 
-  // 红果式跟手滑动 PanResponder：
-  // - 用 onMoveShouldSetPanResponderCapture 在捕获阶段先行判断，即使触摸落在信息卡/进度条等
-  //   Touchable 子层也能接管（避免子 view 已成为 responder 导致父 PanResponder 失效）；
-  //   onStartShouldSetPanResponder 始终 false，纯点按（tap）不触发，正常走播放/暂停、选集等交互。
-  const createSwipeResponder = (yVal: Animated.Value) => PanResponder.create({
-    onStartShouldSetPanResponder: () => false,
-    onStartShouldSetPanResponderCapture: () => false,
-    onMoveShouldSetPanResponder: () => false,
-    onMoveShouldSetPanResponderCapture: (_, g) =>
-      Math.abs(g.dy) > 30 && Math.abs(g.dy) > Math.abs(g.dx) * 2,
-    onPanResponderMove: (_, g) => {
-      const max = screenH;
-      yVal.setValue(Math.max(-max, Math.min(max, g.dy)));
-    },
-    onPanResponderRelease: (_, g) => {
-      const threshold = screenH * 0.25;
-      const dir = g.dy < 0 ? 'next' : 'prev';
-      if (Math.abs(g.dy) > threshold) {
-        const fullscreen = yVal === fsAnimatedY ? 'fullscreen' : 'main';
-        Animated.timing(yVal, {
-          toValue: g.dy < 0 ? -screenH : screenH,
-          duration: 220,
-          useNativeDriver: true,
-        }).start(() => {
-          swipeActionsRef.current[dir](fullscreen as 'main' | 'fullscreen');
-        });
+  // ─── 红果式长按手势：倍速控制辅助函数 ───
+  const pressApplyRate = (rate: number) => {
+    try { const p = playerRef.current; if (p) (p as any).playbackRate = rate; } catch {}
+    setCurrentSpeed(rate);
+  };
+  const pressLock2x = () => {
+    locked2xRef.current = true;
+    setLocked2x(true);
+    pressApplyRate(2);
+  };
+  const pressUnlock2x = () => {
+    locked2xRef.current = false;
+    setLocked2x(false);
+    pressApplyRate(1);
+  };
+  // 长按手势结束时复位（若未锁定则恢复 1x，已锁定则保持 2x）
+  const pressUnlockTemp = () => {
+    if (!locked2xRef.current) pressApplyRate(1);
+  };
+  // 统一复位：锁定标记 + 速率，切集/切源/卸载时调用
+  const pressResetLocked = () => {
+    locked2xRef.current = false;
+    setLocked2x(false);
+    pressApplyRate(1);
+  };
+
+  // ─── 红果式长按手势：热区判定 ───
+  const zoneInPoint = useCallback((
+    pageX: number,
+    pageY: number,
+    mode: 'main' | 'fullscreen',
+  ): 'left' | 'right' | 'middle' | null => {
+    if (settingsVisibleRef.current) return null;
+    if (mode === 'main') {
+      if (!isImmersiveRef.current || appFullscreenRef.current) return null;
+      if (overlayVisibleRef.current || skipForwardVisibleRef.current) return null;
+      if (!videoUrlRef.current || errorRef.current) return null;
+      // 顶部 header 区域（沉浸态 top44 + 留白）
+      if (pageY < 120) return null;
+      // 底部信息卡 / 进度条 / 选集栏（y > 72% 屏高）
+      if (pageY > screenH * 0.72) return null;
+      // 右侧竖排功能键列（宽 ~80px）
+      if (pageX > screenW - 80) return null;
+    } else {
+      // 全屏
+      if (overlayVisibleRef.current || skipForwardVisibleRef.current) return null;
+      if (pageY < (insets.top + 70)) return null;
+      if (pageY > screenH - 170) return null;
+    }
+    const W = screenW;
+    if (pageX < W * ZONE_LEFT_R) return 'left';
+    if (pageX > W * ZONE_RIGHT_R) return 'right';
+    return 'middle';
+  }, [screenW, screenH, insets.top]);
+
+  // 供 PanResponder 读取最新处理函数（手势 useMemo 依赖为空）
+  const pressActionsRef = useRef<{
+    zoneInPoint: (pageX:number, pageY:number, mode:'main'|'fullscreen') => 'left'|'right'|'middle'|null;
+    onLongPress: (zone:'left'|'right'|'middle', mode:'main'|'fullscreen') => void;
+    onTapFallback: (mode:'main'|'fullscreen') => void;
+    lock2x: () => void;
+    unlock2x: () => void;
+    unlockTemp: () => void;
+    resetLocked: () => void;
+    openSettings: () => void;
+    onDoubleTap: () => void;
+  }>({
+    zoneInPoint: () => null,
+    onLongPress: () => {},
+    onTapFallback: () => {},
+    lock2x: () => {},
+    unlock2x: () => {},
+    unlockTemp: () => {},
+    resetLocked: () => {},
+    openSettings: () => {},
+    onDoubleTap: () => {},
+  });
+  pressActionsRef.current = {
+    zoneInPoint,
+    onLongPress: (zone: 'left' | 'right' | 'middle', mode: 'main' | 'fullscreen') => {
+      if (zone === 'left' || zone === 'right') {
+        if (!locked2xRef.current) pressApplyRate(2);
+        setPressHint('ff');
+        if (!guideShownRef.current) {
+          guideShownRef.current = true;
+          setShowGuide(true);
+          setTimeout(() => setShowGuide(false), 2600);
+          try {
+            new SystemConfigService(getProvider()).setString('playback.longPressGuideShown', '1').catch(() => {});
+          } catch {}
+        }
       } else {
-        Animated.spring(yVal, { toValue: 0, useNativeDriver: true, friction: 8, tension: 60 }).start();
+        setSettingsVisible(true);
       }
     },
+    onTapFallback: (mode: 'main' | 'fullscreen') => {
+      if (mode === 'main') togglePlayPause();
+      else toggleFsControls();
+    },
+    lock2x: pressLock2x,
+    unlock2x: pressUnlock2x,
+    unlockTemp: pressUnlockTemp,
+    resetLocked: pressResetLocked,
+    openSettings: () => setSettingsVisible(true),
+    onDoubleTap: () => {
+      void handleFav();
+    },
+  };
+
+  // ─── 红果式跟手滑动 + 长按双意图 PanResponder ───
+  const createSwipeResponder = (yVal: Animated.Value, mode: 'main' | 'fullscreen') => PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
+    onStartShouldSetPanResponderCapture: (e) => {
+      const st = pressRef.current;
+      if (st) return false;
+      const zone = pressActionsRef.current.zoneInPoint(
+        e.nativeEvent.pageX,
+        e.nativeEvent.pageY,
+        mode,
+      );
+      if (zone) {
+        pressRef.current = { zone, mode, phase: 'tracking' };
+        longPressTimerRef.current = setTimeout(() => {
+          const cur = pressRef.current;
+          if (cur && cur.phase === 'tracking') {
+            cur.phase = 'longpress';
+            pressActionsRef.current.onLongPress(cur.zone!, cur.mode);
+          }
+        }, LONG_PRESS_MS);
+        return true;
+      }
+      return false;
+    },
+    onMoveShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponderCapture: (_, g) => {
+      const st = pressRef.current;
+      if (!st) return false;
+      if (Math.abs(g.dy) > 30 && Math.abs(g.dy) > Math.abs(g.dx) * 2) {
+        clearTimeout(longPressTimerRef.current!);
+        st.phase = 'swipe';
+        return true;
+      }
+      return false;
+    },
+    onPanResponderGrant: () => {},
+    onPanResponderMove: (_, g) => {
+      const st = pressRef.current;
+      if (!st) return;
+      if (st.phase === 'swipe' || (st.phase === 'tracking' && Math.abs(g.dy) > 30 && Math.abs(g.dy) > Math.abs(g.dx) * 2)) {
+        st.phase = 'swipe';
+        clearTimeout(longPressTimerRef.current!);
+        const max = screenH;
+        yVal.setValue(Math.max(-max, Math.min(max, g.dy)));
+        return;
+      }
+      if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
+        if (g.dy <= -LOCK_GESTURE_DY) setPressHint('lock');
+        else if (g.dy >= LOCK_GESTURE_DY) setPressHint('exit');
+        else setPressHint('ff');
+      }
+    },
+    onPanResponderRelease: (_, g) => {
+      const st = pressRef.current;
+      clearTimeout(longPressTimerRef.current!);
+      if (!st) return;
+
+      if (st.phase === 'swipe') {
+        const threshold = screenH * 0.25;
+        const dir = g.dy < 0 ? 'next' : 'prev';
+        if (Math.abs(g.dy) > threshold) {
+          Animated.timing(yVal, {
+            toValue: g.dy < 0 ? -screenH : screenH,
+            duration: 220,
+            useNativeDriver: true,
+          }).start(() => {
+            swipeActionsRef.current[dir](mode);
+          });
+        } else {
+          Animated.spring(yVal, { toValue: 0, useNativeDriver: true, friction: 8, tension: 60 }).start();
+        }
+        pressRef.current = null;
+        return;
+      }
+
+      if (st.phase === 'longpress') {
+        if (st.zone === 'middle') {
+          // settings 在 onLongPress 时已打开，release 不再重复
+        } else {
+          // 红果语义：上滑=锁定 2x；下滑=退出倍速（已锁定解除、未锁定的临时 2x 也恢复 1x）；
+          // 位移不足 |dy|<24 → 结束临时（未锁定恢复 1x，已锁定保持 2x）
+          if (g.dy <= -LOCK_GESTURE_DY) pressActionsRef.current.lock2x();
+          else if (g.dy >= LOCK_GESTURE_DY) pressActionsRef.current.unlock2x();
+          else pressActionsRef.current.unlockTemp();
+        }
+        setPressHint(null);
+        pressRef.current = null;
+        return;
+      }
+
+      const now = Date.now();
+      const dt = doubleTapRef.current;
+      if (now - dt.ts <= DOUBLE_TAP_MS) {
+        clearTimeout(dt.timer);
+        dt.ts = 0;
+        dt.timer = null;
+        pressActionsRef.current.onDoubleTap();
+      } else {
+        dt.ts = now;
+        dt.timer = setTimeout(() => {
+          pressActionsRef.current.onTapFallback(mode);
+        }, DOUBLE_TAP_MS);
+      }
+      pressRef.current = null;
+    },
     onPanResponderTerminate: () => {
+      clearTimeout(longPressTimerRef.current!);
+      const dt = doubleTapRef.current;
+      if (dt.timer) {
+        clearTimeout(dt.timer);
+        dt.timer = null;
+        dt.ts = 0;
+      }
+      pressRef.current = null;
+      setPressHint(null);
       Animated.spring(yVal, { toValue: 0, useNativeDriver: true, friction: 8, tension: 60 }).start();
     },
   });
 
   // 沉浸态主卡片组跟手手势
-  const swipePanResponder = useMemo(() => createSwipeResponder(animatedY), [screenH]);
+  const swipePanResponder = useMemo(() => createSwipeResponder(animatedY, 'main'), [screenH]);
   // 全屏覆盖层跟手手势（独立 Animated.Value，互不干扰）
-  const fsSwipePanResponder = useMemo(() => createSwipeResponder(fsAnimatedY), [screenH]);
+  const fsSwipePanResponder = useMemo(() => createSwipeResponder(fsAnimatedY, 'fullscreen'), [screenH]);
 
   // 预渲染下一张卡（海报+标题）
   const renderSlideCard = (info: SwipePreview | null, hint: string) => (
@@ -1623,6 +1882,9 @@ export default function PlayScreen({ route, navigation }: Props) {
   }, [settingsVisible, refreshTracks]);
 
   const handleSpeedChange = (rate: number) => {
+    // 用户从设置面板手动调速：清除锁定标记，避免切集逻辑冲突
+    locked2xRef.current = false;
+    setLocked2x(false);
     const p = playerRef.current;
     if (p) { (p as any).playbackRate = rate; }
     setCurrentSpeed(rate);
@@ -1768,6 +2030,10 @@ export default function PlayScreen({ route, navigation }: Props) {
     wrap: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 20, backgroundColor: '#000' },
     video: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
     tapLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+    // 红果式长按手势反馈层（全屏）
+    lockBadge: { position: 'absolute', right: 16, zIndex: 40, backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
+    guideBubble: { position: 'absolute', alignSelf: 'center', zIndex: 40, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
+    pressHintWrap: { position: 'absolute', alignSelf: 'center', zIndex: 40, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10 },
     topBar: { position: 'absolute', left: 0, right: 0, flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 10, zIndex: 30 },
     topTitle: { flex: 1, fontSize: sf(16), fontWeight: '600', color: '#fff', marginLeft: 8, marginRight: 40 },
     backBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
@@ -1795,6 +2061,18 @@ export default function PlayScreen({ route, navigation }: Props) {
     };
   }, []);
 
+  // 双击收藏：卸载时清理待执行/待判定的单击队列
+  useEffect(() => {
+    return () => {
+      const dt = doubleTapRef.current;
+      if (dt.timer) {
+        clearTimeout(dt.timer);
+        dt.timer = null;
+        dt.ts = 0;
+      }
+    };
+  }, []);
+
   const seasonToMediaMap = new Map<number, string>();
   seriesMedia.forEach(m => {
     if (m.seriesSeason) seasonToMediaMap.set(m.seriesSeason, m.id);
@@ -1803,6 +2081,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   const displaySeasons = seasonsFromSeries.length > 0 ? seasonsFromSeries : seasons;
 
   const handleSeasonChange = (season: number) => {
+    pressActionsRef.current.resetLocked();
     const targetId = seasonToMediaMap.get(season);
     if (targetId && targetId !== mediaId) {
       // 切季到不同媒体时保留 playContext（继续支持上下滑切换），定位新媒体在列表中的索引
@@ -1830,6 +2109,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   };
 
   const handleEpisodePress = async (ep: Episode) => {
+    pressActionsRef.current.resetLocked();
     if (isCasting && castManager.castDevice) {
       const currentTime = player?.currentTime || 0;
       const duration = player?.duration || 0;
@@ -2509,6 +2789,31 @@ export default function PlayScreen({ route, navigation }: Props) {
             }}
           />
           <TouchableOpacity style={fsStyles.tapLayer} activeOpacity={1} onPress={toggleFsControls} />
+          {/* 红果式长按：全屏态 2x 锁定角标 */}
+          {locked2x && (
+            <TouchableOpacity
+              style={[fsStyles.lockBadge, { top: isImmersive ? 70 : (insets.top + 70) }]}
+              activeOpacity={0.7}
+              onPress={pressUnlock2x}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.lockBadgeText}>2x 长按锁定</Text>
+            </TouchableOpacity>
+          )}
+          {/* 红果式长按：首次使用引导气泡 */}
+          {showGuide && (
+            <View pointerEvents="none" style={[fsStyles.guideBubble, { top: isImmersive ? 100 : (insets.top + 100) }]}>
+              <Text style={styles.guideBubbleText}>长按左右快进 · 长按中间打开功能</Text>
+            </View>
+          )}
+          {/* 红果式长按：倍速/锁定提示胶囊（底部控制条上方） */}
+          {pressHint && (
+            <View pointerEvents="none" style={[fsStyles.pressHintWrap, { bottom: insets.bottom + 170 }]}>
+              <Text style={styles.pressHintTitle}>
+                {pressHint === 'ff' ? '2.0倍速快进中' : pressHint === 'lock' ? '松手锁定倍速' : '下滑退出倍速'}
+              </Text>
+            </View>
+          )}
           {fullscreenControlsVisible && (
             <>
               <View style={[fsStyles.topBar, { top: insets.top + 6, paddingLeft: insets.left + 10, paddingRight: insets.right + 10 }]}>
@@ -2584,9 +2889,34 @@ export default function PlayScreen({ route, navigation }: Props) {
           )}
         </Animated.View>
       );
-    })()}
+})()}
+    {/* 红果式长按手势：2x 锁定角标（右上角，点击解锁） */}
+    {locked2x && (
+      <TouchableOpacity
+        style={styles.lockBadge}
+        activeOpacity={0.7}
+        onPress={pressUnlock2x}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Text style={styles.lockBadgeText}>2x 长按锁定</Text>
+      </TouchableOpacity>
+    )}
+    {/* 红果式长按手势：首次使用引导气泡（顶部） */}
+    {showGuide && (
+      <View pointerEvents="none" style={styles.guideBubble}>
+        <Text style={styles.guideBubbleText}>长按左右快进 · 长按中间打开功能</Text>
+      </View>
+    )}
+    {/* 红果式长按手势：倍速/锁定提示胶囊（中下） */}
+    {pressHint && (
+      <View pointerEvents="none" style={styles.pressHintWrap}>
+        <Text style={styles.pressHintTitle}>
+          {pressHint === 'ff' ? '2.0倍速快进中' : pressHint === 'lock' ? '松手锁定倍速' : '下滑退出倍速'}
+        </Text>
+      </View>
+    )}
     {/* 播放设置内联底部弹层（替换 RN Modal：iOS 全屏方向锁 Landscape 下 Modal present 因 supportedInterfaceOrientations
-        混合方向冲突 SIGABRT 闪退，改页面内覆盖层，Android/iOS 行为一致） */}
+         混合方向冲突 SIGABRT 闪退，改页面内覆盖层，Android/iOS 行为一致） */}
     {settingsVisible && (
       <View style={styles.settingsOverlay}>
         <Animated.View style={[styles.settingsBackdrop, { opacity: settingsAnim }]}>
