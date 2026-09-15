@@ -165,8 +165,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
         episodeId,
         media: null,
         episode: null,
-        // 不继承旧 sources：避免切集/打开瞬间旧视频在遮罩下继续播放（一边在播一边转圈）
-        sources: [],
+        // 继承旧 sources 占位：loading 期 VideoPlayer 不卸载，元素级全屏不退出；
+        // 切集瞬间旧视频出声问题由 PlayerHost.handleNextEpisode 先 pause 原视频消除
+        sources: prev?.sources ?? [],
         playSourceId: prev?.playSourceId ?? null,
         selectedSourceId: prev?.selectedSourceId ?? null,
         currentTime: 0,

@@ -346,6 +346,8 @@ export function PlayerHost() {
   const handleNextEpisode = () => {
     const nextId = session.nextEpisode?.id;
     if (!nextId) return;
+    const video = playerRef.current?.el?.querySelector('video');
+    if (video && !video.paused) video.pause();
     navigate(`/play/${nextId}`, { replace: true });
   };
 
