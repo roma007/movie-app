@@ -137,10 +137,14 @@ export default function SearchScreen({ navigation, route }: Props) {
     loadSearch(keyword, 1, true, searchIdRef.current).finally(() => setIsRefreshing(false));
   };
 
-  const renderItem = ({ item }: { item: any }) => (
+  const renderItem = ({ item, index }: { item: any; index: number }) => (
     <TouchableOpacity
       style={styles.item}
-      onPress={() => openMediaPlay(navigation, item)}
+      onPress={() => openMediaPlay(navigation, item, {
+        type: 'search',
+        mediaIds: results.map((m: any) => m.id),
+        currentIndex: index,
+      })}
     >
       {item.posterUrl && (
         <PosterImage uri={item.posterUrl} style={styles.poster} />

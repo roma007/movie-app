@@ -488,6 +488,16 @@ const MIGRATIONS: Migration[] = [
     sql: `ALTER TABLE media ADD COLUMN kid_safe INTEGER;
           CREATE INDEX IF NOT EXISTS idx_media_kid_safe ON media(kid_safe);`,
   },
+  {
+    version: 54,
+    description: 'add_recommend_sort_personal_score_visible_partial_indexes',
+    sql: `CREATE INDEX IF NOT EXISTS idx_media_type_personal_score_visible
+          ON media(type, personal_score DESC, updated_at DESC)
+          WHERE (hidden IS NULL OR hidden = 0);
+          CREATE INDEX IF NOT EXISTS idx_media_personal_score_visible
+          ON media(personal_score DESC, updated_at DESC)
+          WHERE (hidden IS NULL OR hidden = 0);`,
+  },
 ];
 
 /**
@@ -828,39 +838,65 @@ export class ExpoSqliteProvider implements DatabaseProvider {
       return { where: ` WHERE ${conditions.join(' AND ')}`, qp, conds: conditions };
     };
 
-// 「为你推荐」：按推荐快照 position 分页；快照为空（冷启动）回退最新序。
-        // 以被筛选后的 media 为驱动 JOIN 快照（候选先经可见部分索引缩小再逐行点查快照 PK），
-        // 避免旧实现「对 14.9 万快照行逐行 correlated EXISTS 点查 5.9GB media」的慢查询。
+// 「为你推荐」：筛选范围内全部视频按推荐分排序（personal_score 全量打分，0 分亦为计算值），
+        // 与「最新」候选集完全一致，仅排序依据不同。候选不再限推荐快照（快照仅 500 行，
+        // 严格筛选下会把匹配集截断成几条）。
+        // 索引策略（真实库 22.5 万 media 冷缓存实测，均值 <0.2s）：
+        //   - COUNT：走最紧前缀可见部分索引（year/area/genre/isShortDrama/type），纯索引计数不回表；
+        //   - SELECT：含 year 走 idx_media_type_year_visible（候选几白~几千行 temp sort，避免按分早停漏筛），
+        //              仅 type 走 idx_media_type_personal_score_visible（沿分数据早停），无 type 走全局分索引。
         if (params.sort === 'recommend') {
-          const snapRow = await this.db!.getFirstAsync<{ count: number }>(
-            `SELECT COUNT(*) as count FROM recommend_snapshot`
-          );
-          const hasSnapshot = (snapRow?.count || 0) > 0;
-          if (hasSnapshot) {
-            const { conds, qp } = buildWhere('m');
-            const joinCond = conds.join(' AND ');
-            let total: number;
-            if (params.knownTotal !== undefined) {
-              total = params.knownTotal;
-            } else {
-              const countRow = await this.db!.getFirstAsync<{ count: number }>(
-                `SELECT COUNT(*) as count FROM recommend_snapshot rs JOIN media m ON m.id = rs.media_id WHERE ${joinCond}`,
-                qp
-              );
-              total = countRow?.count || 0;
-            }
-            const totalPages = Math.ceil(total / pageSize);
-            const rows = await this.db!.getAllAsync<any>(
-              `SELECT m.* FROM media m JOIN recommend_snapshot rs ON rs.media_id = m.id
-               WHERE ${joinCond}
-               ORDER BY rs.position ASC LIMIT ? OFFSET ?`,
-              [...qp, pageSize, offset]
+          const countIndex =
+            params.year !== undefined
+              ? 'idx_media_type_year_visible'
+              : params.area
+                ? 'idx_media_type_area_visible'
+                : params.genre || params.subType
+                  ? 'idx_media_type_genre_visible'
+                  : params.isShortDrama !== undefined
+                    ? 'idx_media_is_short_drama_visible'
+                    : params.type
+                      ? 'idx_media_type_updated_at_visible'
+                      : 'idx_media_personal_score_visible';
+          const selectIndex =
+            params.year !== undefined
+              ? 'idx_media_type_year_visible'
+              : params.type
+                ? 'idx_media_type_personal_score_visible'
+                : 'idx_media_personal_score_visible';
+          const { where, qp } = buildWhere('');
+          let total: number;
+          if (params.knownTotal !== undefined) {
+            total = params.knownTotal;
+          } else {
+            const countRow = await this.db!.getFirstAsync<{ count: number }>(
+              `SELECT COUNT(*) as count FROM media INDEXED BY ${countIndex}${where}`,
+              qp
             );
-            return { items: rows.map(rowToMedia), meta: { page, pageSize, total, totalPages } };
+            total = countRow?.count || 0;
           }
+          const totalPages = Math.ceil(total / pageSize);
+          const { where: whereM, qp: qpM } = buildWhere('m');
+          const rows = await this.db!.getAllAsync<any>(
+            `SELECT m.* FROM media m INDEXED BY ${selectIndex}${whereM}
+             ORDER BY m.personal_score DESC, m.updated_at DESC LIMIT ? OFFSET ?`,
+            [...qpM, pageSize, offset]
+          );
+          return { items: rows.map(rowToMedia), meta: { page, pageSize, total, totalPages } };
         }
 
     const { where, qp } = buildWhere('');
+    if (params.sort === 'random') {
+      const excluded = params.excludeId
+        ? `${where}${where ? ' AND' : ' WHERE'} id != ?`
+        : where;
+      const randomQp = params.excludeId ? [...qp, params.excludeId] : qp;
+      const rows = await this.db!.getAllAsync<any>(
+        `SELECT * FROM media${excluded} ORDER BY RANDOM() LIMIT ? OFFSET ?`,
+        [...randomQp, pageSize, offset]
+      );
+      return { items: rows.map(rowToMedia), meta: { page, pageSize, total: 1, totalPages: 1 } };
+    }
     let orderBy: string;
     switch (params.sort) {
       case 'hot':
@@ -1136,11 +1172,17 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   }
 
   async getYearsByType(type?: string): Promise<number[]> {
-    let whereClause = 'WHERE (hidden IS NULL OR hidden = 0) AND id NOT IN (SELECT media_id FROM dislike)';
+    let whereClause = 'WHERE (hidden IS NULL OR hidden = 0)';
     const params: any[] = [];
     if (type) {
       whereClause += ' AND type = ?';
       params.push(type);
+    }
+    const dislikedRows = await this.db!.getAllAsync<{ count: number }>(
+      'SELECT COUNT(*) as count FROM dislike'
+    );
+    if ((dislikedRows[0]?.count || 0) > 0) {
+      whereClause += ' AND id NOT IN (SELECT media_id FROM dislike)';
     }
     const rows = await this.db!.getAllAsync<{ year: number }>(
       `SELECT DISTINCT year FROM media ${whereClause} ORDER BY year DESC`,

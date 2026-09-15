@@ -141,7 +141,7 @@ export interface PaginatedResponse<T> {
 export interface ListParams {
   page?: number;
   pageSize?: number;
-  sort?: 'hot' | 'latest' | 'rating' | 'year' | 'recommend';
+  sort?: 'hot' | 'latest' | 'rating' | 'year' | 'recommend' | 'random';
   type?: string;
   year?: number;
   genre?: string;
@@ -150,6 +150,8 @@ export interface ListParams {
   isShortDrama?: boolean;
   /** 调用方已持有的总命中数（翻页时复用，跳过 COUNT 全表扫）；筛选条件变化时必须置空重计。 */
   knownTotal?: number;
+  /** 随机排序时排除的媒体 ID（当前正在播放的媒体）。 */
+  excludeId?: string;
 }
 
 /** 列表页 → 详情页跳转携带的来源状态（用于返回还原同一列表状态）。 */

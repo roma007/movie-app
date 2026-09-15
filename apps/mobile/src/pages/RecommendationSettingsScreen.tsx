@@ -364,11 +364,18 @@ export default function RecommendationSettingsScreen({ navigation }: Props) {
                     暂无学习数据。多看一些影片后，这里会显示你的高分偏好。
                   </Text>
                 ) : (
-                  overview.topMedia.map((m) => (
+                  overview.topMedia.map((m, idx) => (
                     <TouchableOpacity
                       key={m.id}
                       style={styles.topItem}
-                      onPress={async () => { const mm = await getProvider().getMediaById(m.id); if (mm) openMediaPlay(navigation, mm); }}
+                      onPress={async () => {
+                        const mm = await getProvider().getMediaById(m.id);
+                        if (mm) openMediaPlay(navigation, mm, {
+                          type: 'recommend',
+                          mediaIds: overview.topMedia.map((t) => t.id),
+                          currentIndex: idx,
+                        });
+                      }}
                       activeOpacity={0.7}
                     >
                       <Text style={styles.topItemText} numberOfLines={1}>{m.title}</Text>

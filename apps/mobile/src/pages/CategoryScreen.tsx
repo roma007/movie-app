@@ -347,7 +347,7 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
             <FilterDropdown
               label="排序"
               options={[
-                { label: '为你推荐', value: 'recommend' },
+                { label: '推荐', value: 'recommend' },
                 { label: '最新', value: 'latest' },
               ]}
               selected={sort}
@@ -403,10 +403,14 @@ export default function CategoryScreen({ type }: CategoryScreenProps) {
       <FlatList
         ref={flatListRef}
         data={mediaList}
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
           <MediaCard
             media={item}
-            onPress={() => openMediaPlay(navigation, item)}
+            onPress={() => openMediaPlay(navigation, item, {
+              type: 'list',
+              mediaIds: mediaList.map((m: Media) => m.id),
+              currentIndex: index,
+            })}
           />
         )}
         keyExtractor={item => item.id}

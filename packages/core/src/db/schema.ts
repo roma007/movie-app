@@ -297,6 +297,18 @@ export const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_media_is_short_drama_visible ON media(type, is_short_drama)
     WHERE (hidden IS NULL OR hidden = 0);
 
+  -- 分类页「推荐」排序：沿 type 前缀按推荐分递减扫描 + LIMIT 早停（同 latest 的早停机制）。
+  -- 原实现对全库 ORDER BY personal_score 走临时 B-tree 排序（实测 TV 首屏 5.13s），
+  -- 此索引使首屏 0.007s / 深页 0.001s；year 筛选走 idx_media_type_year_visible。
+  CREATE INDEX IF NOT EXISTS idx_media_type_personal_score_visible
+    ON media(type, personal_score DESC, updated_at DESC)
+    WHERE (hidden IS NULL OR hidden = 0);
+
+  -- 无 type 筛选时推荐排序的兜底（全库推荐榜语义下仅首屏使用，实测 INDEXED BY 0.006s）
+  CREATE INDEX IF NOT EXISTS idx_media_personal_score_visible
+    ON media(personal_score DESC, updated_at DESC)
+    WHERE (hidden IS NULL OR hidden = 0);
+
   -- 采集跳过判定的点查（getMediaByFingerprint/getMediaByVodId），全表扫一次 10-30s
   CREATE INDEX IF NOT EXISTS idx_media_fingerprint ON media(fingerprint);
   CREATE INDEX IF NOT EXISTS idx_media_vod_id ON media(vod_id);

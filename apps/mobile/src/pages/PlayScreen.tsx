@@ -10,7 +10,7 @@ const VideoCache: any = (() => { try { return require('expo-video-cache'); } cat
 import { getProvider } from '../init';
 import { useAppStore, getStore } from '../useAppStore';
 import { ArrowLeft, EyeOff, Heart, ThumbsDown, Star, Settings, PictureInPicture2, Maximize, ChevronUp, ChevronDown, ChevronRight, Play, Pause, X } from 'lucide-react-native';
-import { SystemConfigService, UNCATEGORIZED_GENRE, VideoDurationService } from '@movie-app/core';
+import { SystemConfigService, UNCATEGORIZED_GENRE, VideoDurationService, resolveDefaultPlayTarget } from '@movie-app/core';
 import { clearCategoryFilterCache } from '../categoryFilterCache';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,10 +27,12 @@ import { useCastStore } from '../stores/castStore';
 import BlurredBackground from '../components/BlurredBackground';
 import { Button } from '../components/ui/Button';
 import type { PlaySource, VideoSource, Episode, Media } from '@movie-app/core';
+import type { PlayContext } from '../utils/openMediaPlay';
 import { radius } from '../themes/radiusTokens';
 import { SegmentProgress } from '../components/SegmentProgress';
 import { createSegmentSnapshotBuilder, type SegmentProgressSnapshot } from '../services/segmentProgress';
 import { FullscreenControlBar } from '../components/FullscreenControlBar';
+import PosterImage from '../components/PosterImage';
 
 interface Props {
   route: any;
@@ -53,7 +55,7 @@ const VERTICAL_CARD_RIGHT_GAP = 12;
 const TOOLBAR_LABEL_EXTRA = 84;
 
 export default function PlayScreen({ route, navigation }: Props) {
-  const { episodeId, mediaId: paramMediaId, sourceId: paramSourceId, playSourceId: paramPlaySourceId, title: paramTitle } = route.params;
+  const { episodeId, mediaId: paramMediaId, sourceId: paramSourceId, playSourceId: paramPlaySourceId, title: paramTitle, playContext: paramPlayContext } = route.params;
   const {
     saveWatchProgress, episodes, episodesLoading, seasons, episodeSources, seriesMedia,
     loadEpisodes, loadSeasons, loadEpisodeSources, loadSeriesMedia,
@@ -63,6 +65,13 @@ export default function PlayScreen({ route, navigation }: Props) {
   const [mediaId, setMediaId] = useState<string | null>(paramMediaId || null);
   const [currentEpisodeId, setCurrentEpisodeId] = useState(episodeId);
   const [currentTitle, setCurrentTitle] = useState(paramTitle || '');
+  // 播放来源上下文：决定上下滑切换行为（list/search/recommend 按序，null 视为 random 随机）
+  const [playContext, setPlayContext] = useState<PlayContext | null>(paramPlayContext ?? null);
+  const playContextRef = useRef(playContext);
+  playContextRef.current = playContext;
+  // 跟手滑动位移：主界面卡片组（沉浸）与全屏覆盖层各一套，互不冲突
+  const animatedY = useRef(new Animated.Value(0)).current;
+  const fsAnimatedY = useRef(new Animated.Value(0)).current;
   const [currentSeason, setCurrentSeason] = useState(1);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(paramSourceId || null);
   const [playSources, setPlaySources] = useState<PlaySource[]>([]);
@@ -421,6 +430,24 @@ export default function PlayScreen({ route, navigation }: Props) {
       shadowRadius: 2,
       shadowOffset: { width: 0, height: 1 },
     },
+    // 红果式跟手滑动：最外层 transform 容器（不含 overflow，三卡并排随 translateY 整体平移）
+    swipeTransformBox: { flex: 1 },
+    // 主卡（当前播放内容，铺满容器）
+    swipeCard: { flex: 1, backgroundColor: colors.playerBg },
+    // 上下滑预渲染卡片（整屏卡片，absolute 定位于主卡屏上/屏下一屏处）
+    slideCard: {
+      position: 'absolute' as const,
+      left: 0,
+      right: 0,
+      height: screenH,
+      backgroundColor: colors.playerBg,
+    },
+    // 上下滑预渲染卡片内容：居中海报 + 标题 + 集标签 + 提示
+    slideCardInner: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40, flex: 1 },
+    slideCardPoster: { width: Math.min(screenW * 0.55, 220), aspectRatio: 3 / 4, borderRadius: 14, backgroundColor: colors.surface },
+    slideCardTitle: { fontSize: sf(15), fontWeight: '700', color: '#fff', textAlign: 'center', marginTop: 14 },
+    slideCardEp: { fontSize: sf(12), fontWeight: '700', color: '#ff9d2e', marginTop: 6 },
+    slideCardHint: { fontSize: sf(12), color: 'rgba(255,255,255,0.6)', marginTop: 10 },
     // 五个按钮从视频下方实心行改为悬浮在播放器左上角（压在视频上层）
     toolbarOverlay: {
       position: 'absolute',
@@ -521,7 +548,7 @@ export default function PlayScreen({ route, navigation }: Props) {
     episodeBtnTextActive: { color: colors.cardDim },
     episodeDuration: { color: colors.disabledForeground, fontSize: sf(11), marginTop: 4 },
     });
-  }, [colors, cardBg, surfaceBg, accentBg, dimBg, sf, videoHeight, insets, screenH, isImmersive]);
+  }, [colors, cardBg, surfaceBg, accentBg, dimBg, sf, videoHeight, insets, screenH, screenW, isImmersive]);
 
   useEffect(() => {
     if (!mediaId) return;
@@ -1298,6 +1325,206 @@ export default function PlayScreen({ route, navigation }: Props) {
     }
   };
 
+  // ── 上下滑切换视频（类抖音） ─────────────────────────────────────────
+  // 决策树：电视剧/综艺优先切集；有序列表（list/search/recommend）按序切换；
+  // 集数到尽头 / 列表到边界 / 无列表上下文（random）→ 随机播放【当前类型】。
+  const switchToMediaById = async (targetMediaId: string, newIndex: number) => {
+    try {
+      const provider = getProvider();
+      const targetMedia = await provider.getMediaById(targetMediaId);
+      if (!targetMedia) return;
+      const target = await resolveDefaultPlayTarget(provider, targetMedia);
+      if (!target) return;
+      // 1. 保存当前进度（含线路）
+      const p = playerRef.current;
+      if (mediaId && currentEpisodeId && p && (p.duration || 0) > 0) {
+        saveWatchProgress(
+          mediaId,
+          currentEpisodeId,
+          Math.floor(p.currentTime),
+          Math.floor(p.duration),
+          selectedSourceId ?? null,
+          playSources[activePlayIdx]?.id ?? null,
+        );
+      }
+      // 2. 投屏：AirPlay 为系统路由无法重定向，断开放本地播；DLNA 保留由 recast effect 推新集
+      if (castManager.castDevice?.protocol === 'airplay') {
+        try { await castManager.disconnect(); } catch {}
+      }
+      // 3. 切换媒体：重置季/源，由依赖 effect 重建剧集、线路与播放状态
+      setMediaId(targetMediaId);
+      setCurrentSeason(0);
+      setSelectedSourceId(null);
+      setCurrentEpisodeId(target.episodeId);
+      setCurrentTitle(targetMedia.title || '');
+      // 4. 更新列表索引（newIndex < 0 表示随机来源，保持原索引不变：
+      //    此后上滑继续越界→随机，下滑仍可回到列表上一项）
+      if (newIndex >= 0) {
+        setPlayContext((prev) => (prev ? { ...prev, currentIndex: newIndex } : prev));
+      }
+    } catch {}
+  };
+
+  // 统一决策树：预览数据加载与松手切换共用同一解析，保证「所见即所得」
+  // （列表来源 next/prev 用 mediaIds 相邻项；电视剧/综艺优先切集，集内存在则 ucs 显示集标签）
+  type SwipeTarget =
+    | { kind: 'episode'; ep: Episode; parentMedia: Media }
+    | { kind: 'media'; media: Media; index: number }
+    | null;
+
+  const resolveSwipeTarget = async (dir: 'next' | 'prev'): Promise<SwipeTarget> => {
+    try {
+      const isSeries = media && (media.type === 'TV' || media.type === 'VARIETY');
+      if (isSeries && media && episodes.length > 0) {
+        const idx = episodes.findIndex((ep: Episode) => ep.id === currentEpisodeId);
+        const targetIdx = dir === 'next' ? idx + 1 : idx - 1;
+        if (targetIdx >= 0 && targetIdx < episodes.length) {
+          return { kind: 'episode', ep: episodes[targetIdx] as Episode, parentMedia: media };
+        }
+      }
+      // 有序列表：按序切换（到边界则回落随机）
+      const ctx = playContextRef.current;
+      if (ctx && ctx.type !== 'random' && ctx.mediaIds && ctx.mediaIds.length > 0) {
+        const from = ctx.currentIndex ?? -1;
+        const targetIdx = dir === 'next' ? from + 1 : from - 1;
+        if (targetIdx >= 0 && targetIdx < ctx.mediaIds.length) {
+          const provider = getProvider();
+          const targetMedia = await provider.getMediaById(ctx.mediaIds[targetIdx]);
+          if (targetMedia) return { kind: 'media', media: targetMedia, index: targetIdx };
+        }
+      }
+      // 无上下文 / 边界：随机播放【当前类型】
+      const result = await getProvider().listMedia({
+        page: 1,
+        pageSize: 1,
+        sort: 'random',
+        type: media?.type ?? undefined,
+        excludeId: media?.id,
+      });
+      const targetMedia = result.items[0];
+      if (targetMedia) return { kind: 'media', media: targetMedia, index: -1 };
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  // 预加载 next/prev 预览（海报+标题+集标签），驱动底部/顶部预渲染卡片
+  interface SwipePreview {
+    media: Media;
+    epLabel?: string;
+  }
+  const [nextPreview, setNextPreview] = useState<SwipePreview | null>(null);
+  const [prevPreview, setPrevPreview] = useState<SwipePreview | null>(null);
+
+  const loadSwipePreviews = useCallback(async () => {
+    try {
+      const [n, p] = await Promise.all([resolveSwipeTarget('next'), resolveSwipeTarget('prev')]);
+      const nextInfo: SwipePreview | null = n
+        ? { media: n.kind === 'media' ? n.media : n.parentMedia, epLabel: n.kind === 'episode' ? (n.ep.title || `第${n.ep.episodeNumber}集`) : undefined }
+        : null;
+      const prevInfo: SwipePreview | null = p
+        ? { media: p.kind === 'media' ? p.media : p.parentMedia, epLabel: p.kind === 'episode' ? (p.ep.title || `第${p.ep.episodeNumber}集`) : undefined }
+        : null;
+      setNextPreview(nextInfo);
+      setPrevPreview(prevInfo);
+    } catch {}
+    // 依赖 playContext（含 currentIndex）：切换后由 setPlayContext 触发重建
+  }, [media?.type, media?.id, episodes, currentEpisodeId, playContext]);
+
+  // 播放目标变化时刷新预览（含列表切换后 currentIndex 变化）
+  useEffect(() => {
+    void loadSwipePreviews();
+  }, [loadSwipePreviews]);
+
+  // 完成一次跟手切换：卡片已滑出一屏后调用（松手且越过阈值）
+  const completeSwipe = async (dir: 'next' | 'prev', mode: 'main' | 'fullscreen') => {
+    const yVal = mode === 'fullscreen' ? fsAnimatedY : animatedY;
+    try {
+      const target = await resolveSwipeTarget(dir);
+      if (!target) {
+        Animated.spring(yVal, { toValue: 0, useNativeDriver: true, friction: 8, tension: 60 }).start();
+        return;
+      }
+      if (target.kind === 'episode') {
+        await handleEpisodePress(target.ep);
+      } else {
+        await switchToMediaById(target.media.id, target.index);
+      }
+      // 切换完成：瞬时归位（注意 completeSwipe 前 transform 已到 ±screenH，
+      // 必须在新内容状态已提交后归位，避免归位时仍是旧内容）——setTimeout 宏任务确保 setMediaId/setXxx 已 flush
+      setTimeout(() => {
+        yVal.setValue(0);
+      }, 0);
+    } catch {
+      Animated.spring(yVal, { toValue: 0, useNativeDriver: true, friction: 8, tension: 60 }).start();
+    }
+  };
+
+  // 供 PanResponder 读取最新处理函数（手势 useMemo 依赖为空）
+  const swipeActionsRef = useRef<{
+    next: (mode?: 'main' | 'fullscreen') => void;
+    prev: (mode?: 'main' | 'fullscreen') => void;
+  }>({ next: () => {}, prev: () => {} });
+  swipeActionsRef.current = {
+    next: (mode: 'main' | 'fullscreen' = 'main') => void completeSwipe('next', mode),
+    prev: (mode: 'main' | 'fullscreen' = 'main') => void completeSwipe('prev', mode),
+  };
+
+  // 红果式跟手滑动 PanResponder：
+  // - 用 onMoveShouldSetPanResponderCapture 在捕获阶段先行判断，即使触摸落在信息卡/进度条等
+  //   Touchable 子层也能接管（避免子 view 已成为 responder 导致父 PanResponder 失效）；
+  //   onStartShouldSetPanResponder 始终 false，纯点按（tap）不触发，正常走播放/暂停、选集等交互。
+  const createSwipeResponder = (yVal: Animated.Value) => PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
+    onStartShouldSetPanResponderCapture: () => false,
+    onMoveShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponderCapture: (_, g) =>
+      Math.abs(g.dy) > 30 && Math.abs(g.dy) > Math.abs(g.dx) * 2,
+    onPanResponderMove: (_, g) => {
+      const max = screenH;
+      yVal.setValue(Math.max(-max, Math.min(max, g.dy)));
+    },
+    onPanResponderRelease: (_, g) => {
+      const threshold = screenH * 0.25;
+      const dir = g.dy < 0 ? 'next' : 'prev';
+      if (Math.abs(g.dy) > threshold) {
+        const fullscreen = yVal === fsAnimatedY ? 'fullscreen' : 'main';
+        Animated.timing(yVal, {
+          toValue: g.dy < 0 ? -screenH : screenH,
+          duration: 220,
+          useNativeDriver: true,
+        }).start(() => {
+          swipeActionsRef.current[dir](fullscreen as 'main' | 'fullscreen');
+        });
+      } else {
+        Animated.spring(yVal, { toValue: 0, useNativeDriver: true, friction: 8, tension: 60 }).start();
+      }
+    },
+    onPanResponderTerminate: () => {
+      Animated.spring(yVal, { toValue: 0, useNativeDriver: true, friction: 8, tension: 60 }).start();
+    },
+  });
+
+  // 沉浸态主卡片组跟手手势
+  const swipePanResponder = useMemo(() => createSwipeResponder(animatedY), [screenH]);
+  // 全屏覆盖层跟手手势（独立 Animated.Value，互不干扰）
+  const fsSwipePanResponder = useMemo(() => createSwipeResponder(fsAnimatedY), [screenH]);
+
+  // 预渲染下一张卡（海报+标题）
+  const renderSlideCard = (info: SwipePreview | null, hint: string) => (
+    <View style={styles.slideCardInner} pointerEvents="none">
+      <PosterImage
+        uri={info?.media.posterUrl ?? null}
+        style={styles.slideCardPoster}
+        placeholder={<ActivityIndicator size="small" color="rgba(255,255,255,0.7)" />}
+      />
+      <Text style={styles.slideCardTitle} numberOfLines={2}>{info?.media.title || '继续播放'}</Text>
+      {info?.epLabel ? <Text style={styles.slideCardEp}>{info.epLabel}</Text> : null}
+      <Text style={styles.slideCardHint}>{hint}</Text>
+    </View>
+  );
+
   const handleOverlayClose = () => {
     setOverlayVisible(false);
     overlayDismissedRef.current = true;
@@ -1428,6 +1655,7 @@ export default function PlayScreen({ route, navigation }: Props) {
 
   const exitAppFullscreen = useCallback(() => {
     setAppFullscreen(false);
+    fsAnimatedY.setValue(0);
     if (fsHideTimerRef.current) { clearTimeout(fsHideTimerRef.current); fsHideTimerRef.current = null; }
   }, []);
 
@@ -1577,7 +1805,19 @@ export default function PlayScreen({ route, navigation }: Props) {
   const handleSeasonChange = (season: number) => {
     const targetId = seasonToMediaMap.get(season);
     if (targetId && targetId !== mediaId) {
-      navigation.replace('Play', { episodeId: null, mediaId: targetId, sourceId: null, title: seriesMedia.find(m => m.id === targetId)?.title || '' });
+      // 切季到不同媒体时保留 playContext（继续支持上下滑切换），定位新媒体在列表中的索引
+      const ctx = playContextRef.current;
+      const ctxMediaIds = ctx?.mediaIds;
+      const targetIdx = ctxMediaIds ? ctxMediaIds.indexOf(targetId) : -1;
+      navigation.replace('Play', {
+        episodeId: null,
+        mediaId: targetId,
+        sourceId: null,
+        title: seriesMedia.find(m => m.id === targetId)?.title || '',
+        playContext: ctx
+          ? { ...ctx, currentIndex: targetIdx >= 0 ? targetIdx : ctx.currentIndex }
+          : null,
+      });
     } else {
       setCurrentSeason(season);
       setSelectedSourceId(null);
@@ -1625,28 +1865,44 @@ export default function PlayScreen({ route, navigation }: Props) {
   // 红果式沉浸信息卡使用的集名（去掉「片名 · 」前缀的当前集名）
   const vmEpName = currentTitle?.includes('·') ? currentTitle.split('·').slice(1).join('·').trim() : '';
 
+  // 顶层 header（返回/标题/设置）：沉浸态随卡片组跟手滑出，非沉浸态固定在 container 层
+  const headerEl = (
+    <View style={styles.header}>
+      <TouchableOpacity style={styles.backButton} onPress={() => {
+        if (isCasting) {
+          castManager.disconnect();
+        }
+        navigation.goBack();
+      }}>
+        <ArrowLeft size={20} color="#fff" />
+      </TouchableOpacity>
+      <Text style={styles.headerTitle} numberOfLines={1}>{currentTitle || '正在播放'}</Text>
+      <TouchableOpacity style={styles.headerRight} activeOpacity={0.7} onPress={() => setSettingsVisible(true)}>
+        <Settings size={18} color="#fff" />
+      </TouchableOpacity>
+    </View>
+  );
+
   return (
     <>
     {/* 红果式沉浸：竖屏视频时隐藏系统状态栏，让视频真正延伸到屏幕最顶端；退出/横屏自动恢复全局样式 */}
     {isImmersive && <StatusBar style="light" />}
     <BlurredBackground imageUrl={bgImageUrl}>
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => {
-          if (isCasting) {
-            castManager.disconnect();
-          }
-          navigation.goBack();
-        }}>
-          <ArrowLeft size={20} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>{currentTitle || '正在播放'}</Text>
-        <TouchableOpacity style={styles.headerRight} activeOpacity={0.7} onPress={() => setSettingsVisible(true)}>
-          <Settings size={18} color="#fff" />
-        </TouchableOpacity>
-      </View>
-
+    <View style={styles.container} {...(isImmersive && !appFullscreen ? swipePanResponder.panHandlers : {})}>
+      {/* 非沉浸态：header 与 spacerTop 固定在 container 层（不启用跟手），保持原有布局 */}
+      {!isImmersive && headerEl}
       {!isImmersive && <View style={styles.spacerTop} />}
+      {/* 跟手滑动卡片组（红果三卡并排）：transform 容器无 overflow，内部 = 主卡 + 屏下 next + 屏上 prev，
+          整体随 translateY 平移，滑出屏外时下一张卡显形；右侧按钮栏(toolbarVerticalCol)留在容器层不跟手 */}
+      <Animated.View
+        style={[
+          isImmersive ? styles.swipeTransformBox : undefined,
+          isImmersive && !appFullscreen ? { transform: [{ translateY: animatedY }] } : undefined,
+        ]}
+      >
+      <View style={isImmersive ? styles.swipeCard : undefined}>
+      {isImmersive && headerEl}
+
       <View style={isImmersive ? styles.videoContainerImm : styles.videoContainer}>
         {isLoading && !isActuallyPlaying && (
           <View style={styles.loadingOverlay}>
@@ -1859,75 +2115,6 @@ export default function PlayScreen({ route, navigation }: Props) {
                 </View>
               </View>
             )}
-            {/* 右侧竖排功能键（红果式：悬浮视频右侧、屏高 55% 起、距右缘 8）——进页先显示「图标+按钮名」，
-                5 秒后仅文字淡出、整行缓慢右移让图标落到右缘（=当前版纯图标位置，图标全程不消失、竖排对齐） */}
-            <View style={styles.toolbarVerticalCol}>
-              {!isVerticalVideo && (
-                <Animated.View style={[styles.toolbarRow, {
-                  transform: [{ translateX: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, TOOLBAR_LABEL_EXTRA] }) }],
-                }]}>
-                  <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={enterAppFullscreen}>
-                    <View style={styles.toolbarIconRound}>
-                      <Maximize size={22} color="#222" />
-                    </View>
-                  </TouchableOpacity>
-                  <Animated.Text style={[styles.toolbarLabel, { opacity: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>全屏</Animated.Text>
-                </Animated.View>
-              )}
-              <Animated.View style={[styles.toolbarRow, {
-                transform: [{ translateX: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, TOOLBAR_LABEL_EXTRA] }) }],
-              }]}>
-                <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={handleFav}>
-                  <View style={styles.toolbarIconRound}>
-                    <Heart size={22} color={isFav ? '#ff9d2e' : '#222'} fill={isFav ? '#ff9d2e' : 'none'} />
-                  </View>
-                </TouchableOpacity>
-                <Animated.Text style={[styles.toolbarLabel, { opacity: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>收藏</Animated.Text>
-              </Animated.View>
-              <Animated.View style={[styles.toolbarRow, {
-                transform: [{ translateX: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, TOOLBAR_LABEL_EXTRA] }) }],
-              }]}>
-                <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={handleDislike}>
-                  <View style={styles.toolbarIconRound}>
-                    <ThumbsDown size={22} color={isDisliked ? colors.error : '#222'} />
-                  </View>
-                </TouchableOpacity>
-                <Animated.Text style={[styles.toolbarLabel, { opacity: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>不感兴趣</Animated.Text>
-              </Animated.View>
-              <Animated.View style={[styles.toolbarRow, {
-                transform: [{ translateX: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, TOOLBAR_LABEL_EXTRA] }) }],
-              }]}>
-                <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={openHideModal}>
-                  <View style={styles.toolbarIconRound}>
-                    <EyeOff size={22} color="#222" />
-                  </View>
-                </TouchableOpacity>
-                <Animated.Text style={[styles.toolbarLabel, { opacity: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>隐藏</Animated.Text>
-              </Animated.View>
-              {isPictureInPictureSupported() && (
-                <Animated.View style={[styles.toolbarRow, {
-                  transform: [{ translateX: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, TOOLBAR_LABEL_EXTRA] }) }],
-                }]}>
-                  <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={handlePictureInPicture}>
-                    <View style={styles.toolbarIconRound}>
-                      <PictureInPicture2 size={22} color="#222" />
-                    </View>
-                  </TouchableOpacity>
-                  <Animated.Text style={[styles.toolbarLabel, { opacity: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>画中画</Animated.Text>
-                </Animated.View>
-              )}
-              <Animated.View style={[styles.toolbarRow, {
-                transform: [{ translateX: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, TOOLBAR_LABEL_EXTRA] }) }],
-              }]}>
-                <CastButton
-                  onDeviceSelect={handleCastDeviceSelect}
-                  onSearch={castManager.searchDevices}
-                  style={styles.toolbarButtonRound}
-                  roundedWhite
-                />
-                <Animated.Text style={[styles.toolbarLabel, { opacity: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>投屏</Animated.Text>
-              </Animated.View>
-            </View>
             {/* 底部选集横条（红果式：视频底部独立水平条，默认常显） */}
             <TouchableOpacity style={styles.episodeBar} activeOpacity={0.7} onPress={() => setEpisodesSheetVisible(true)}>
               <Text style={styles.episodeBarTitle}>选集</Text>
@@ -1941,8 +2128,93 @@ export default function PlayScreen({ route, navigation }: Props) {
           );
         })()}
       </View>
+      </View>
 
+      {/* 上下滑预渲染卡片：红果三卡并排——next 在主卡下方一屏、prev 在主卡上方一屏，
+          均为 transform 容器直接子节点，随 translateY 跟手平移（容器无 overflow，划出屏外时自然显形） */}
+      {isImmersive && !appFullscreen && (
+        <View style={[styles.slideCard, { top: screenH }]} pointerEvents="none">
+          {renderSlideCard(nextPreview, '继续向上滑动')}
+        </View>
+      )}
+      {isImmersive && !appFullscreen && (
+        <View style={[styles.slideCard, { top: -screenH }]} pointerEvents="none">
+          {renderSlideCard(prevPreview, '继续向下滑动')}
+        </View>
+      )}
+      </Animated.View>
 
+      {/* 右侧竖排功能键（红果式：悬浮视频右侧、屏高 55% 起、距右缘 8）——置于卡片组之外固定不跟手；
+          进页先显示「图标+按钮名」，5 秒后仅文字淡出、整行缓慢右移让图标落到右缘 */}
+      {videoUrl && !error && isImmersive && (
+        <View style={styles.toolbarVerticalCol}>
+          {!isVerticalVideo && (
+            <Animated.View style={[styles.toolbarRow, {
+              transform: [{ translateX: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, TOOLBAR_LABEL_EXTRA] }) }],
+            }]}>
+              <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={enterAppFullscreen}>
+                <View style={styles.toolbarIconRound}>
+                  <Maximize size={22} color="#222" />
+                </View>
+              </TouchableOpacity>
+              <Animated.Text style={[styles.toolbarLabel, { opacity: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>全屏</Animated.Text>
+            </Animated.View>
+          )}
+          <Animated.View style={[styles.toolbarRow, {
+            transform: [{ translateX: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, TOOLBAR_LABEL_EXTRA] }) }],
+          }]}>
+            <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={handleFav}>
+              <View style={styles.toolbarIconRound}>
+                <Heart size={22} color={isFav ? '#ff9d2e' : '#222'} fill={isFav ? '#ff9d2e' : 'none'} />
+              </View>
+            </TouchableOpacity>
+            <Animated.Text style={[styles.toolbarLabel, { opacity: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>收藏</Animated.Text>
+          </Animated.View>
+          <Animated.View style={[styles.toolbarRow, {
+            transform: [{ translateX: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, TOOLBAR_LABEL_EXTRA] }) }],
+          }]}>
+            <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={handleDislike}>
+              <View style={styles.toolbarIconRound}>
+                <ThumbsDown size={22} color={isDisliked ? colors.error : '#222'} />
+              </View>
+            </TouchableOpacity>
+            <Animated.Text style={[styles.toolbarLabel, { opacity: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>不感兴趣</Animated.Text>
+          </Animated.View>
+          <Animated.View style={[styles.toolbarRow, {
+            transform: [{ translateX: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, TOOLBAR_LABEL_EXTRA] }) }],
+          }]}>
+            <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={openHideModal}>
+              <View style={styles.toolbarIconRound}>
+                <EyeOff size={22} color="#222" />
+              </View>
+            </TouchableOpacity>
+            <Animated.Text style={[styles.toolbarLabel, { opacity: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>隐藏</Animated.Text>
+          </Animated.View>
+          {isPictureInPictureSupported() && (
+            <Animated.View style={[styles.toolbarRow, {
+              transform: [{ translateX: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, TOOLBAR_LABEL_EXTRA] }) }],
+            }]}>
+              <TouchableOpacity style={styles.toolbarButtonRound} activeOpacity={0.7} onPress={handlePictureInPicture}>
+                <View style={styles.toolbarIconRound}>
+                  <PictureInPicture2 size={22} color="#222" />
+                </View>
+              </TouchableOpacity>
+              <Animated.Text style={[styles.toolbarLabel, { opacity: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>画中画</Animated.Text>
+            </Animated.View>
+          )}
+          <Animated.View style={[styles.toolbarRow, {
+            transform: [{ translateX: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, TOOLBAR_LABEL_EXTRA] }) }],
+          }]}>
+            <CastButton
+              onDeviceSelect={handleCastDeviceSelect}
+              onSearch={castManager.searchDevices}
+              style={styles.toolbarButtonRound}
+              roundedWhite
+            />
+            <Animated.Text style={[styles.toolbarLabel, { opacity: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>投屏</Animated.Text>
+          </Animated.View>
+        </View>
+      )}
 
       {isCasting && (
         <CastRemoteControl
@@ -2218,7 +2490,11 @@ export default function PlayScreen({ route, navigation }: Props) {
         handleCastDeviceSelect(device);
       };
       return (
-        <View style={fsStyles.wrap} pointerEvents="box-none">
+        <Animated.View
+          style={[fsStyles.wrap, { transform: [{ translateY: fsAnimatedY }] }]}
+          pointerEvents="box-none"
+          {...fsSwipePanResponder.panHandlers}
+        >
           <StatusBar style="light" />
           <VideoView
             ref={appFullVideoRef}
@@ -2296,7 +2572,17 @@ export default function PlayScreen({ route, navigation }: Props) {
               />
             </View>
           )}
-        </View>
+          {isImmersive && (
+            <View style={[styles.slideCard, { top: screenH }]} pointerEvents="none">
+              {renderSlideCard(nextPreview, '继续向上滑动')}
+            </View>
+          )}
+          {isImmersive && (
+            <View style={[styles.slideCard, { top: -screenH }]} pointerEvents="none">
+              {renderSlideCard(prevPreview, '继续向下滑动')}
+            </View>
+          )}
+        </Animated.View>
       );
     })()}
     {/* 播放设置内联底部弹层（替换 RN Modal：iOS 全屏方向锁 Landscape 下 Modal present 因 supportedInterfaceOrientations
