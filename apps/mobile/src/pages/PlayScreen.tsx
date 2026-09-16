@@ -10,7 +10,7 @@ const VideoCache: any = (() => { try { return require('expo-video-cache'); } cat
 import { getProvider } from '../init';
 import { useAppStore, getStore } from '../useAppStore';
 import { ArrowLeft, EyeOff, Heart, ThumbsDown, Star, Settings, PictureInPicture2, Maximize, ChevronUp, ChevronDown, ChevronRight, Play, Pause, X } from 'lucide-react-native';
-import { SystemConfigService, UNCATEGORIZED_GENRE, VideoDurationService, resolveDefaultPlayTarget } from '@movie-app/core';
+import { SystemConfigService, UNCATEGORIZED_GENRE, VideoDurationService, resolveDefaultPlayTarget, AdFloatScheduler, type AdFloatConfig, type AdFloatItem } from '@movie-app/core';
 import { clearCategoryFilterCache } from '../categoryFilterCache';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,6 +32,7 @@ import { radius } from '../themes/radiusTokens';
 import { SegmentProgress } from '../components/SegmentProgress';
 import { createSegmentSnapshotBuilder, type SegmentProgressSnapshot } from '../services/segmentProgress';
 import { FullscreenControlBar } from '../components/FullscreenControlBar';
+import { AdFloatOverlay } from '../components/AdFloatOverlay';
 import PosterImage from '../components/PosterImage';
 
 interface Props {
@@ -202,6 +203,15 @@ export default function PlayScreen({ route, navigation }: Props) {
   // 功能4: 下一集浮层
   const [overlayVisible, setOverlayVisible] = useState(false);
   const overlayDismissedRef = useRef(false);
+
+  // 播放中浮窗广告（配置驱动，随机出现，不打断播放）
+  const [adFloatConfig, setAdFloatConfig] = useState<AdFloatConfig | null>(null);
+  const [activeAd, setActiveAd] = useState<AdFloatItem | null>(null);
+  const adSchedulerRef = useRef<AdFloatScheduler | null>(null);
+  const lastAdShownRef = useRef<AdFloatItem | null>(null);
+  const activeAdRef = useRef<AdFloatItem | null>(null);
+  const adFloatConfigRef = useRef<AdFloatConfig | null>(null);
+  activeAdRef.current = activeAd;
 
   // 功能7: 从头播放快进浮窗
   const [skipForwardVisible, setSkipForwardVisible] = useState(false);
@@ -753,6 +763,15 @@ export default function PlayScreen({ route, navigation }: Props) {
         } else {
           setError('无可播放的线路');
         }
+
+        // 播放中浮窗广告配置：换集/重进时重新加载并重置调度器
+        const adCfg = await configService.getAdFloatConfig();
+        if (cancelled) return;
+        setAdFloatConfig(adCfg);
+        adFloatConfigRef.current = adCfg;
+        adSchedulerRef.current = new AdFloatScheduler(adCfg);
+        lastAdShownRef.current = null;
+        setActiveAd(null);
       } catch {
         setError('加载失败');
       } finally {
@@ -914,6 +933,20 @@ export default function PlayScreen({ route, navigation }: Props) {
 
   // 功能6: 进度保存节流 (10s + 接近片尾)
   const handleTimeUpdate = (currentTime: number, duration: number) => {
+    // 播放中浮窗广告：随机触发，不打断播放
+    const adScheduler = adSchedulerRef.current;
+    if (
+      adScheduler &&
+      adFloatConfigRef.current?.enabled &&
+      !activeAdRef.current &&
+      adScheduler.shouldShow(currentTime)
+    ) {
+      const ad = adScheduler.pickRandomExclude(lastAdShownRef.current);
+      if (ad) {
+        lastAdShownRef.current = ad;
+        setActiveAd(ad);
+      }
+    }
     if (duration > 0 && mediaId) {
       const now = Date.now();
       const nearEnd = Math.floor(currentTime) >= duration - 2;
@@ -2223,6 +2256,16 @@ export default function PlayScreen({ route, navigation }: Props) {
           </View>
         )}
 
+        {activeAd && adFloatConfig && (
+          <AdFloatOverlay
+            ad={activeAd}
+            containerWidth={screenW}
+            maxWidthRatio={adFloatConfig.maxWidthRatio}
+            topOffset={isImmersive ? 88 : insets.top + 88}
+            onClose={() => setActiveAd(null)}
+            onDismissed={() => setActiveAd(null)}
+          />
+        )}
         <NextEpisodeOverlay
           show={overlayVisible}
           nextEpisodeTitle={nextEpisodeTitle}

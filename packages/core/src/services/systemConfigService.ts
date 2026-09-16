@@ -38,6 +38,36 @@ export interface ShortDramaConfig {
   probeEpisodeCount: number;
 }
 
+/** 播放中浮窗广告：模拟广告位配置（配置驱动，未来可替换为真实广告源）。 */
+export interface AdFloatItem {
+  /** 广告标题/文案（本地模拟广告主要用于展示）。 */
+  title: string;
+  /** 广告素材图片 URL；缺省用渐变色块。 */
+  imageUrl?: string;
+  /** 广告素材目标宽高（等比例放大缩小，决定浮窗大小）。 */
+  width: number;
+  height: number;
+  /** 广告商要求的展示时长（ms）；缺省 5000。 */
+  durationMs?: number;
+  /** 点击广告跳转链接（桌面用 openUrl，移动用 Linking）。 */
+  linkUrl?: string;
+}
+
+export interface AdFloatConfig {
+  /** 总开关。 */
+  enabled: boolean;
+  /** 广告位列表。 */
+  ads: AdFloatItem[];
+  /** 单次播放最多展示次数。 */
+  maxShowsPerSession: number;
+  /** 两次展示最小间隔（秒）。 */
+  minIntervalSeconds: number;
+  /** 首个展示点所在时间范围（秒），在此范围内随机选点出现。 */
+  firstShowRandomRangeSeconds: [number, number];
+  /** 浮窗占播放器宽的最大比例（自适应缩放上限）。 */
+  maxWidthRatio: number;
+}
+
 const DEFAULT_SHORT_DRAMA_CONFIG: ShortDramaConfig = {
   summaryPatterns: [
     '{N}分钟',
@@ -60,6 +90,30 @@ const DEFAULT_SHORT_DRAMA_CONFIG: ShortDramaConfig = {
     '重生为', '末世之', '全球', '玄幻', '修仙', '开局', '终结',
   ],
   probeEpisodeCount: 8,
+};
+
+const DEFAULT_AD_FLOAT_CONFIG: AdFloatConfig = {
+  enabled: false,
+  maxShowsPerSession: 2,
+  minIntervalSeconds: 300,
+  firstShowRandomRangeSeconds: [30, 180],
+  maxWidthRatio: 0.35,
+  ads: [
+    {
+      title: '示例广告 · 竖版海报位',
+      width: 360,
+      height: 240,
+      durationMs: 5000,
+      linkUrl: 'https://example.com',
+    },
+    {
+      title: '示例广告 · 通栏位',
+      width: 640,
+      height: 300,
+      durationMs: 5000,
+      linkUrl: 'https://example.com',
+    },
+  ],
 };
 
 const DEFAULT_COLLECT_CONFIG: CollectConfig = {
@@ -225,6 +279,24 @@ export class SystemConfigService {
 
   static getDefaultShortDramaConfig(): ShortDramaConfig {
     return { ...DEFAULT_SHORT_DRAMA_CONFIG };
+  }
+
+  async getAdFloatConfig(): Promise<AdFloatConfig> {
+    const stored = await this.getJSON<Partial<AdFloatConfig>>('playback.adFloat', {});
+    return {
+      enabled: stored.enabled ?? DEFAULT_AD_FLOAT_CONFIG.enabled,
+      maxShowsPerSession: stored.maxShowsPerSession ?? DEFAULT_AD_FLOAT_CONFIG.maxShowsPerSession,
+      minIntervalSeconds: stored.minIntervalSeconds ?? DEFAULT_AD_FLOAT_CONFIG.minIntervalSeconds,
+      firstShowRandomRangeSeconds: stored.firstShowRandomRangeSeconds ?? DEFAULT_AD_FLOAT_CONFIG.firstShowRandomRangeSeconds,
+      maxWidthRatio: stored.maxWidthRatio ?? DEFAULT_AD_FLOAT_CONFIG.maxWidthRatio,
+      ads: Array.isArray(stored.ads) && stored.ads.length > 0 ? stored.ads : DEFAULT_AD_FLOAT_CONFIG.ads,
+    };
+  }
+
+  async setAdFloatConfig(config: Partial<AdFloatConfig>): Promise<void> {
+    const current = await this.getAdFloatConfig();
+    const merged = { ...current, ...config };
+    await this.setJSON('playback.adFloat', merged);
   }
 
   async getPlaybackConfig(): Promise<PlaybackConfig> {

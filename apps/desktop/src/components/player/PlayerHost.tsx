@@ -7,9 +7,12 @@ import { getCurrentWebviewWindow, WebviewWindow } from '@tauri-apps/api/webviewW
 import { currentMonitor } from '@tauri-apps/api/window';
 import { emit, listen } from '@tauri-apps/api/event';
 import { Loader2 } from 'lucide-react';
+import { SystemConfigService, AdFloatScheduler, type AdFloatConfig, type AdFloatItem } from '@movie-app/core';
 import { VideoPlayer } from './VideoPlayer';
 import { PlayerOverlays } from './PlayerOverlays';
+import { AdFloatOverlay } from './AdFloatOverlay';
 import { usePlayerStore, buildPipPayload, isPipSwitching } from '../../stores/playerStore';
+import { getProvider } from '../../init';
 
 const PIP_GEO_KEY = 'movie_app_pip_geo';
 
@@ -63,6 +66,27 @@ export function PlayerHost() {
   const skipDismissedRef = useRef(false);
   const skipEligibleRef = useRef(false);
   const lastTimeRef = useRef(0);
+
+  // ── 播放中浮窗广告（配置驱动，随机出现，不打断播放）──
+  const [adConfig, setAdConfig] = useState<AdFloatConfig | null>(null);
+  const [activeAd, setActiveAd] = useState<AdFloatItem | null>(null);
+  const adSchedulerRef = useRef<AdFloatScheduler | null>(null);
+  const lastAdShownRef = useRef<AdFloatItem | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const cfgService = new SystemConfigService(getProvider());
+    cfgService.getAdFloatConfig().then((cfg) => {
+      if (cancelled) return;
+      setAdConfig(cfg);
+      adSchedulerRef.current = new AdFloatScheduler(cfg);
+      lastAdShownRef.current = null;
+      setActiveAd(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.episodeId]);
 
   useEffect(() => {
     setOverlayVisible(false);
@@ -369,6 +393,15 @@ export function PlayerHost() {
   };
 
   const handlePlayerTimeUpdate = (currentTime: number, duration: number) => {
+    // 播放中浮窗广告：随机触发，不打断播放（pip 激活时主窗口不播，不触发）
+    const scheduler = adSchedulerRef.current;
+    if (scheduler && adConfig?.enabled && !pipActive && !activeAd && scheduler.shouldShow(currentTime)) {
+      const ad = scheduler.pickRandomExclude(lastAdShownRef.current);
+      if (ad) {
+        lastAdShownRef.current = ad;
+        setActiveAd(ad);
+      }
+    }
     handleTimeUpdate(currentTime, duration);
     const threshold = (session.outroThresholdMinutes ?? 10) * 60;
     // 短片（时长 ≤ 预热阈值）在剩余 60s 内触发；长片沿用阈值窗口
@@ -444,15 +477,25 @@ export function PlayerHost() {
             onTimeUpdate={handlePlayerTimeUpdate}
             onSourceChange={handleSourceChange}
             overlays={
-              <PlayerOverlays
-                nextEpisodeTitle={nextEpisodeTitle}
-                overlayVisible={overlayVisible}
-                onNext={handleNextEpisode}
-                onClose={handleOverlayClose}
-                skipForwardVisible={skipForwardVisible}
-                onSkipForward={handleSkipForward}
-                onSkipForwardClose={handleSkipForwardClose}
-              />
+              <>
+                <PlayerOverlays
+                  nextEpisodeTitle={nextEpisodeTitle}
+                  overlayVisible={overlayVisible}
+                  onNext={handleNextEpisode}
+                  onClose={handleOverlayClose}
+                  skipForwardVisible={skipForwardVisible}
+                  onSkipForward={handleSkipForward}
+                  onSkipForwardClose={handleSkipForwardClose}
+                />
+                {activeAd && adConfig && (
+                  <AdFloatOverlay
+                    ad={activeAd}
+                    maxWidthRatio={adConfig.maxWidthRatio}
+                    onClose={() => setActiveAd(null)}
+                    onDismissed={() => setActiveAd(null)}
+                  />
+                )}
+              </>
             }
           />
         </div>

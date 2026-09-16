@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity } from 'react-native';
 import Slider from '@react-native-community/slider';
-import { ArrowLeft, Check } from 'lucide-react-native';
+import { ArrowLeft, Check, Megaphone } from 'lucide-react-native';
 import { useAppStore, getProvider } from '../useAppStore';
 import { useThemeColors } from '../themes/useThemeColors';
 import { Button } from '../components/ui/Button';
@@ -34,13 +34,18 @@ export default function UsagePreferencesScreen({ navigation }: Props) {
   const [playbackEnabled, setPlaybackEnabled] = useState(true);
   const [playbackThreshold, setPlaybackThreshold] = useState(10);
   const [prefetchConcurrency, setPrefetchConcurrency] = useState(3);
+  const [adFloatEnabled, setAdFloatEnabled] = useState(false);
 
   useEffect(() => {
     loadUserUsageTypes();
-    new SystemConfigService(provider).getPlaybackConfig().then((cfg: any) => {
+    const configService = new SystemConfigService(provider);
+    configService.getPlaybackConfig().then((cfg: any) => {
       setPlaybackEnabled(cfg.showNextEpisodeOverlay);
       setPlaybackThreshold(cfg.outroThresholdMinutes);
       setPrefetchConcurrency(cfg.prefetchConcurrency);
+    }).catch(() => {});
+    configService.getAdFloatConfig().then((cfg: any) => {
+      setAdFloatEnabled(!!cfg.enabled);
     }).catch(() => {});
   }, []);
 
@@ -67,6 +72,12 @@ export default function UsagePreferencesScreen({ navigation }: Props) {
     setPrefetchConcurrency(n);
     const configService = new SystemConfigService(provider);
     await configService.setPlaybackConfig({ prefetchConcurrency: n });
+  };
+
+  const handleToggleAdFloat = async (next: boolean) => {
+    setAdFloatEnabled(next);
+    const configService = new SystemConfigService(provider);
+    await configService.setAdFloatConfig({ enabled: next });
   };
 
   const styles = useMemo(() => StyleSheet.create({
@@ -209,6 +220,26 @@ export default function UsagePreferencesScreen({ navigation }: Props) {
                 </View>
               </View>
             )}
+          </View>
+
+          <View style={styles.card}>
+            <View style={styles.menuItem}>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Megaphone size={16} color={colors.mutedForeground} />
+                  <Text style={styles.menuText}>播放中浮窗广告</Text>
+                </View>
+                <Text style={[styles.thresholdLabel, { marginTop: 4 }]}>
+                  播放过程中随机出现可关闭的模拟广告浮窗，不打断播放（素材可在配置中更换）
+                </Text>
+              </View>
+              <Switch
+                value={adFloatEnabled}
+                onValueChange={handleToggleAdFloat}
+                trackColor={{ false: colors.swiftTrack, true: colors.swiftActiveTrack }}
+                thumbColor={adFloatEnabled ? colors.swiftThumb : colors.disabledForeground}
+              />
+            </View>
           </View>
 
           <View style={styles.card}>
