@@ -386,7 +386,8 @@ export function PlayerHost() {
     // 播放中横幅广告：随机触发一次，不打断播放（pip 激活时主窗口不播，不触发）
     const scheduler = adSchedulerRef.current;
     if (scheduler && !pipActive && !activeAd && scheduler.shouldShow(currentTime)) {
-      const ad = scheduler.pickRandomExclude(lastAdShownRef.current);
+      const orientation = window.innerWidth >= window.innerHeight ? 'landscape' : 'portrait';
+      const ad = scheduler.pickRandomExclude(lastAdShownRef.current, orientation);
       if (ad) {
         lastAdShownRef.current = ad;
         setActiveAd(ad);

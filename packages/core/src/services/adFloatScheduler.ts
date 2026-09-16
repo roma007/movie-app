@@ -1,4 +1,5 @@
-import type { AdFloatConfig, AdFloatItem } from './systemConfigService';
+import type { AdFloatConfig, AdFloatItem, AdOrientation } from './systemConfigService';
+import { filterAdsByOrientation } from './systemConfigService';
 
 /**
  * 播放中横幅广告的随机调度器（纯逻辑，桌面端/移动端共用）。
@@ -35,9 +36,13 @@ export class AdFloatScheduler {
     return true;
   }
 
-  /** 从广告池随机取一条（避免连续重复），列表为空返回 null。 */
-  pickRandomExclude(last?: AdFloatItem | null): AdFloatItem | null {
-    const ads = this.cfg.ads ?? [];
+  /**
+   * 从广告池随机取一条（避免连续重复），按屏幕方向过滤（无匹配方向保底取全部）。
+   * @param last 上次展示的广告（排除重复）。
+   * @param orientation 当前屏幕方向；缺省不按方向过滤。
+   */
+  pickRandomExclude(last?: AdFloatItem | null, orientation?: AdOrientation): AdFloatItem | null {
+    const ads = orientation ? filterAdsByOrientation(this.cfg.ads ?? [], orientation) : this.cfg.ads ?? [];
     if (ads.length === 0) return null;
     if (ads.length === 1) return ads[0];
     const candidates = ads.filter((a) => a !== last);

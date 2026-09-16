@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { getSplashStore, BUILTIN_AD_FLOAT_CONFIG, type AdFloatItem } from '@movie-app/core';
+import { getSplashStore, BUILTIN_AD_FLOAT_CONFIG, filterAdsByOrientation, type AdFloatItem } from '@movie-app/core';
+
+/** 按窗口宽高比判定当前屏幕方向（宽≥高=横屏）。 */
+function isLandscapeWindow(): boolean {
+  return window.innerWidth >= window.innerHeight;
+}
 
 interface SplashOverlayProps {
   /** initApp 是否已完成（主应用可渲染、数据库就绪）。 */
@@ -39,15 +44,17 @@ export function SplashOverlay({ ready }: SplashOverlayProps) {
     return () => clearTimeout(t);
   }, [phase, ready, setPhase]);
 
-  // ad 阶段：取内置广告配置第一条
+  // ad 阶段：按屏幕方向取匹配广告位的第一条（竖屏取竖版、横屏取横版；无匹配保底取全部）
   useEffect(() => {
     if (phase !== 'ad') return;
-    const ads = BUILTIN_AD_FLOAT_CONFIG.ads;
-    if (!Array.isArray(ads) || ads.length === 0) {
+    const orientation = isLandscapeWindow() ? 'landscape' : 'portrait';
+    const pool = filterAdsByOrientation(BUILTIN_AD_FLOAT_CONFIG.ads, orientation);
+    if (pool.length === 0) {
       setPhase('done');
       return;
     }
-    setAd(ads[0]);
+    const picked = pool[0];
+    setAd(picked);
     setAdLoaded(true);
     adShownAtRef.current = Date.now();
     return () => {};

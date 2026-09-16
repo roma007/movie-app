@@ -763,3 +763,41 @@ Phase 1-2: 广告功能开发 → Phase 3: 接入广告联盟 → Phase 5-6: 官
 - 双端设置页 `UsagePreferencesPage/Screen` 移除广告开关卡（整个 Card 删除）。
 - 桌面端 PlayerHost / 移动端 PlayScreen：移除 `adConfig`/`adFloatConfig` state，移除 `.enabled` 判断，调度器直接由内置常量构造。
 - 桌面端 DB 中已写入的 `playback.adFloat` 记录：无害，保留（不再被读取，成为死数据）。
+
+---
+
+# 需求留档：广告位分竖版/横版，按屏幕方向显示对应广告（2026-09-16）
+
+## 原始需求
+
+用户原话：
+
+> 广告位分竖版和横版吗？如果分，那能不能自检屏幕看是竖屏还是横屏，然后再显示对应的广告位？手机和电脑都可能是竖屏或者横屏
+
+## 分析结果
+
+### 需求拆解（待确认语义）
+1. 广告位是否分竖版/横版 —— 现状 `AdFloatItem` 有 width/height，但**无 orientation 字段**，内置两条示例广告（360×240、640×300）宽高比均 >1（横版）。按用户意图需引入「竖版/横版」判定，并补竖版示例广告。
+2. 自检屏幕方向：桌面端窗口可 resize（相对竖/横屏由窗口宽高比决定）；手机由设备朝向 + 窗口尺寸决定。需双端各自检测。
+3. 按方向筛选对应广告位：竖屏显示竖版广告，横屏显示横版广告；无匹配方向时降级策略待确认。
+4. 应用位置：
+   - 启动全屏广告（双端 SplashOverlay，当前固定取 `ads[0]`）；
+   - 播放中横幅广告（PlayerHost / PlayScreen，当前 `pickRandomExclude` 随机取）。
+
+### 待确认关键点（未确认前不实施）
+1. **判定依据**：竖版/横版由 ad 的 `orientation` 新字段显式声明，还是由现有 `width/height`（宽≥高=横版、宽<高=竖版）推导？ → **已确认：由 width/height 推导，不加字段**
+2. **屏幕方向判定**：以「窗口宽高比」（横屏=宽>高）为准（同意手机旋转 + 桌面窗口 resize 都按此口径）？ → **已确认：窗口宽高比为准**
+3. **方向变化时**：播放中横幅在播放中途发生旋转/改窗口比例，已展示/待展示广告是否要跟随切换？ → **已确认：展示期间不切换**
+4. **无匹配方向**：只有一个方向的广告素材时，降级策略 = 显示另一方向（保底展示）还是跳过不显示？ → **已确认：显示另一方向（保底）**
+5. 是否需在 `BUILTIN_AD_FLOAT_CONFIG.ads` 中新增一条「竖版」示例广告？ → **需新增**（现有两条均为横版：360×240、640×300）
+
+### 实现要点（对照确认）
+- `packages/core` 新增方向工具（`filterAdsByOrientation` + `getAdOrientation`）：广告按 `width/height` 推导方向（宽≥高=横版、宽<高=竖版）；无匹配方向时返回全部（保底）。
+- `AdFloatScheduler.pickRandomExclude` 增加可选 `orientation` 参数，横幅触发时按当前屏幕方向过滤。
+- 桌面端：SplashOverlay（进入 ad 阶段读取一次 `window.innerWidth/innerHeight`）+ PlayerHost（触发点读取一次）；移动端：SplashOverlay（`Dimensions.get('window')`）+ PlayScreen（`useWindowDimensions`）。
+- `BUILTIN_AD_FLOAT_CONFIG.ads` 增加一条竖版示例广告（360×640 竖版大图位），并将原「竖版海报位」（实为横版 360×240）改名「横版海报位」。
+
+### 可观测验收（2026-09-16 验证）
+- [x] 横屏桌面端：splash ad picked = 横版海报位（orientation=landscape）。
+- [x] 纯逻辑 node 验证：landscape→[横版海报位,通栏位]，portrait→[竖版大图位]，无匹配→保底返回全部。
+- [x] `pnpm typecheck` 通过。

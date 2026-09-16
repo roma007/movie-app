@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, Linking, Animated, Easing } from 'react-native';
-import { getSplashStore, BUILTIN_AD_FLOAT_CONFIG, type AdFloatItem } from '@movie-app/core';
+import { View, Text, StyleSheet, Image, TouchableOpacity, Linking, Animated, Easing, Dimensions } from 'react-native';
+import { getSplashStore, BUILTIN_AD_FLOAT_CONFIG, filterAdsByOrientation, type AdFloatItem } from '@movie-app/core';
 
 interface SplashOverlayProps {
   /** initApp 是否已完成（主应用可渲染、数据库就绪）。 */
@@ -42,15 +42,18 @@ export function SplashOverlay({ ready }: SplashOverlayProps) {
     return () => clearTimeout(t);
   }, [phase, ready, setPhase]);
 
-  // ad 阶段：取内置广告配置第一条并从下方滑入
+  // ad 阶段：按屏幕方向取匹配广告位第一条并从下方滑入
   useEffect(() => {
     if (phase !== 'ad') return;
-    const ads = BUILTIN_AD_FLOAT_CONFIG.ads;
-    if (!Array.isArray(ads) || ads.length === 0) {
+    const { width, height } = Dimensions.get('window');
+    const orientation = width >= height ? 'landscape' : 'portrait';
+    const pool = filterAdsByOrientation(BUILTIN_AD_FLOAT_CONFIG.ads, orientation);
+    if (pool.length === 0) {
       setPhase('done');
       return;
     }
-    setAd(ads[0]);
+    const picked = pool[0];
+    setAd(picked);
     setAdLoaded(true);
     adShownAtRef.current = Date.now();
     Animated.parallel([

@@ -934,7 +934,8 @@ export default function PlayScreen({ route, navigation }: Props) {
       !activeAdRef.current &&
       adScheduler.shouldShow(currentTime)
     ) {
-      const ad = adScheduler.pickRandomExclude(lastAdShownRef.current);
+      const orientation = screenW >= screenH ? ('landscape' as const) : ('portrait' as const);
+      const ad = adScheduler.pickRandomExclude(lastAdShownRef.current, orientation);
       if (ad) {
         lastAdShownRef.current = ad;
         setActiveAd(ad);

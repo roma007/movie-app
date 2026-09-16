@@ -92,6 +92,20 @@ const DEFAULT_SHORT_DRAMA_CONFIG: ShortDramaConfig = {
   probeEpisodeCount: 8,
 };
 
+/** 广告位方向：由宽高比推导（宽≥高=横版 landscape，宽<高=竖版 portrait）。 */
+export type AdOrientation = 'landscape' | 'portrait';
+
+/** 按广告宽高推导广告位方向。 */
+export function getAdOrientation(ad: AdFloatItem): AdOrientation {
+  return ad.width >= ad.height ? 'landscape' : 'portrait';
+}
+
+/** 按方向过滤广告池；池中无匹配方向时返回全部（保底展示，不跳过）。 */
+export function filterAdsByOrientation(ads: AdFloatItem[], orientation: AdOrientation): AdFloatItem[] {
+  const matched = ads.filter((a) => getAdOrientation(a) === orientation);
+  return matched.length > 0 ? matched : ads;
+}
+
 /** 广告内置配置（恒启用，不依赖 system_config，素材内置示例广告）。 */
 export const BUILTIN_AD_FLOAT_CONFIG: AdFloatConfig = {
   enabled: true,
@@ -101,7 +115,7 @@ export const BUILTIN_AD_FLOAT_CONFIG: AdFloatConfig = {
   maxWidthRatio: 0.35,
   ads: [
     {
-      title: '示例广告 · 竖版海报位',
+      title: '示例广告 · 横版海报位',
       width: 360,
       height: 240,
       durationMs: 5000,
@@ -111,6 +125,13 @@ export const BUILTIN_AD_FLOAT_CONFIG: AdFloatConfig = {
       title: '示例广告 · 通栏位',
       width: 640,
       height: 300,
+      durationMs: 5000,
+      linkUrl: 'https://example.com',
+    },
+    {
+      title: '示例广告 · 竖版大图位',
+      width: 360,
+      height: 640,
       durationMs: 5000,
       linkUrl: 'https://example.com',
     },
