@@ -229,6 +229,15 @@ try handler.perform([req])
 - 桌面端（Tauri）：`apps/desktop/src-tauri/tauri.conf.json` → `identifier`。
 - 移动端（Expo）：`apps/mobile/app.json` → `expo.ios.bundleIdentifier` / `expo.android.package`。
 
+## 安卓 release 产物命名规则（铁律）
+
+> 安卓 release 构建产物文件名必须携带应用版本号，格式：`app-<buildType>-v<versionName>.apk`（如 `app-release-v1.0.125.apk`）。由 `apps/mobile/android/app/build.gradle` 统一配置（`androidComponents.onVariants` + `variant.outputs.outputFileName`），任何变更/新工程不得覆盖或删除该配置，也不得在构建后手动重命名绕过。
+
+### 要点
+1. 规则来源单一：`build.gradle` 中 `def apkVariantVersionName = defaultConfig.versionName` + onVariants 输出改名，版本号取自 `versionCode/versionName`，版本升级文件名自动跟随。
+2. `assembleRelease` 之后产物核对：`ls apps/mobile/android/app/build/outputs/apk/release/app-*.apk` 名须含当前 `versionName`；debug 同理（`app-debug-vX.Y.Z.apk`）。
+3. 禁止：删除该段配置、硬编码固定文件名、发布不带版本号的 APK。
+
 ## 移动端构建同步铁律（模拟器 + iPhone 保持最新）
 
 > 任何修改移动端代码（`apps/mobile`、`packages/core` 被移动端消费的 JS/TS）后，必须同时构建部署到**安卓模拟器**与 **iPhone 真机（MfiPhone）**，保证两端运行的都是最新构建。违反视为未完成。

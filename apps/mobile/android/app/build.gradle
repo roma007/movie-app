@@ -127,6 +127,16 @@ android {
             crunchPngs enablePngCrunchInRelease.toBoolean()
         }
     }
+    // 产物文件名带应用版本号：app-release-v<versionName>.apk
+    def apkVariantVersionName = defaultConfig.versionName
+    // 产物文件名带应用版本号：app-release-v<versionName>.apk
+    androidComponents {
+        onVariants(selector().all()) { variant ->
+            variant.outputs.forEach { output ->
+                output.outputFileName.set("app-${variant.name}-v${apkVariantVersionName}.apk")
+            }
+        }
+    }
     packagingOptions {
         jniLibs {
             def enableLegacyPackaging = findProperty('expo.useLegacyPackaging') ?: 'false'
