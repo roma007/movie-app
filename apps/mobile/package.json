@@ -1,6 +1,6 @@
 {
   "name": "@movie-app/mobile",
-  "version": "1.0.135",
+  "version": "1.0.136",
   "main": "index.ts",
   "scripts": {
     "start": "expo start",

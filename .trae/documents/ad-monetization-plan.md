@@ -737,3 +737,29 @@ Phase 1-2: 广告功能开发 → Phase 3: 接入广告联盟 → Phase 5-6: 官
 2. 广告无图片时是否显示纯文字广告，还是跳过全屏广告直接进首页？ → **已确认：显示标题+渐变背景**
 3. 欢迎页显示时长（建议 1.5s，或在 initApp 完成后立即切换）？ → **已确认：固定 1.5s 后切换**
 4. 首页四大板块是否全部数据未加载完时超时（如 10s）强制消失广告？ → **已确认：需要 10s 超时兜底**
+
+---
+
+# 需求留档：广告不用配置功能（2026-09-16）
+
+## 原始需求
+
+用户原话：
+
+> 广告不用配置功能
+
+> 背景：上一步为让桌面端显示广告，把 `playback.adFloat`（enabled:true + 两条示例广告）写入了桌面端 DB。用户此句意在否定「广告需要配置」的做法（不逐一依赖 DB 写入/设置项开关），要求广告直接可用。
+
+## 分析结果
+
+### 需求拆解
+1. 广告**默认启用**，不再依赖 `playback.adFloat.enabled` 配置项（enabled 恒开启）。
+2. 广告素材（ads）**内置在代码**中，不依赖 `system_config` DB 写入（新装用户即可见广告）。
+3. 设置页「播放广告」开关：**彻底移除**（双端），广告不可关闭。
+4. `systemConfigService.getAdFloatConfig()/setAdFloatConfig()`：**删除**（无调用方）。
+
+### 确认后的实现要点
+- `BUILTIN_AD_FLOAT_CONFIG`（packages/core 导出）：`enabled: true`，含两条示例广告（竖版海报位 360×240 + 通栏位 640×300），各消费方直接 import 常量，不异步读 DB。
+- 双端设置页 `UsagePreferencesPage/Screen` 移除广告开关卡（整个 Card 删除）。
+- 桌面端 PlayerHost / 移动端 PlayScreen：移除 `adConfig`/`adFloatConfig` state，移除 `.enabled` 判断，调度器直接由内置常量构造。
+- 桌面端 DB 中已写入的 `playback.adFloat` 记录：无害，保留（不再被读取，成为死数据）。

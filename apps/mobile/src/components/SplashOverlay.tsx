@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, Linking, Animated, Easing } from 'react-native';
-import { getSplashStore, SystemConfigService, type AdFloatConfig, type AdFloatItem } from '@movie-app/core';
-import { getProvider } from '../useAppStore';
+import { getSplashStore, BUILTIN_AD_FLOAT_CONFIG, type AdFloatItem } from '@movie-app/core';
 
 interface SplashOverlayProps {
   /** initApp 是否已完成（主应用可渲染、数据库就绪）。 */
@@ -17,7 +16,7 @@ const BANNER_HEIGHT = 0;
 /**
  * 启动欢迎页 + 全屏广告覆盖层（移动端）。
  * - 欢迎页：logo 居中展示，至少 LOGO_MS；待 init 就绪后切广告；
- * - 全屏广告：取 playback.adFloat.ads 第一条，从下方滑入展示；
+ * - 全屏广告：取内置广告配置第一条，从下方滑入展示；
  * - 自动消失：首页四大板块数据就绪（homeReady）后淡出；AD_TIMEOUT_MS 超时兜底；
  * - 主应用渲染在其下层，首页数据在广告展示期间后台加载。
  */
@@ -43,28 +42,22 @@ export function SplashOverlay({ ready }: SplashOverlayProps) {
     return () => clearTimeout(t);
   }, [phase, ready, setPhase]);
 
-  // ad 阶段：读取广告配置（取 ads 第一条）并从下方滑入
+  // ad 阶段：取内置广告配置第一条并从下方滑入
   useEffect(() => {
     if (phase !== 'ad') return;
-    let cancelled = false;
-    const cfgService = new SystemConfigService(getProvider());
-    cfgService.getAdFloatConfig().then((cfg: AdFloatConfig) => {
-      if (cancelled) return;
-      if (!cfg.enabled || !Array.isArray(cfg.ads) || cfg.ads.length === 0) {
-        setPhase('done');
-        return;
-      }
-      setAd(cfg.ads[0]);
-      setAdLoaded(true);
-      adShownAtRef.current = Date.now();
-      Animated.parallel([
-        Animated.timing(adAnim, { toValue: 1, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(logoOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
-      ]).start();
-    }).catch(() => {
-      if (!cancelled) setPhase('done');
-    });
-    return () => { cancelled = true; };
+    const ads = BUILTIN_AD_FLOAT_CONFIG.ads;
+    if (!Array.isArray(ads) || ads.length === 0) {
+      setPhase('done');
+      return;
+    }
+    setAd(ads[0]);
+    setAdLoaded(true);
+    adShownAtRef.current = Date.now();
+    Animated.parallel([
+      Animated.timing(adAnim, { toValue: 1, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(logoOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+    ]).start();
+    return () => {};
   }, [phase, setPhase, adAnim, logoOpacity]);
 
   // 消失条件：homeReady 且已展示满最小时长；AD_TIMEOUT_MS 超时兜底

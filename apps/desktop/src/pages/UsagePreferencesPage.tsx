@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
-import { ArrowLeft, Clock, Home, Megaphone, Waypoints, Video } from 'lucide-react';
+import { ArrowLeft, Clock, Home, Waypoints, Video } from 'lucide-react';
 import { useAppStore } from '../useAppStore';
 import { useThemeStore } from '../themes/store';
 import { getProvider } from '../init';
@@ -30,7 +30,6 @@ export default function UsagePreferencesPage() {
   const [playbackEnabled, setPlaybackEnabled] = useState(true);
   const [playbackThreshold, setPlaybackThreshold] = useState(10);
   const [prefetchConcurrency, setPrefetchConcurrency] = useState(3);
-  const [adFloatEnabled, setAdFloatEnabled] = useState(false);
   const { userUsageTypes, loadUserUsageTypes, setUserUsageTypes } = useAppStore();
   const { maxBufferSize, setMaxBufferSize } = useThemeStore();
 
@@ -46,8 +45,6 @@ export default function UsagePreferencesPage() {
         setPlaybackEnabled(config.showNextEpisodeOverlay);
         setPlaybackThreshold(config.outroThresholdMinutes);
         setPrefetchConcurrency(config.prefetchConcurrency);
-        const adConfig = await configService.getAdFloatConfig();
-        setAdFloatEnabled(adConfig.enabled);
       } catch {}
     })();
   }, []);
@@ -74,15 +71,6 @@ export default function UsagePreferencesPage() {
     try {
       const configService = new SystemConfigService(getProvider());
       await configService.setPlaybackConfig({ prefetchConcurrency: n });
-    } catch {}
-  };
-
-  const handleToggleAdFloat = async () => {
-    const next = !adFloatEnabled;
-    setAdFloatEnabled(next);
-    try {
-      const configService = new SystemConfigService(getProvider());
-      await configService.setAdFloatConfig({ enabled: next });
     } catch {}
   };
 
@@ -212,21 +200,6 @@ export default function UsagePreferencesPage() {
               className={sliderClasses + ' w-56'}
             />
             <span className="text-sm text-muted-foreground w-12 text-right shrink-0">{maxBufferSize}MB</span>
-          </div>
-        </div>
-      </Card>
-
-      <Card className="p-5 mb-8">
-        <div className="flex items-center gap-6">
-          <div className="w-80 shrink-0">
-            <div className="flex items-center gap-3">
-              <Megaphone className="size-4 text-muted-foreground shrink-0" />
-              <span className="font-medium">播放中浮窗广告</span>
-            </div>
-            <p className="text-sm text-muted-foreground mt-1">播放过程中随机出现可关闭的模拟广告浮窗，不打断播放（素材可在配置中更换）</p>
-          </div>
-          <div className="flex-1 min-w-0 flex flex-col items-end gap-3">
-            <Switch checked={adFloatEnabled} onCheckedChange={handleToggleAdFloat} />
           </div>
         </div>
       </Card>

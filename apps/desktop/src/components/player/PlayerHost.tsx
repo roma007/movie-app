@@ -7,7 +7,7 @@ import { getCurrentWebviewWindow, WebviewWindow } from '@tauri-apps/api/webviewW
 import { currentMonitor } from '@tauri-apps/api/window';
 import { emit, listen } from '@tauri-apps/api/event';
 import { Loader2 } from 'lucide-react';
-import { SystemConfigService, AdFloatScheduler, type AdFloatConfig, type AdFloatItem } from '@movie-app/core';
+import { SystemConfigService, AdFloatScheduler, BUILTIN_AD_FLOAT_CONFIG, type AdFloatItem } from '@movie-app/core';
 import { VideoPlayer } from './VideoPlayer';
 import { PlayerOverlays } from './PlayerOverlays';
 import { AdFloatOverlay } from './AdFloatOverlay';
@@ -67,25 +67,15 @@ export function PlayerHost() {
   const skipEligibleRef = useRef(false);
   const lastTimeRef = useRef(0);
 
-  // ── 播放中横幅广告（配置驱动，随机出现一次，不打断播放）──
-  const [adConfig, setAdConfig] = useState<AdFloatConfig | null>(null);
+  // ── 播放中横幅广告（内置恒启用，随机出现一次，不打断播放）──
   const [activeAd, setActiveAd] = useState<AdFloatItem | null>(null);
   const adSchedulerRef = useRef<AdFloatScheduler | null>(null);
   const lastAdShownRef = useRef<AdFloatItem | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    const cfgService = new SystemConfigService(getProvider());
-    cfgService.getAdFloatConfig().then((cfg) => {
-      if (cancelled) return;
-      setAdConfig(cfg);
-      adSchedulerRef.current = new AdFloatScheduler(cfg);
-      lastAdShownRef.current = null;
-      setActiveAd(null);
-    });
-    return () => {
-      cancelled = true;
-    };
+    adSchedulerRef.current = new AdFloatScheduler(BUILTIN_AD_FLOAT_CONFIG);
+    lastAdShownRef.current = null;
+    setActiveAd(null);
   }, [session?.episodeId]);
 
   useEffect(() => {
@@ -395,7 +385,7 @@ export function PlayerHost() {
   const handlePlayerTimeUpdate = (currentTime: number, duration: number) => {
     // 播放中横幅广告：随机触发一次，不打断播放（pip 激活时主窗口不播，不触发）
     const scheduler = adSchedulerRef.current;
-    if (scheduler && adConfig?.enabled && !pipActive && !activeAd && scheduler.shouldShow(currentTime)) {
+    if (scheduler && !pipActive && !activeAd && scheduler.shouldShow(currentTime)) {
       const ad = scheduler.pickRandomExclude(lastAdShownRef.current);
       if (ad) {
         lastAdShownRef.current = ad;
@@ -487,7 +477,7 @@ export function PlayerHost() {
                   onSkipForward={handleSkipForward}
                   onSkipForwardClose={handleSkipForwardClose}
                 />
-                {activeAd && adConfig && (
+                {activeAd && (
                   <AdFloatOverlay
                     ad={activeAd}
                     onDismissed={() => setActiveAd(null)}

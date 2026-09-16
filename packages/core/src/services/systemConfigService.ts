@@ -92,8 +92,9 @@ const DEFAULT_SHORT_DRAMA_CONFIG: ShortDramaConfig = {
   probeEpisodeCount: 8,
 };
 
-const DEFAULT_AD_FLOAT_CONFIG: AdFloatConfig = {
-  enabled: false,
+/** 广告内置配置（恒启用，不依赖 system_config，素材内置示例广告）。 */
+export const BUILTIN_AD_FLOAT_CONFIG: AdFloatConfig = {
+  enabled: true,
   maxShowsPerSession: 1,
   minIntervalSeconds: 300,
   firstShowRandomRangeSeconds: [30, 180],
@@ -279,24 +280,6 @@ export class SystemConfigService {
 
   static getDefaultShortDramaConfig(): ShortDramaConfig {
     return { ...DEFAULT_SHORT_DRAMA_CONFIG };
-  }
-
-  async getAdFloatConfig(): Promise<AdFloatConfig> {
-    const stored = await this.getJSON<Partial<AdFloatConfig>>('playback.adFloat', {});
-    return {
-      enabled: stored.enabled ?? DEFAULT_AD_FLOAT_CONFIG.enabled,
-      maxShowsPerSession: stored.maxShowsPerSession ?? DEFAULT_AD_FLOAT_CONFIG.maxShowsPerSession,
-      minIntervalSeconds: stored.minIntervalSeconds ?? DEFAULT_AD_FLOAT_CONFIG.minIntervalSeconds,
-      firstShowRandomRangeSeconds: stored.firstShowRandomRangeSeconds ?? DEFAULT_AD_FLOAT_CONFIG.firstShowRandomRangeSeconds,
-      maxWidthRatio: stored.maxWidthRatio ?? DEFAULT_AD_FLOAT_CONFIG.maxWidthRatio,
-      ads: Array.isArray(stored.ads) && stored.ads.length > 0 ? stored.ads : DEFAULT_AD_FLOAT_CONFIG.ads,
-    };
-  }
-
-  async setAdFloatConfig(config: Partial<AdFloatConfig>): Promise<void> {
-    const current = await this.getAdFloatConfig();
-    const merged = { ...current, ...config };
-    await this.setJSON('playback.adFloat', merged);
   }
 
   async getPlaybackConfig(): Promise<PlaybackConfig> {
