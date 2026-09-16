@@ -20,14 +20,22 @@ interface ColumnDef {
   id: string;
   label: string;
   className?: string;
-  style?: React.CSSProperties;
+  width: number;
+  text: (m: Media) => string;
   render: (m: Media) => React.ReactNode;
 }
+
+const typeText = (t: Media['type']) =>
+  t === 'MOVIE' ? '电影' : t === 'TV' ? '电视剧' : t === 'VARIETY' ? '综艺' : t === 'ANIME' ? '动漫' : t === 'DOCUMENTARY' ? '纪录片' : t;
 
 const allColumns: ColumnDef[] = [
   {
     id: 'title',
     label: '影片名称',
+    width: 220,
+    text: (m) => m.title
+      + (m.status === 'ONGOING' && m.currentEpisodes ? ` 更新至第${m.currentEpisodes}集` : '')
+      + (m.status === 'COMPLETED' ? ' 正片' : ''),
     render: (m) => (
       <>
         <span className="text-sm font-medium">{m.title}</span>
@@ -44,63 +52,79 @@ const allColumns: ColumnDef[] = [
     id: 'type',
     label: '类型',
     className: 'hidden sm:table-cell',
-    render: (m) => (
-      <span className="text-muted-foreground">{m.type === 'MOVIE' ? '电影' : m.type === 'TV' ? '电视剧' : m.type === 'VARIETY' ? '综艺' : m.type === 'ANIME' ? '动漫' : m.type === 'DOCUMENTARY' ? '纪录片' : m.type}</span>
-    ),
+    width: 60,
+    text: (m) => typeText(m.type),
+    render: (m) => <span className="text-muted-foreground">{typeText(m.type)}</span>,
   },
   {
     id: 'genres',
     label: '分类',
     className: 'hidden sm:table-cell',
+    width: 130,
+    text: (m) => m.genres.join(', '),
     render: (m) => <span className="text-muted-foreground">{m.genres.join(', ')}</span>,
   },
   {
     id: 'year',
     label: '年份',
     className: 'hidden sm:table-cell',
+    width: 60,
+    text: (m) => String(m.year),
     render: (m) => <span className="text-muted-foreground">{m.year}</span>,
   },
   {
     id: 'area',
     label: '地区',
     className: 'hidden sm:table-cell',
+    width: 80,
+    text: (m) => m.area || '-',
     render: (m) => <span className="text-muted-foreground">{m.area || '-'}</span>,
   },
   {
     id: 'directors',
     label: '导演',
     className: 'hidden lg:table-cell',
-    render: (m) => <span className="text-muted-foreground truncate max-w-[200px] inline-block">{m.directors.join(', ') || '-'}</span>,
+    width: 140,
+    text: (m) => m.directors.join(', ') || '-',
+    render: (m) => <span className="text-muted-foreground">{m.directors.join(', ') || '-'}</span>,
   },
   {
     id: 'actors',
     label: '演员',
     className: 'hidden lg:table-cell',
-    render: (m) => <span className="text-muted-foreground truncate max-w-[200px] inline-block">{m.actors.join(', ') || '-'}</span>,
+    width: 140,
+    text: (m) => m.actors.join(', ') || '-',
+    render: (m) => <span className="text-muted-foreground">{m.actors.join(', ') || '-'}</span>,
   },
   {
     id: 'episodes',
     label: '集数',
     className: 'hidden sm:table-cell',
+    width: 60,
+    text: (m) => (m.currentEpisodes ? `${m.currentEpisodes}集` : '-'),
     render: (m) => <span className="text-muted-foreground">{m.currentEpisodes ? `${m.currentEpisodes}集` : '-'}</span>,
   },
   {
     id: 'viewCount',
     label: '观看次数',
     className: 'hidden lg:table-cell',
+    width: 80,
+    text: (m) => String(m.viewCount),
     render: (m) => <span className="text-muted-foreground">{m.viewCount}</span>,
   },
   {
     id: 'createdAt',
     label: '创建时间',
     className: 'hidden lg:table-cell',
+    width: 150,
+    text: (m) => new Date(m.createdAt).toISOString().split('T')[0],
     render: (m) => <span className="text-muted-foreground">{new Date(m.createdAt).toISOString().split('T')[0]}</span>,
   },
   {
     id: 'updatedAt',
     label: '更新时间',
-    className: '',
-    style: { width: '130px' },
+    width: 150,
+    text: (m) => new Date(m.updatedAt).toISOString().split('T')[0],
     render: (m) => <span className="text-error">{new Date(m.updatedAt).toISOString().split('T')[0]}</span>,
   },
 ];
@@ -386,6 +410,11 @@ export default function CategoryPage({ type }: CategoryPageProps) {
     return pages;
   };
 
+  const visibleColumns = allColumns
+    .filter((c) => selectedColumns.includes(c.id))
+    .filter((c) => !(c.id === 'episodes' && type === 'MOVIE'));
+  const visibleWidthTotal = visibleColumns.reduce((sum, c) => sum + c.width, 0);
+
   return (
     <div className="p-6 space-y-5 max-w-7xl mx-auto">
       <div className="flex gap-2">
@@ -427,28 +456,6 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                   清除筛选
                 </Button>
               )}
-
-              <div className="space-y-1">
-                <span className="text-xs text-muted-foreground">排序</span>
-                <div className="flex flex-wrap gap-1">
-                  <Button
-                    variant={sort === 'recommend' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => handleSortChange('recommend')}
-                    className="text-xs"
-                  >
-                    为你推荐
-                  </Button>
-                  <Button
-                    variant={sort === 'latest' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => handleSortChange('latest')}
-                    className="text-xs"
-                  >
-                    最新
-                  </Button>
-                </div>
-              </div>
 
               {subTypes.length > 0 && (
                 <div className="space-y-1">
@@ -574,69 +581,90 @@ export default function CategoryPage({ type }: CategoryPageProps) {
             </Card>
           )}
 
-          <div className="flex items-center justify-end gap-2">
-            {viewMode === 'list' && (
-              <div className="relative" ref={columnsMenuRef}>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">排序</span>
+              <Button
+                variant={sort === 'recommend' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => handleSortChange('recommend')}
+                className="h-7 px-2"
+              >
+                推荐
+              </Button>
+              <Button
+                variant={sort === 'latest' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => handleSortChange('latest')}
+                className="h-7 px-2"
+              >
+                最新
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              {viewMode === 'list' && (
+                <div className="relative" ref={columnsMenuRef}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2"
+                    onClick={() => setShowColumnsMenu(!showColumnsMenu)}
+                  >
+                    <Columns3 className="size-3.5 mr-1" />
+                    列
+                  </Button>
+                  {showColumnsMenu && (
+                    <Card className="absolute right-0 top-full mt-1 z-50 w-56 shadow-lg p-2 max-h-[400px] overflow-y-auto">
+                      {allColumns
+                        .filter((col) => !(col.id === 'episodes' && type === 'MOVIE'))
+                        .map((col) => {
+                        const isSelected = selectedColumns.includes(col.id);
+                        const isTitle = col.id === 'title';
+                        return (
+                          <label
+                            key={col.id}
+                            className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm cursor-pointer transition-colors ${isSelected ? 'bg-muted-foreground/20 text-text' : 'text-muted-foreground hover:bg-hover'}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              disabled={isTitle}
+                              onChange={() => {
+                                if (isTitle) return;
+                                const next = isSelected
+                                  ? selectedColumns.filter((c) => c !== col.id)
+                                  : [...selectedColumns, col.id];
+                                setSelectedColumns(next);
+                                saveColumns(next);
+                              }}
+                              className="size-3.5 rounded accent-primary"
+                            />
+                            {col.label}
+                          </label>
+                        );
+                      })}
+                    </Card>
+                  )}
+                </div>
+              )}
+              <div className="flex items-center gap-1 rounded-md p-0.5">
                 <Button
-                  variant="outline"
+                  variant={viewMode === 'grid' ? 'default' : 'ghost'}
                   size="sm"
                   className="h-7 px-2"
-                  onClick={() => setShowColumnsMenu(!showColumnsMenu)}
+                  onClick={() => setViewMode('grid')}
                 >
-                  <Columns3 className="size-3.5 mr-1" />
-                  列
+                  <LayoutGrid className="size-3.5" />
                 </Button>
-                {showColumnsMenu && (
-                  <Card className="absolute right-0 top-full mt-1 z-50 w-56 shadow-lg p-2 max-h-[400px] overflow-y-auto">
-                    {allColumns
-                      .filter((col) => !(col.id === 'episodes' && type === 'MOVIE'))
-                      .map((col) => {
-                      const isSelected = selectedColumns.includes(col.id);
-                      const isTitle = col.id === 'title';
-                      return (
-                        <label
-                          key={col.id}
-                          className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm cursor-pointer transition-colors ${isSelected ? 'bg-muted-foreground/20 text-text' : 'text-muted-foreground hover:bg-hover'}`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            disabled={isTitle}
-                            onChange={() => {
-                              if (isTitle) return;
-                              const next = isSelected
-                                ? selectedColumns.filter((c) => c !== col.id)
-                                : [...selectedColumns, col.id];
-                              setSelectedColumns(next);
-                              saveColumns(next);
-                            }}
-                            className="size-3.5 rounded accent-primary"
-                          />
-                          {col.label}
-                        </label>
-                      );
-                    })}
-                  </Card>
-                )}
+                <Button
+                  variant={viewMode === 'list' ? 'default' : 'ghost'}
+                  size="sm"
+                  className="h-7 px-2"
+                  onClick={() => setViewMode('list')}
+                >
+                  <List className="size-3.5" />
+                </Button>
               </div>
-            )}
-            <div className="flex items-center gap-1 rounded-md p-0.5">
-              <Button
-                variant={viewMode === 'grid' ? 'default' : 'ghost'}
-                size="sm"
-                className="h-7 px-2"
-                onClick={() => setViewMode('grid')}
-              >
-                <LayoutGrid className="size-3.5" />
-              </Button>
-              <Button
-                variant={viewMode === 'list' ? 'default' : 'ghost'}
-                size="sm"
-                className="h-7 px-2"
-                onClick={() => setViewMode('list')}
-              >
-                <List className="size-3.5" />
-              </Button>
             </div>
           </div>
 
@@ -670,15 +698,17 @@ export default function CategoryPage({ type }: CategoryPageProps) {
             />
           ) : (
             <Card className="card-shadow overflow-hidden">
-              <table className="w-full text-sm">
+              <table className="w-full table-fixed text-sm">
+                <colgroup>
+                  {visibleColumns.map((col) => (
+                    <col key={col.id} style={{ width: `${(col.width / visibleWidthTotal) * 100}%` }} />
+                  ))}
+                </colgroup>
                 <thead className="bg-[var(--color-secondary-alpha)]">
                   <tr>
-                    {allColumns
-                      .filter((c) => selectedColumns.includes(c.id))
-                      .filter((c) => !(c.id === 'episodes' && type === 'MOVIE'))
-                      .map((col) => (
-                      <th key={col.id} className={`text-left px-5 py-3 font-semibold text-sm ${col.className || ''}`} style={col.style}>
-                        {col.label}
+                    {visibleColumns.map((col) => (
+                      <th key={col.id} className={`text-left px-5 py-3 font-semibold text-sm whitespace-nowrap overflow-hidden ${col.className || ''}`}>
+                        <div className="truncate" title={col.label}>{col.label}</div>
                       </th>
                     ))}
                   </tr>
@@ -693,12 +723,9 @@ export default function CategoryPage({ type }: CategoryPageProps) {
                         openMediaPlay(navigate, m, { page: currentPage, type, sort, subType: activeSubType, year: activeYear, area: activeArea, episodeType: activeEpisodeType });
                       }}
                     >
-                      {allColumns
-                        .filter((c) => selectedColumns.includes(c.id))
-                        .filter((c) => !(c.id === 'episodes' && type === 'MOVIE'))
-                        .map((col) => (
-                        <td key={col.id} className={`px-5 py-3 leading-[30px] ${col.className || ''}`} style={col.style}>
-                          {col.render(m)}
+                      {visibleColumns.map((col) => (
+                        <td key={col.id} className={`px-5 py-3 leading-[30px] whitespace-nowrap overflow-hidden ${col.className || ''}`}>
+                          <div className="truncate" title={col.text(m)}>{col.render(m)}</div>
                         </td>
                       ))}
                     </tr>

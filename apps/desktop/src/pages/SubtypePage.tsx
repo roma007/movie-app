@@ -159,7 +159,7 @@ export default function SubtypePage() {
           onClick={() => handleSortChange('recommend')}
           className="text-xs"
         >
-          为你推荐
+          推荐
         </Button>
         <Button
           variant={sort === 'latest' ? 'default' : 'outline'}
