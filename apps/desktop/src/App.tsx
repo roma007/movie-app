@@ -57,6 +57,7 @@ function MainApp() {
     // 静默初始化：不再显示「正在加载/数据库步骤」文字，由欢迎页覆盖层承接
     initApp()
       .then(() => {
+        clearTimeout(timeoutId);
         console.log('初始化成功');
         setReady(true);
         setError(null);
