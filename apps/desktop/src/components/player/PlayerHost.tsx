@@ -67,7 +67,7 @@ export function PlayerHost() {
   const skipEligibleRef = useRef(false);
   const lastTimeRef = useRef(0);
 
-  // ── 播放中浮窗广告（配置驱动，随机出现，不打断播放）──
+  // ── 播放中横幅广告（配置驱动，随机出现一次，不打断播放）──
   const [adConfig, setAdConfig] = useState<AdFloatConfig | null>(null);
   const [activeAd, setActiveAd] = useState<AdFloatItem | null>(null);
   const adSchedulerRef = useRef<AdFloatScheduler | null>(null);
@@ -393,7 +393,7 @@ export function PlayerHost() {
   };
 
   const handlePlayerTimeUpdate = (currentTime: number, duration: number) => {
-    // 播放中浮窗广告：随机触发，不打断播放（pip 激活时主窗口不播，不触发）
+    // 播放中横幅广告：随机触发一次，不打断播放（pip 激活时主窗口不播，不触发）
     const scheduler = adSchedulerRef.current;
     if (scheduler && adConfig?.enabled && !pipActive && !activeAd && scheduler.shouldShow(currentTime)) {
       const ad = scheduler.pickRandomExclude(lastAdShownRef.current);
@@ -490,8 +490,6 @@ export function PlayerHost() {
                 {activeAd && adConfig && (
                   <AdFloatOverlay
                     ad={activeAd}
-                    maxWidthRatio={adConfig.maxWidthRatio}
-                    onClose={() => setActiveAd(null)}
                     onDismissed={() => setActiveAd(null)}
                   />
                 )}

@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Text, StyleSheet, View, ActivityIndicator, useColorScheme, Appearance, AppState } from 'react-native';
+import { Appearance, AppState, useColorScheme } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { File, Paths } from 'expo-file-system';
 import { getKidLockService } from './src/stores/kidLockStore';
+import { SplashOverlay } from './src/components/SplashOverlay';
 
 // 全局 JS 错误捕获：未捕获异常/未处理 rejection 写入本地 js_error.log（仅写日志，不改变行为）。
 // 用于「播放页返回闪退」一类 JS fatal 的诊断留存；本地开发/线上排障时可取出该文件定位。
@@ -121,7 +122,6 @@ export default function App() {
   const initCardOpacity = useThemeStore((s) => s.initCardOpacity);
   const initFontSizeScale = useThemeStore((s) => s.initFontSizeScale);
   const themeName = useThemeStore((s) => s.currentTheme);
-  const colors = useThemeColors();
   const colorScheme = useColorScheme();
 
   useEffect(() => {
@@ -158,35 +158,17 @@ export default function App() {
     return () => sub.remove();
   }, [ready]);
 
-  if (!ready) {
-    return (
-      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
-        <StatusBar style="light" />
-        <ActivityIndicator size="large" color={colors.mutedForeground} />
-        <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>正在加载...</Text>
-      </View>
-    );
-  }
-
   const navTheme = themeName === 'dark' ? DarkTheme : DefaultTheme;
 
   return (
     <SafeAreaProvider>
-      <NavigationContainer theme={navTheme}>
-        <RootNavigator />
-      </NavigationContainer>
+      {ready && (
+        <NavigationContainer theme={navTheme}>
+          <RootNavigator />
+        </NavigationContainer>
+      )}
+      {/* 欢迎页 + 全屏广告覆盖层（主应用渲染在其下层，首页数据后台加载） */}
+      <SplashOverlay ready={ready} />
     </SafeAreaProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-  },
-});

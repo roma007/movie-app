@@ -94,7 +94,7 @@ const DEFAULT_SHORT_DRAMA_CONFIG: ShortDramaConfig = {
 
 const DEFAULT_AD_FLOAT_CONFIG: AdFloatConfig = {
   enabled: false,
-  maxShowsPerSession: 2,
+  maxShowsPerSession: 1,
   minIntervalSeconds: 300,
   firstShowRandomRangeSeconds: [30, 180],
   maxWidthRatio: 0.35,

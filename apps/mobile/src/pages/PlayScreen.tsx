@@ -204,7 +204,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   const [overlayVisible, setOverlayVisible] = useState(false);
   const overlayDismissedRef = useRef(false);
 
-  // 播放中浮窗广告（配置驱动，随机出现，不打断播放）
+  // 播放中横幅广告（配置驱动，随机出现一次，不打断播放）
   const [adFloatConfig, setAdFloatConfig] = useState<AdFloatConfig | null>(null);
   const [activeAd, setActiveAd] = useState<AdFloatItem | null>(null);
   const adSchedulerRef = useRef<AdFloatScheduler | null>(null);
@@ -764,7 +764,7 @@ export default function PlayScreen({ route, navigation }: Props) {
           setError('无可播放的线路');
         }
 
-        // 播放中浮窗广告配置：换集/重进时重新加载并重置调度器
+        // 播放中横幅广告配置：换集/重进时重新加载并重置调度器
         const adCfg = await configService.getAdFloatConfig();
         if (cancelled) return;
         setAdFloatConfig(adCfg);
@@ -2259,10 +2259,7 @@ export default function PlayScreen({ route, navigation }: Props) {
         {activeAd && adFloatConfig && (
           <AdFloatOverlay
             ad={activeAd}
-            containerWidth={screenW}
-            maxWidthRatio={adFloatConfig.maxWidthRatio}
-            topOffset={isImmersive ? 88 : insets.top + 88}
-            onClose={() => setActiveAd(null)}
+            topOffset={isImmersive ? 0 : insets.top}
             onDismissed={() => setActiveAd(null)}
           />
         )}

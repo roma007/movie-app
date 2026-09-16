@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Media, Episode, UserUsageType, WatchHistory, HiddenCollectItem } from '@movie-app/core';
+import { getSplashStore } from '@movie-app/core';
 import { useAppStore, getProvider } from '../useAppStore';
 import { openMediaPlay } from '../utils/openMediaPlay';
 import { useBackgroundStore } from '../themes/backgroundStore';
@@ -57,20 +58,41 @@ export default function HomePage() {
 
   const provider = getProvider();
 
+  // 首页四大板块数据加载完成标记（决定欢迎页全屏广告消失时机）
+  const homeReadyLatestRef = useRef(false);
+  const homeReadyFavRef = useRef(false);
+  const homeReadyHistoryRef = useRef(false);
+  const homeReadyTvDetailRef = useRef(false);
+  const homeSignaledRef = useRef(false);
+
+  const maybeSignalHomeReady = () => {
+    if (homeSignaledRef.current) return;
+    if (
+      homeReadyLatestRef.current &&
+      homeReadyFavRef.current &&
+      homeReadyHistoryRef.current &&
+      homeReadyTvDetailRef.current
+    ) {
+      homeSignaledRef.current = true;
+      // 图片渲染缓冲：四大板块数据就绪后再等 800ms（首页图片在此期间渲染）
+      setTimeout(() => getSplashStore().getState().setHomeReady(true), 800);
+    }
+  };
+
   useEffect(() => {
     loadUserUsageTypes();
   }, []);
 
   useEffect(() => {
-    loadFavorites();
-    loadWatchHistory();
+    loadFavorites().then(() => { homeReadyFavRef.current = true; maybeSignalHomeReady(); });
+    loadWatchHistory().then(() => { homeReadyHistoryRef.current = true; maybeSignalHomeReady(); });
   }, []);
 
   useEffect(() => {
     (async () => {
       const p = getProvider();
       const ids = [...new Set([...favorites.map((f) => f.mediaId), ...watchHistory.map((h) => h.mediaId)])];
-      if (ids.length === 0) { setMediaMap({}); setEpisodeMap({}); setWatchedHistoryMap({}); setEpisodeTotalMap({}); setSourceTotalMap({}); return; }
+      if (ids.length === 0) { setMediaMap({}); setEpisodeMap({}); setWatchedHistoryMap({}); setEpisodeTotalMap({}); setSourceTotalMap({}); homeReadyTvDetailRef.current = true; maybeSignalHomeReady(); return; }
       const [mediaEntries, historyEntries] = await Promise.all([
         Promise.all(ids.map(async (id) => [id, await p.getMediaById(id)] as const)),
         Promise.all(ids.map(async (id) => {
@@ -100,14 +122,19 @@ export default function HomePage() {
       const allEpIds = [...new Set(historyEntries.flatMap((h) => h.history.map((wh) => wh.episodeId).filter(Boolean)))] as string[];
       const epEntries = await Promise.all(allEpIds.map(async (id) => [id, await p.getEpisodeById(id)] as const));
       setEpisodeMap(Object.fromEntries(epEntries));
+      homeReadyTvDetailRef.current = true;
+      maybeSignalHomeReady();
     })();
   }, [favorites, watchHistory]);
 
   useEffect(() => {
     if (userUsageTypes.includes('NEW_MOVIES')) {
       provider.listMedia({ type: 'MOVIE', page: 1, pageSize: 10, sort: 'latest' })
-        .then((r) => setLatestMedia(r.items))
-        .catch(() => {});
+        .then((r) => { setLatestMedia(r.items); homeReadyLatestRef.current = true; maybeSignalHomeReady(); })
+        .catch(() => { homeReadyLatestRef.current = true; maybeSignalHomeReady(); });
+    } else {
+      homeReadyLatestRef.current = true;
+      maybeSignalHomeReady();
     }
   }, [userUsageTypes, provider]);
 

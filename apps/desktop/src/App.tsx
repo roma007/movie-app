@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { initApp, testCollect } from './init';
 import { Layout } from './components/Layout';
 import { PipWindow } from './pip/PipWindow';
+import { SplashOverlay } from './components/SplashOverlay';
 
 import { ContextMenu } from './components/ContextMenu';
 import { ThemeProvider } from './themes/ThemeProvider';
@@ -43,20 +44,18 @@ export default function App() {
 function MainApp() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loadingStep, setLoadingStep] = useState('开始初始化...');
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       if (!ready) {
-        console.error(`初始化超时，当前步骤: ${loadingStep}`);
-        setError(`初始化超时，当前步骤: ${loadingStep}`);
+        console.error('初始化超时');
+        setError('初始化超时');
         setReady(true);
       }
     }, 120000);
 
-    initApp((step) => {
-        setLoadingStep(step);
-      })
+    // 静默初始化：不再显示「正在加载/数据库步骤」文字，由欢迎页覆盖层承接
+    initApp()
       .then(() => {
         console.log('初始化成功');
         setReady(true);
@@ -68,30 +67,10 @@ function MainApp() {
         setReady(true);
       });
 
-    const logInterval = setInterval(() => {
-      if (!ready) {
-        console.log(`[APP] 等待初始化完成，当前步骤: ${loadingStep}`);
-      } else {
-        clearInterval(logInterval);
-      }
-    }, 2000);
-
     return () => {
       clearTimeout(timeoutId);
-      clearInterval(logInterval);
     };
-  }, [ready, loadingStep]);
-
-  if (!ready) {
-    return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        <div className="text-center">
-          <div className="text-lg">正在加载...</div>
-          <div className="text-sm mt-2 opacity-60">{loadingStep}</div>
-        </div>
-      </div>
-    );
-  }
+  }, []);
 
   if (error) {
     return (
@@ -103,42 +82,49 @@ function MainApp() {
   }
 
   return (
-    <ThemeProvider>
-      <FontSizeProvider>
-        <ConfirmProvider>
-          <BrowserRouter>
-            <ContextMenu />
-            <Routes>
-              <Route element={<Layout />}>
-                <Route path="/" element={<HomePage />} />
-                <Route path="/movie" element={<MoviePage />} />
-                <Route path="/tv" element={<TVPage />} />
-                <Route path="/variety" element={<VarietyPage />} />
-                <Route path="/anime" element={<AnimePage />} />
-                <Route path="/documentary" element={<DocumentaryPage />} />
-                <Route path="/search" element={<SearchPage />} />
-                <Route path="/subtype/:type/:subType" element={<SubtypePage />} />
-                <Route path="/play/:episodeId" element={<PlayPage />} />
-                <Route path="/favorites" element={<FavoritesPage />} />
-                <Route path="/history" element={<HistoryPage />} />
-                <Route path="/sources" element={<SourceManagerPage />} />
-                <Route path="/tasks" element={<TaskListPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/settings/appearance" element={<AppearanceSettingsPage />} />
-                <Route path="/settings/preferences" element={<UsagePreferencesPage />} />
-                <Route path="/settings/recommendation" element={<RecommendationSettingsPage />} />
-                <Route path="/settings/kids" element={<KidLockPage />} />
-                <Route path="/settings/collect" element={<CollectConfigPage />} />
-                <Route path="/help/guide" element={<CollectGuidePage />} />
-                <Route path="/settings/video" element={<VideoManagementPage />} />
-                <Route path="/test-collect" element={<TestCollectPage />} />
-                <Route path="/help" element={<HelpCenterPage />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Route>
-            </Routes>
-          </BrowserRouter>
-        </ConfirmProvider>
-      </FontSizeProvider>
-    </ThemeProvider>
+    <>
+      <div className="h-full">
+        {ready && (
+          <ThemeProvider>
+            <FontSizeProvider>
+              <ConfirmProvider>
+                <BrowserRouter>
+                  <ContextMenu />
+                  <Routes>
+                    <Route element={<Layout />}>
+                      <Route path="/" element={<HomePage />} />
+                      <Route path="/movie" element={<MoviePage />} />
+                      <Route path="/tv" element={<TVPage />} />
+                      <Route path="/variety" element={<VarietyPage />} />
+                      <Route path="/anime" element={<AnimePage />} />
+                      <Route path="/documentary" element={<DocumentaryPage />} />
+                      <Route path="/search" element={<SearchPage />} />
+                      <Route path="/subtype/:type/:subType" element={<SubtypePage />} />
+                      <Route path="/play/:episodeId" element={<PlayPage />} />
+                      <Route path="/favorites" element={<FavoritesPage />} />
+                      <Route path="/history" element={<HistoryPage />} />
+                      <Route path="/sources" element={<SourceManagerPage />} />
+                      <Route path="/tasks" element={<TaskListPage />} />
+                      <Route path="/settings" element={<SettingsPage />} />
+                      <Route path="/settings/appearance" element={<AppearanceSettingsPage />} />
+                      <Route path="/settings/preferences" element={<UsagePreferencesPage />} />
+                      <Route path="/settings/recommendation" element={<RecommendationSettingsPage />} />
+                      <Route path="/settings/kids" element={<KidLockPage />} />
+                      <Route path="/settings/collect" element={<CollectConfigPage />} />
+                      <Route path="/help/guide" element={<CollectGuidePage />} />
+                      <Route path="/settings/video" element={<VideoManagementPage />} />
+                      <Route path="/test-collect" element={<TestCollectPage />} />
+                      <Route path="/help" element={<HelpCenterPage />} />
+                      <Route path="*" element={<Navigate to="/" replace />} />
+                    </Route>
+                  </Routes>
+                </BrowserRouter>
+              </ConfirmProvider>
+            </FontSizeProvider>
+          </ThemeProvider>
+        )}
+      </div>
+      <SplashOverlay ready={ready} />
+    </>
   );
 }
