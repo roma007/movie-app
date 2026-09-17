@@ -13,6 +13,7 @@ const currentVersion = rootPkg.version;
 
 const [major, minor, patch] = currentVersion.split('.').map(Number);
 const newVersion = `${major}.${minor}.${patch + 1}`;
+const androidVersionCode = minor === 0 ? patch + 1 : minor * 100 + patch + 1;
 
 console.log(`Bumping version: ${currentVersion} → ${newVersion}`);
 
@@ -61,6 +62,11 @@ const entries = [
     path: 'apps/mobile/app.json',
     pattern: /"version": "\d+\.\d+\.\d+"/,
     replacement: `"version": "${newVersion}"`,
+  },
+  {
+    path: 'apps/mobile/android/app/build.gradle',
+    pattern: /versionCode \d+\n(\s*)versionName "\d+\.\d+\.\d+"/,
+    replacement: `versionCode ${androidVersionCode}\n$1versionName "${newVersion}"`,
   },
   {
     path: 'apps/mobile/src/pages/SettingsScreen.tsx',

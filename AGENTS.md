@@ -238,6 +238,24 @@ try handler.perform([req])
 2. `assembleRelease` 之后产物核对：`ls apps/mobile/android/app/build/outputs/apk/release/app-*.apk` 名须含当前 `versionName`；debug 同理（`app-debug-vX.Y.Z.apk`）。
 3. 禁止：删除该段配置、硬编码固定文件名、发布不带版本号的 APK。
 
+## 提交即打包安卓铁律（铁律）
+
+> 任何一次提交（commit）完成并版本 bump 后，必须立即产出与当前版本一致的安卓 release APK，否则视为未完成。任何 AI 助手处理提交时必须遵守。
+
+### 机制速查
+- **版本 bump 已自动化**：`scripts/bump-version.mjs`（`.husky/pre-commit` 调用）每次提交把全项目版本 +1，并同步 `apps/mobile/android/app/build.gradle` 的 `versionCode`/`versionName`（`versionCode` = 版本整数，如 1.0.140 → 140），无需手动改版本号。
+- 提交后执行：
+  ```
+  cd apps/mobile/android && ./gradlew :app:assembleRelease
+  ```
+  产物：`app/build/outputs/apk/release/app-release-v<version>.apk`（文件名含当前 `versionName`，由「安卓 release 产物命名规则」保证）。
+- 用 `aapt dump badging` 核对产物 `versionCode`/`versionName` 与当前项目版本（`package.json`）一致。
+
+### 铁律
+1. 提交完成后必须执行 `assembleRelease` 并在反馈中报告产物路径与版本，禁止只提交不打包。
+2. 产物版本（`versionCode`/`versionName`）必须等于当前项目版本，禁止打包落后版本。
+3. 若发现 `bump-version.mjs` 未同步 `build.gradle`（脚本被改/被清/正则失配），须手动同步版本号后再打包，并按原因修正脚本。
+
 ## 移动端构建同步铁律（模拟器 + iPhone 保持最新）
 
 > 任何修改移动端代码（`apps/mobile`、`packages/core` 被移动端消费的 JS/TS）后，必须同时构建部署到**安卓模拟器**与 **iPhone 真机（MfiPhone）**，保证两端运行的都是最新构建。违反视为未完成。
