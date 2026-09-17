@@ -69,6 +69,26 @@ const entries = [
     replacement: `versionCode ${androidVersionCode}\n$1versionName "${newVersion}"`,
   },
   {
+    path: 'apps/mobile/ios/MovieApp/Info.plist',
+    pattern: /CFBundleShortVersionString<\/key>\n(\s*)<string>\d+\.\d+\.\d+<\/string>/,
+    replacement: `CFBundleShortVersionString</key>\n$1<string>${newVersion}</string>`,
+  },
+  {
+    path: 'apps/mobile/ios/MovieApp/Info.plist',
+    pattern: /CFBundleVersion<\/key>\n(\s*)<string>\d+<\/string>/,
+    replacement: `CFBundleVersion</key>\n$1<string>${androidVersionCode}</string>`,
+  },
+  {
+    path: 'apps/mobile/ios/MovieApp.xcodeproj/project.pbxproj',
+    pattern: /MARKETING_VERSION = \d+(\.\d+)*;/g,
+    replacement: `MARKETING_VERSION = ${newVersion};`,
+  },
+  {
+    path: 'apps/mobile/ios/MovieApp.xcodeproj/project.pbxproj',
+    pattern: /CURRENT_PROJECT_VERSION = \d+;/g,
+    replacement: `CURRENT_PROJECT_VERSION = ${androidVersionCode};`,
+  },
+  {
     path: 'apps/mobile/src/pages/SettingsScreen.tsx',
     pattern: /<Text style={styles\.menuValue}>\d+\.\d+\.\d+<\/Text>/,
     replacement: `<Text style={styles.menuValue}>${newVersion}</Text>`,
