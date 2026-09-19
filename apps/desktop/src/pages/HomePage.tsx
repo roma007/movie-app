@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { Media, Episode, UserUsageType, WatchHistory, HiddenCollectItem } from '@movie-app/core';
+import type { Media, Episode, UserUsageType, WatchHistory } from '@movie-app/core';
 import { getSplashStore } from '@movie-app/core';
 import { useAppStore, getProvider } from '../useAppStore';
 import { openMediaPlay } from '../utils/openMediaPlay';
@@ -12,8 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Card } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
-import { Search, X, Heart, Clock, ChevronRight as ChevronRightIcon, Film, Tv, Sparkles, Download, Plus, Database, Loader2, Check } from 'lucide-react';
+import { KeywordCollectDialog } from '@/components/KeywordCollectDialog';
+import { Search, X, Heart, Clock, ChevronRight as ChevronRightIcon, Film, Tv, Sparkles, Download, Database } from 'lucide-react';
 import { useToast } from '@/components/Layout';
 
 const USAGE_LABELS: Record<UserUsageType, string> = {
@@ -22,8 +22,6 @@ const USAGE_LABELS: Record<UserUsageType, string> = {
   TV_SERIES: '追剧/综艺',
 };
 
-const MAX_DISPLAY_TITLES = 8;
-
 export default function HomePage() {
   const {
     favorites, watchHistory,
@@ -31,9 +29,8 @@ export default function HomePage() {
     loadFavorites, loadWatchHistory,
     removeHistoryItem,
     userUsageTypes, loadUserUsageTypes,
-    collectLatest, searchKeywordPreview, previewResults, previewLoading,
-    saveSelectedPreviewItems, clearPreviewResults, isCollecting, collectSourceProgress,
-    videoSources, unhideMediaByGenres,
+    collectLatest, isCollecting, collectSourceProgress,
+    videoSources,
   } = useAppStore();
   const openAiImport = useImportDialogStore((s) => s.openAiImport);
   const navigate = useNavigate();
@@ -48,13 +45,9 @@ export default function HomePage() {
   const [searchKeyword, setSearchKeyword] = useState('');
 
   const [quickKeyword, setQuickKeyword] = useState('');
-  const [selectedPreviewIds, setSelectedPreviewIds] = useState<Set<string>>(new Set());
   const [relaxYear, setRelaxYear] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [hasQuickSearched, setHasQuickSearched] = useState(false);
-  const [quickCollectCount, setQuickCollectCount] = useState(0);
+  const [showKeywordDialog, setShowKeywordDialog] = useState(false);
   const [latestMedia, setLatestMedia] = useState<Media[]>([]);
-  const [hiddenCollect, setHiddenCollect] = useState<HiddenCollectItem[] | null>(null);
 
   const provider = getProvider();
 
@@ -144,10 +137,6 @@ export default function HomePage() {
       if (m?.id && m.posterUrl) candidates.push({ id: m.id, posterUrl: m.posterUrl });
     };
 
-    if (userUsageTypes.includes('SEARCH_FIRST') && previewResults.length > 0) {
-      push(previewResults[0]);
-    }
-
     if (userUsageTypes.includes('NEW_MOVIES') && latestMedia.length > 0) {
       push(latestMedia[0]);
     }
@@ -170,7 +159,7 @@ export default function HomePage() {
 
     setBgImage(first.posterUrl);
     return () => clearBgImage();
-  }, [latestMedia, watchHistory, favorites, mediaMap, userUsageTypes, previewResults, setBgImage, clearBgImage]);
+  }, [latestMedia, watchHistory, favorites, mediaMap, userUsageTypes, setBgImage, clearBgImage]);
 
   const handleSearch = () => {
     const kw = searchKeyword.trim();
@@ -178,45 +167,10 @@ export default function HomePage() {
     navigate(`/search?q=${encodeURIComponent(kw)}`);
   };
 
-  const getOverrides = useCallback(() => {
-    const overrides: { unlimitedYear?: boolean } = {};
-    if (relaxYear) overrides.unlimitedYear = true;
-    return Object.keys(overrides).length > 0 ? overrides : undefined;
-  }, [relaxYear]);
-
-  const handleQuickPreview = useCallback(async () => {
-    const kw = quickKeyword.trim();
-    if (!kw) return;
-    setHasQuickSearched(true);
-    setQuickCollectCount(0);
-    setSelectedPreviewIds(new Set());
-    clearPreviewResults();
-    await searchKeywordPreview(kw, getOverrides());
-  }, [quickKeyword, searchKeywordPreview, clearPreviewResults, getOverrides]);
-
-  const handleQuickCollect = useCallback(async () => {
-    if (selectedPreviewIds.size === 0) {
-      toast('请至少勾选一个视频', 'error');
-      return;
-    }
-    setIsSaving(true);
-    const items = previewResults.filter((p) => selectedPreviewIds.has(p.previewId));
-    const result = await saveSelectedPreviewItems(items, getOverrides());
-    setIsSaving(false);
-    const count = result.saved;
-    if (count > 0) {
-      toast(`成功采集 ${count} 部视频`);
-      setQuickCollectCount(count);
-      clearPreviewResults();
-      setQuickKeyword('');
-      setRelaxYear(false);
-      if (result.hiddenItems.length > 0) {
-        setHiddenCollect(result.hiddenItems);
-      }
-    } else {
-      toast('采集失败，请重试', 'error');
-    }
-  }, [previewResults, selectedPreviewIds, saveSelectedPreviewItems, clearPreviewResults, toast, getOverrides]);
+  const handleQuickPreview = useCallback(() => {
+    if (!quickKeyword.trim()) return;
+    setShowKeywordDialog(true);
+  }, [quickKeyword]);
 
   const handleCollectLatest = useCallback(async () => {
     if (videoSources.length === 0) {
@@ -233,15 +187,6 @@ export default function HomePage() {
         .catch(() => {});
     }
   }, [collectLatest, provider, toast, userUsageTypes, videoSources.length, openAiImport]);
-
-  const togglePreviewItem = (previewId: string) => {
-    setSelectedPreviewIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(previewId)) next.delete(previewId);
-      else next.add(previewId);
-      return next;
-    });
-  };
 
   const renderSearchFirstCard = () => (
     <Card className="p-4">
@@ -262,86 +207,10 @@ export default function HomePage() {
           <Switch checked={relaxYear} onCheckedChange={setRelaxYear} />
           不限年份
         </label>
-        <Button onClick={handleQuickPreview} disabled={previewLoading} variant="default">
+        <Button onClick={handleQuickPreview} variant="default">
           <Search className="size-4 mr-1" />搜索采集
         </Button>
       </div>
-      {previewLoading && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-          <Loader2 className="size-4 animate-spin" />
-          <span>正在搜索...</span>
-        </div>
-      )}
-      {hasQuickSearched && !previewLoading && quickCollectCount > 0 && (
-        <div className="flex items-center gap-2 text-green-500 bg-green-500/10 rounded-lg px-4 py-3 mb-3">
-          <span className="text-lg">✓</span>
-          <span className="text-sm font-medium">成功采集 {quickCollectCount} 部视频</span>
-        </div>
-      )}
-      {hasQuickSearched && !previewLoading && quickCollectCount === 0 && previewResults.length === 0 && (
-        <div className="text-center text-muted-foreground py-6 space-y-2">
-          <p>未找到相关视频</p>
-          <p className="text-xs">请尝试更改关键词或放宽搜索条件</p>
-        </div>
-      )}
-      {hasQuickSearched && !previewLoading && quickCollectCount === 0 && previewResults.length > 0 && (
-        <div className="grid grid-cols-[repeat(auto-fill,6rem)] gap-3 max-h-[32rem] overflow-y-auto pr-1">
-          {previewResults.map((item) => {
-            const checked = selectedPreviewIds.has(item.previewId);
-            return (
-              <div
-                key={item.previewId}
-                className={`group cursor-pointer transition-all ${checked ? 'opacity-100' : ''}`}
-                onClick={() => togglePreviewItem(item.previewId)}
-              >
-                <div className="aspect-[2/3] bg-[var(--color-secondary-alpha)] overflow-hidden rounded-lg relative">
-                  {item.posterUrl && (
-                    <PosterImage src={item.posterUrl} alt="" className="size-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                  )}
-                  <div className={`absolute top-1 left-1 z-10 flex items-center justify-center size-5 rounded-md border-2 transition-colors ${checked ? 'bg-primary border-primary text-white' : 'bg-black/40 border-white/70'}`}>
-                    {checked && <Check className="size-3.5" />}
-                  </div>
-                </div>
-                <div className="px-1.5 py-1 space-y-0.5">
-                  <div className="text-xs font-medium truncate">{item.title}</div>
-                  <div className="text-[10px] text-muted-foreground truncate">{item.year} · {item.sourceName}</div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {hasQuickSearched && !previewLoading && quickCollectCount === 0 && previewResults.length > 0 && (
-        <div className="flex items-center justify-between mt-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">
-              已选 {selectedPreviewIds.size} / 共 {previewResults.length} 个
-            </span>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setSelectedPreviewIds(new Set(previewResults.map((p) => p.previewId)))}
-            >
-              全选
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setSelectedPreviewIds((prev) => {
-                  const next = new Set(previewResults.filter((p) => !prev.has(p.previewId)).map((p) => p.previewId));
-                  return next;
-                });
-              }}
-            >
-              反选
-            </Button>
-          </div>
-          <Button size="sm" onClick={handleQuickCollect} disabled={isSaving} variant="default">
-            {isSaving ? <><Loader2 className="size-3 mr-1 animate-spin" /> 保存中...</> : <><Plus className="size-3 mr-1" />一键采集</>}
-          </Button>
-        </div>
-      )}
     </Card>
   );
 
@@ -473,6 +342,7 @@ export default function HomePage() {
   };
 
   return (
+    <>
     <div className="p-6 space-y-5 max-w-7xl mx-auto">
       <div className="flex gap-2 items-center">
         <div className="relative flex-1">
@@ -562,47 +432,13 @@ export default function HomePage() {
             )}
           </Card>
         </>
-
-      <Dialog open={!!hiddenCollect} onOpenChange={(open) => { if (!open) setHiddenCollect(null); }}>
-        <DialogContent className="w-full max-w-md">
-          <DialogHeader>
-            <DialogTitle>部分视频已被隐藏</DialogTitle>
-            <DialogDescription>
-              {hiddenCollect && (() => {
-                const titles = hiddenCollect.map((h) => h.title);
-                const titleText = titles.length > MAX_DISPLAY_TITLES
-                  ? `${titles.slice(0, MAX_DISPLAY_TITLES).join('、')}等${titles.length}部`
-                  : titles.join('、');
-                const genres = [...new Set(hiddenCollect.flatMap((h) => h.genres))];
-                return `「${titleText}」视频名被隐藏，恢复显示「${genres.join('、')}」类视频后就可以找到。`;
-              })()}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={async () => {
-                const genres = hiddenCollect ? [...new Set(hiddenCollect.flatMap((h) => h.genres))] : [];
-                setHiddenCollect(null);
-                if (genres.length === 0) return;
-                try {
-                  const res = await unhideMediaByGenres(genres);
-                  toast(`已取消隐藏「${genres.join('、')}」，恢复显示 ${res.unhidden} 部视频`);
-                } catch (err: any) {
-                  toast('取消隐藏失败', 'error');
-                  console.error('[HOME] 取消隐藏子类型失败:', err);
-                }
-              }}
-            >
-              取消隐藏
-            </Button>
-            <DialogClose asChild>
-              <Button variant="outline" size="sm" onClick={() => setHiddenCollect(null)}>知道了</Button>
-            </DialogClose>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
+      </div>
+      <KeywordCollectDialog
+        open={showKeywordDialog}
+        onOpenChange={setShowKeywordDialog}
+        initialKeyword={quickKeyword}
+        initialRelaxYear={relaxYear}
+      />
+    </>
+    );
+  }

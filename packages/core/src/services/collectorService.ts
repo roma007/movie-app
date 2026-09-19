@@ -176,9 +176,9 @@ export class CollectorService {
 
   private logPerf(level: string, context: Record<string, unknown>, meter: PerfMeter): void {
     try {
-      console.error(`[CollectorPerf] ${level} ${JSON.stringify({ ...context, nodes: meter.summary() })}`);
+      console.log(`[CollectorPerf] ${level} ${JSON.stringify({ ...context, nodes: meter.summary() })}`);
     } catch {
-      console.error(`[CollectorPerf] ${level} ${JSON.stringify(context)}`);
+      console.log(`[CollectorPerf] ${level} ${JSON.stringify(context)}`);
     }
   }
 
@@ -1901,7 +1901,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
   }
 
   private logTaskStep(step: string, sourceCode: string, taskId: string, sinceMs: number): void {
-    console.error(`[CollectTask] ${step} source=${sourceCode} task=${taskId || '-'} dt=${Date.now() - sinceMs}ms at=${new Date().toISOString()}`);
+    console.log(`[CollectTask] ${step} source=${sourceCode} task=${taskId || '-'} dt=${Date.now() - sinceMs}ms at=${new Date().toISOString()}`);
   }
 
   async collectSourceLatest(sourceCode: string, startPage: number = 1, resumeTaskId?: string): Promise<{ taskId: string; collected: number }> {

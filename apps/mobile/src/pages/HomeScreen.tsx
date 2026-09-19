@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Switch, ActivityIndicator, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Switch, Animated } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAppStore, getProvider } from '../useAppStore';
@@ -19,7 +19,7 @@ import type { Media, Episode, UserUsageType, WatchHistory } from '@movie-app/cor
 import { getSplashStore } from '@movie-app/core';
 import { radius } from '../themes/radiusTokens';
 import { openMediaPlay } from '../utils/openMediaPlay';
-import { Sparkles, Film, Tv, Clock, Heart, CheckSquare, Square, X } from 'lucide-react-native';
+import { Sparkles, Film, Tv, Clock, Heart, X } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function TvPosterCard({ media, epLabel, progressPct, editing, onPress, onLongPress, onDelete }: {
@@ -175,9 +175,7 @@ export default function HomeScreen() {
     removeHistoryItem,
     userUsageTypes, loadUserUsageTypes,
     collectLatest, isCollecting: storeLoading,
-    searchKeywordPreview, previewResults, previewLoading,
-    saveSelectedPreviewItems, clearPreviewResults,
-    videoSources, loadVideoSources, unhideMediaByGenres,
+    videoSources, loadVideoSources,
   } = useAppStore();
 
   const [editMode, setEditMode] = useState(false);
@@ -190,7 +188,6 @@ export default function HomeScreen() {
   const [sourceTotalMap, setSourceTotalMap] = useState<Record<string, Record<string, number>>>({});
   const [latestMedia, setLatestMedia] = useState<Media[]>([]);
   const [quickKeyword, setQuickKeyword] = useState('');
-  const [selectedPreviewIds, setSelectedPreviewIds] = useState<Set<string>>(new Set([]));
   const [relaxYear, setRelaxYear] = useState(false);
 
   const [sourcesChecked, setSourcesChecked] = useState(false);
@@ -324,59 +321,11 @@ export default function HomeScreen() {
     return () => { cancelled = true; };
   }, [historyMediaList, provider]);
 
-  const handleQuickPreview = useCallback(async () => {
+  const handleQuickPreview = useCallback(() => {
     const kw = quickKeyword.trim();
     if (!kw) return;
-    setSelectedPreviewIds(new Set([]));
-    await searchKeywordPreview(kw, { unlimitedYear: relaxYear });
-  }, [quickKeyword, searchKeywordPreview, relaxYear]);
-
-  const handleQuickCollect = useCallback(async () => {
-    const items = previewResults.filter((p) => selectedPreviewIds.size === 0 || selectedPreviewIds.has(p.previewId));
-    if (items.length === 0) {
-      Alert.alert('提示', '请至少选择一个视频');
-      return;
-    }
-    const result = await saveSelectedPreviewItems(items, { unlimitedYear: relaxYear });
-    const count = result.saved;
-    if (count > 0) {
-      Alert.alert('采集完成', `成功采集 ${count} 部视频`);
-      clearPreviewResults();
-      setQuickKeyword('');
-      setRelaxYear(false);
-      if (result.hiddenItems.length > 0) {
-        const titles = result.hiddenItems.map((h) => h.title);
-        const titleText = titles.length > 8
-          ? `${titles.slice(0, 8).join('、')}等${titles.length}部`
-          : titles.join('、');
-        const genres = [...new Set(result.hiddenItems.flatMap((h) => h.genres))];
-        Alert.alert(
-          '部分视频已被隐藏',
-          `「${titleText}」视频名被隐藏，恢复显示「${genres.join('、')}」类视频后就可以找到。是否取消隐藏这些子类型？`,
-          [
-            { text: '取消', style: 'cancel' },
-            {
-              text: '取消隐藏',
-              onPress: () => {
-                unhideMediaByGenres(genres)
-                  .then((res) => {
-                    if (res.unhidden > 0) {
-                      Alert.alert('已恢复', `已取消隐藏「${genres.join('、')}」，恢复显示 ${res.unhidden} 部视频`);
-                    }
-                  })
-                  .catch((err) => {
-                    console.error('[HOME] 取消隐藏子类型失败:', err);
-                    Alert.alert('操作失败', '取消隐藏失败，请重试');
-                  });
-              },
-            },
-          ]
-        );
-      }
-    } else {
-      Alert.alert('采集失败', '请重试');
-    }
-  }, [previewResults, selectedPreviewIds, saveSelectedPreviewItems, clearPreviewResults, relaxYear]);
+    navigation.push('KeywordCollect', { keyword: kw, relaxYear });
+  }, [quickKeyword, relaxYear, navigation]);
 
   const handleMobileCollectLatest = useCallback(async () => {
     await collectLatest();
@@ -386,15 +335,6 @@ export default function HomeScreen() {
         .catch(() => {});
     }
   }, [collectLatest, provider, userUsageTypes]);
-
-  const toggleMobilePreviewItem = (previewId: string) => {
-    setSelectedPreviewIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(previewId)) next.delete(previewId);
-      else next.add(previewId);
-      return next;
-    });
-  };
 
   const renderSearchFirstCard = () => (
     <View style={[styles.usageCard, styles.searchFirstCard]}>
@@ -411,16 +351,10 @@ export default function HomeScreen() {
           onChangeText={setQuickKeyword}
           onSubmitEditing={handleQuickPreview}
         />
-        <Button variant="primary" size="sm" onPress={handleQuickPreview} loading={previewLoading}>
+        <Button variant="primary" size="sm" onPress={handleQuickPreview}>
           搜索采集
         </Button>
       </View>
-      {previewLoading && (
-        <View style={styles.quickSearchLoading}>
-          <ActivityIndicator size="small" color={colors.mutedForeground} />
-          <Text style={styles.quickSearchLoadingText}>正在搜索...</Text>
-        </View>
-      )}
       <View style={styles.optionRow}>
         <View style={styles.switchRow}>
           <Switch
@@ -432,31 +366,6 @@ export default function HomeScreen() {
           <Text style={styles.switchLabel}>不限年份</Text>
         </View>
       </View>
-      {previewResults.length > 0 && (
-        <View style={styles.previewList}>
-          {previewResults.map((item) => (
-            <TouchableOpacity
-              key={item.previewId}
-              style={styles.previewItem}
-              onPress={() => toggleMobilePreviewItem(item.previewId)}
-            >
-              <Text style={styles.previewCheck}>
-                {selectedPreviewIds.size === 0 || selectedPreviewIds.has(item.previewId) ? <CheckSquare size={16} color={colors.text} /> : <Square size={16} color={colors.mutedForeground} />}
-              </Text>
-              {item.posterUrl && (
-                <PosterImage uri={item.posterUrl} style={styles.previewPoster} />
-              )}
-              <View style={styles.previewInfo}>
-                <Text style={styles.previewTitle} numberOfLines={1}>{item.title}</Text>
-                <Text style={styles.previewMeta}>{item.year} · {item.type} · {item.sourceName}</Text>
-              </View>
-            </TouchableOpacity>
-          ))}
-          <Button variant="primary" size="md" fullWidth onPress={handleQuickCollect}>
-            一键采集（{selectedPreviewIds.size === 0 ? previewResults.length : selectedPreviewIds.size} 部）
-          </Button>
-        </View>
-      )}
     </View>
   );
 
@@ -652,16 +561,6 @@ export default function HomeScreen() {
       flexDirection: 'row',
       gap: 8,
     },
-    quickSearchLoading: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      marginTop: 8,
-    },
-    quickSearchLoadingText: {
-      color: colors.mutedForeground,
-      fontSize: s(13),
-    },
     optionRow: {
       flexDirection: 'row',
       gap: 16,
@@ -675,51 +574,6 @@ export default function HomeScreen() {
     switchLabel: {
       fontSize: s(13),
       color: colors.mutedForeground,
-    },
-    previewList: {
-      marginTop: 10,
-      paddingTop: 10,
-    },
-    previewItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingVertical: 8,
-      gap: 10,
-    },
-    previewCheck: {
-      fontSize: s(18),
-      color: colors.text,
-    },
-    previewPoster: {
-      width: 36,
-      height: 54,
-      borderRadius: radius.sm,
-      backgroundColor: cardBg,
-    },
-    previewInfo: {
-      flex: 1,
-    },
-    previewTitle: {
-      fontSize: s(14),
-      color: colors.text,
-      fontWeight: '500',
-    },
-    previewMeta: {
-      fontSize: s(11),
-      color: colors.mutedForeground,
-      marginTop: 2,
-    },
-    collectActionBtn: {
-      backgroundColor: hexToRgba(colors.mutedForeground, cardOpacity / 100),
-      borderRadius: radius.md,
-      paddingVertical: 12,
-      alignItems: 'center',
-      marginTop: 8,
-    },
-    collectActionBtnText: {
-      color: colors.text,
-      fontSize: s(14),
-      fontWeight: '600',
     },
     doneButton: {
       position: 'absolute',

@@ -50,7 +50,20 @@ function captureWebviewErrors() {
     origError(...args);
     try {
       const text = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
-      if (text.startsWith('[VideoPlayer]') || text.startsWith('[Prefetch]') || text.startsWith('[TauriLoader]') || text.startsWith('[CollectorPerf]')) {
+      if (text.startsWith('[VideoPlayer]') || text.startsWith('[Prefetch]') || text.startsWith('[TauriLoader]')) {
+        log(text.slice(0, 2000));
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const origLog = console.log.bind(console);
+  console.log = (...args: unknown[]) => {
+    origLog(...args);
+    try {
+      const text = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
+      if (text.startsWith('[CollectorPerf]')) {
         log(text.slice(0, 2000));
       }
     } catch {

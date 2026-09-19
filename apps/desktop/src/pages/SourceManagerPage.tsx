@@ -29,14 +29,13 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Switch } from '@/components/ui/switch';
 import { useAppStore } from '../useAppStore';
 import { useConfirm } from '@/components/ConfirmProvider';
 import { useToast } from '@/components/Layout';
 import { SourceImportService, AI_SOURCE_PROMPT, AI_SOURCE_IMPORT_SAMPLE } from '@movie-app/core';
 import type { VideoSource, CollectTask, CollectPreviewItem, ImportSourceItem, ParsedImportSource } from '@movie-app/core';
 import { useBackgroundStore } from '../themes/backgroundStore';
-import { PosterImage } from '@/components/PosterImage';
+import { KeywordCollectDialog } from '@/components/KeywordCollectDialog';
 
 
 export default function SourceManagerPage() {
@@ -58,11 +57,6 @@ export default function SourceManagerPage() {
     toggleSourceEnabled,
     deletePlaySourcesBySourceId,
     checkVideoSource,
-    previewResults,
-    previewLoading,
-    searchKeywordPreview,
-    saveSelectedPreviewItems,
-    clearPreviewResults,
     batchImportSources,
     validateImportSources,
   } = useAppStore();
@@ -78,11 +72,6 @@ export default function SourceManagerPage() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [showKeywordDialog, setShowKeywordDialog] = useState(false);
-  const [keywordInput, setKeywordInput] = useState('');
-  const [selectedPreviewIds, setSelectedPreviewIds] = useState<Set<string>>(new Set());
-  const [isSaving, setIsSaving] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
-  const [relaxYear, setRelaxYear] = useState(false);
 
   const [showAiImportDialog, setShowAiImportDialog] = useState(false);
   const [aiStep, setAiStep] = useState<'prompt' | 'paste' | 'preview'>('prompt');
@@ -166,62 +155,6 @@ export default function SourceManagerPage() {
     } finally {
       setCheckingSource(null);
     }
-  };
-
-  const handleKeywordSearch = async () => {
-    const kw = keywordInput.trim();
-    if (!kw) return;
-    setHasSearched(true);
-    setSelectedPreviewIds(new Set());
-    const overrides: { unlimitedYear?: boolean } = {};
-    if (relaxYear) overrides.unlimitedYear = true;
-    await searchKeywordPreview(kw, Object.keys(overrides).length > 0 ? overrides : undefined);
-  };
-
-  const handleTogglePreview = (previewId: string) => {
-    setSelectedPreviewIds(prev => {
-      const next = new Set(prev);
-      if (next.has(previewId)) next.delete(previewId);
-      else next.add(previewId);
-      return next;
-    });
-  };
-
-  const handleSelectAll = () => {
-    if (selectedPreviewIds.size === previewResults.length) {
-      setSelectedPreviewIds(new Set());
-    } else {
-      setSelectedPreviewIds(new Set(previewResults.map(r => r.previewId)));
-    }
-  };
-
-  const handleSavePreview = async () => {
-    const selected = previewResults.filter(r => selectedPreviewIds.has(r.previewId));
-    if (selected.length === 0) return;
-    setIsSaving(true);
-    try {
-      const overrides: { unlimitedYear?: boolean } = {};
-      if (relaxYear) overrides.unlimitedYear = true;
-      const count = (await saveSelectedPreviewItems(selected, Object.keys(overrides).length > 0 ? overrides : undefined)).saved;
-      toast(`已保存 ${count} 条数据到本地`);
-      setShowKeywordDialog(false);
-      setKeywordInput('');
-      setSelectedPreviewIds(new Set());
-      clearPreviewResults();
-    } catch (err: any) {
-      toast(`保存失败: ${err.message}`, 'error');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleCloseKeywordDialog = () => {
-    setShowKeywordDialog(false);
-    setKeywordInput('');
-    setSelectedPreviewIds(new Set());
-    setHasSearched(false);
-    setRelaxYear(false);
-    clearPreviewResults();
   };
 
   const handleCollect = async (source: VideoSource, type: 'increment' | 'full') => {
@@ -747,126 +680,7 @@ export default function SourceManagerPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showKeywordDialog} onOpenChange={(open) => {
-        if (!open) handleCloseKeywordDialog();
-      }}>
-        <DialogContent className="w-full max-w-[55vw] max-h-[80vh] flex flex-col gap-0 p-0">
-          <DialogHeader className="px-6 pt-5 pb-3">
-            <DialogTitle>关键词搜索采集</DialogTitle>
-            <DialogDescription>输入关键词，遍历所有已启用的视频源搜索，预览结果后选择保存</DialogDescription>
-          </DialogHeader>
-
-          <div className="flex gap-2 px-6 py-3">
-            <Input
-              placeholder="输入电影/电视剧名称..."
-              value={keywordInput}
-              onChange={(e) => setKeywordInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleKeywordSearch()}
-              className="flex-1"
-            />
-            <Button onClick={handleKeywordSearch} disabled={previewLoading}>
-              <Search className="size-4 mr-1" /> 搜索
-            </Button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto min-h-0 px-6 py-3">
-            {previewLoading ? (
-              <div className="flex items-center justify-center h-40 text-muted-foreground">
-                <Loader2 className="size-5 mr-2 animate-spin" /> 正在搜索...
-              </div>
-            ) : previewResults.length > 0 ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">搜索结果</span>
-                  <div className="flex items-center gap-3">
-                    <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={handleSelectAll}>
-                      {selectedPreviewIds.size === previewResults.length ? '取消全选' : '全选'}
-                    </Button>
-                    <span className="text-xs text-muted-foreground">
-                      已选 {selectedPreviewIds.size} / 共 {previewResults.length} 条
-                    </span>
-                  </div>
-                </div>
-                <div className="space-y-1.5 mt-2">
-                  {previewResults.map((item) => {
-                    const isSelected = selectedPreviewIds.has(item.previewId);
-                    return (
-                      <label
-                        key={item.previewId}
-                        className={`flex items-start gap-3 p-2.5 rounded-md border cursor-pointer transition-colors ${
-                          isSelected ? 'border-muted-foreground bg-muted-foreground/20' : 'hover:bg-hover'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => handleTogglePreview(item.previewId)}
-                          className="mt-2 size-5 accent-primary cursor-pointer"
-                        />
-                        <div className="w-10 h-14 shrink-0 rounded overflow-hidden bg-secondary">
-                          {item.posterUrl && (
-                            <PosterImage src={item.posterUrl} alt={item.title} className="size-full object-cover" />
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-sm truncate">{item.title}</span>
-                            <span className="text-xs text-muted-foreground shrink-0">({item.year})</span>
-                            <Badge variant="outline" className="text-[10px] shrink-0">{item.type}</Badge>
-                          </div>
-                          <div className="text-xs text-muted-foreground truncate mt-0.5">
-                            {item.directors.length > 0 && <span>导演: {item.directors.join(', ')}</span>}
-                            {item.directors.length > 0 && item.actors.length > 0 && <span> | </span>}
-                            {item.actors.length > 0 && <span>演员: {item.actors.slice(0, 3).join(', ')}{item.actors.length > 3 ? '...' : ''}</span>}
-                          </div>
-                          <div className="text-xs text-muted-foreground mt-0.5">
-                            来源: {item.sourceName} · {item.area || '未知地区'}
-                          </div>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : hasSearched ? (
-              <div className="flex flex-col items-center justify-center h-40 text-muted-foreground gap-2">
-                <Search className="size-8 opacity-30" />
-                <p className="text-sm">「{keywordInput}」未搜索到相关结果</p>
-                <p className="text-xs">请尝试其他关键词</p>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center h-40 text-muted-foreground">
-                <p className="text-sm">输入关键词后点击搜索</p>
-              </div>
-            )}
-          </div>
-
-          {hasSearched && (!previewLoading || relaxYear) && (
-            <>
-              <div className="flex items-center justify-between px-6 py-2.5">
-                <span className="text-base font-bold">放宽搜索条件</span>
-                <div className="flex items-center gap-5">
-                  <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                    <Switch checked={relaxYear} onCheckedChange={setRelaxYear} />
-                    不限年份
-                  </label>
-                </div>
-              </div>
-            </>
-          )}
-
-          <div className="flex justify-end gap-3 px-6 py-3">
-            <Button variant="outline" onClick={handleCloseKeywordDialog}>关闭</Button>
-            {previewResults.length > 0 && (
-              <Button onClick={handleSavePreview} disabled={selectedPreviewIds.size === 0 || isSaving}>
-                {isSaving ? <><Loader2 className="size-4 mr-1 animate-spin" /> 保存中...</> : `保存选中的 ${selectedPreviewIds.size} 条`}
-              </Button>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* AI 导入对话框 */}
+      <KeywordCollectDialog open={showKeywordDialog} onOpenChange={setShowKeywordDialog} />{/* AI 导入对话框 */}
       <Dialog open={showAiImportDialog} onOpenChange={(open) => {
         if (!open) handleAiReset();
         setShowAiImportDialog(open);

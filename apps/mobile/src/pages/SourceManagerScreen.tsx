@@ -1,8 +1,8 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Alert, Modal, TextInput, ActivityIndicator } from 'react-native';
+import { useEffect, useState, useRef, useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, Alert, Modal, TextInput } from 'react-native';
 import { useAppStore, getProvider } from '../useAppStore';
 import { SourceImportService, AI_SOURCE_PROMPT, AI_SOURCE_IMPORT_SAMPLE } from '@movie-app/core';
-import type { VideoSource, CollectTask, CollectPreviewItem, ImportSourceItem, ParsedImportSource } from '@movie-app/core';
+import type { VideoSource, CollectTask, ImportSourceItem, ParsedImportSource } from '@movie-app/core';
 import Toast, { showToast } from '../components/Toast';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
@@ -37,8 +37,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
     toggleSourceEnabled, removeVideoSource, addVideoSource,
     checkVideoSource, collectSourceLatest, collectSourceAll,
     collectTasks, loadRunningCollectTasks,
-    previewResults, previewLoading,
-    searchKeywordPreview, saveSelectedPreviewItems, clearPreviewResults,
     batchImportSources, validateImportSources,
   } = useAppStore();
 
@@ -79,25 +77,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
     modalTitle: { fontSize: sf(20), fontWeight: 'bold', color: colors.text, textAlign: 'center' },
     modalButtons: { flexDirection: 'row', gap: 12, marginTop: 8 },
     modalButton: { flex: 1 },
-    keywordModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', paddingTop: 60 },
-    keywordModalContent: { flex: 1, backgroundColor: colors.background, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, gap: 12 },
-    keywordSearchRow: { flexDirection: 'row', gap: 8 },
-    optionRow: { flexDirection: 'row', gap: 16 },
-    switchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    switchLabel: { fontSize: sf(13), color: colors.mutedForeground },
-    previewLoading: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 30, gap: 8 },
-    previewLoadingText: { color: colors.mutedForeground, fontSize: sf(14) },
-    previewEmpty: { color: colors.disabledForeground, textAlign: 'center', paddingVertical: 30, fontSize: sf(15) },
-    previewHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    selectedCount: { color: colors.mutedForeground, fontSize: sf(13) },
-    previewList: { maxHeight: 400 },
-    previewItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 8, borderRadius: radius.sm },
-    previewItemSelected: { backgroundColor: 'rgba(74,158,255,0.05)' },
-    previewCheckbox: { width: 22, height: 22, borderRadius: radius.sm, backgroundColor: colors.surface, marginRight: 12, justifyContent: 'center', alignItems: 'center' },
-    previewItemInfo: { flex: 1 },
-    previewItemTitle: { fontSize: sf(15), color: colors.text, marginBottom: 2 },
-    previewItemMeta: { fontSize: sf(12), color: colors.mutedForeground, marginBottom: 1 },
-    previewItemDetail: { fontSize: sf(11), color: colors.disabledForeground },
     aiModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', paddingTop: 60 },
     aiModalContent: { flex: 1, backgroundColor: colors.background, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, gap: 12 },
     aiSubtitle: { fontSize: sf(13), color: colors.mutedForeground, textAlign: 'center', lineHeight: 18 },
@@ -148,12 +127,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
 
   const [checkingSource, setCheckingSource] = useState<string | null>(null);
 
-  const [keywordModalVisible, setKeywordModalVisible] = useState(false);
-  const [keywordInput, setKeywordInput] = useState('');
-  const [selectedPreviewIds, setSelectedPreviewIds] = useState<Set<string>>(new Set());
-  const [hasSearched, setHasSearched] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [relaxYear, setRelaxYear] = useState(false);
   const [submittingSources, setSubmittingSources] = useState<Record<string, 'increment' | 'full'>>({});
 
   const [aiModalVisible, setAiModalVisible] = useState(false);
@@ -332,62 +305,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
       .finally(() => clearSubmitting());
   };
 
-  const handleKeywordSearch = async () => {
-    if (!keywordInput.trim()) return;
-    setHasSearched(true);
-    setSelectedPreviewIds(new Set());
-    try {
-      await searchKeywordPreview(keywordInput.trim(), {
-        unlimitedYear: relaxYear,
-      });
-    } catch (err) {
-      console.error('关键词搜索采集失败:', err);
-    }
-  };
-
-  const handleTogglePreviewItem = (previewId: string) => {
-    setSelectedPreviewIds(prev => {
-      const next = new Set(prev);
-      if (next.has(previewId)) {
-        next.delete(previewId);
-      } else {
-        next.add(previewId);
-      }
-      return next;
-    });
-  };
-
-  const handleSelectAllPreview = () => {
-    if (selectedPreviewIds.size === previewResults.length) {
-      setSelectedPreviewIds(new Set());
-    } else {
-      setSelectedPreviewIds(new Set(previewResults.map(r => r.previewId)));
-    }
-  };
-
-  const handleSavePreview = async () => {
-    if (selectedPreviewIds.size === 0) {
-      showToast('请先选择要保存的视频', 'info');
-      return;
-    }
-    const selectedItems = previewResults.filter(r => selectedPreviewIds.has(r.previewId));
-    setIsSaving(true);
-    try {
-      const count = (await saveSelectedPreviewItems(selectedItems, {
-        unlimitedYear: relaxYear,
-      })).saved;
-      showToast(`已保存 ${count} 条视频`, 'success');
-      clearPreviewResults();
-      setKeywordModalVisible(false);
-      setHasSearched(false);
-      setKeywordInput('');
-    } catch (err: any) {
-      showToast(`保存失败: ${err.message || '未知错误'}`, 'error');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   const handleAiParse = async () => {
     if (!aiPastedText.trim()) {
       showToast('请先粘贴 AI 返回的数据', 'info');
@@ -438,13 +355,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
     setAiResult(null);
   };
 
-  const handleCloseKeywordModal = () => {
-    clearPreviewResults();
-    setKeywordModalVisible(false);
-    setHasSearched(false);
-    setKeywordInput('');
-  };
-
   return (
     <BlurredBackground imageUrl={null}>
     <View style={styles.container}>
@@ -476,7 +386,7 @@ export default function SourceManagerScreen({ navigation }: Props) {
             >
               AI 导入
             </Button>
-            <Button variant="secondary" size="md" style={styles.actionBtn} onPress={() => setKeywordModalVisible(true)}>
+            <Button variant="secondary" size="md" style={styles.actionBtn} onPress={() => navigation.navigate('KeywordCollect')}>
               搜索采集
             </Button>
           </View>
@@ -672,113 +582,6 @@ export default function SourceManagerScreen({ navigation }: Props) {
               </Button>
               <Button variant="primary" size="md" style={styles.modalButton} onPress={handleSaveEdit}>
                 保存
-              </Button>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={keywordModalVisible}
-        onRequestClose={handleCloseKeywordModal}
-      >
-        <View style={styles.keywordModalOverlay}>
-          <View style={styles.keywordModalContent}>
-            <Text style={styles.modalTitle}>关键词搜索采集</Text>
-
-            <View style={styles.keywordSearchRow}>
-              <Input
-                size="lg"
-                style={{ flex: 1 }}
-                placeholder="输入关键词..."
-                value={keywordInput}
-                onChangeText={setKeywordInput}
-                onSubmitEditing={handleKeywordSearch}
-                returnKeyType="search"
-              />
-              <Button variant="primary" size="sm" onPress={handleKeywordSearch}>
-                搜索
-              </Button>
-            </View>
-
-            <View style={styles.optionRow}>
-              <View style={styles.switchRow}>
-                <Switch
-                  value={relaxYear}
-                  onValueChange={setRelaxYear}
-                  trackColor={{ false: colors.swiftTrack, true: colors.swiftActiveTrack }}
-                  thumbColor={relaxYear ? colors.swiftThumb : colors.disabledForeground}
-                />
-                <Text style={styles.switchLabel}>不限年份</Text>
-              </View>
-            </View>
-
-            {previewLoading && (
-              <View style={styles.previewLoading}>
-                <ActivityIndicator size="small" color={colors.mutedForeground} />
-                <Text style={styles.previewLoadingText}>搜索中...</Text>
-              </View>
-            )}
-
-            {hasSearched && !previewLoading && previewResults.length === 0 && (
-              <Text style={styles.previewEmpty}>未找到相关结果</Text>
-            )}
-
-            {previewResults.length > 0 && (
-              <>
-                <View style={styles.previewHeader}>
-                  <Button variant="link" size="sm" onPress={handleSelectAllPreview}>
-                    {selectedPreviewIds.size === previewResults.length ? '取消全选' : `全选 (${previewResults.length})`}
-                  </Button>
-                  <Text style={styles.selectedCount}>已选 {selectedPreviewIds.size} 项</Text>
-                </View>
-                <ScrollView style={styles.previewList}>
-                  {previewResults.map((item: CollectPreviewItem) => {
-                    const selected = selectedPreviewIds.has(item.previewId);
-                    return (
-                      <TouchableOpacity
-                        key={item.previewId}
-                        style={[styles.previewItem, selected && styles.previewItemSelected]}
-                        onPress={() => handleTogglePreviewItem(item.previewId)}
-                      >
-                        <View style={styles.previewCheckbox}>
-                          {selected && <Check size={14} color={colors.text} />}
-                        </View>
-                        <View style={styles.previewItemInfo}>
-                          <Text style={styles.previewItemTitle} numberOfLines={1}>
-                            {item.title} ({item.year})
-                          </Text>
-                          <Text style={styles.previewItemMeta} numberOfLines={1}>
-                            {item.type} · {item.area} · {item.sourceName}
-                          </Text>
-                          {item.directors.length > 0 && (
-                            <Text style={styles.previewItemDetail} numberOfLines={1}>
-                              导演: {item.directors.join(', ')}
-                            </Text>
-                          )}
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </>
-            )}
-
-            <View style={styles.modalButtons}>
-              <Button variant="secondary" size="md" style={styles.modalButton} onPress={handleCloseKeywordModal}>
-                取消
-              </Button>
-              <Button
-                variant="primary"
-                size="md"
-                style={styles.modalButton}
-                loading={isSaving}
-                disabled={isSaving}
-                onPress={handleSavePreview}
-              >
-                保存选中 ({selectedPreviewIds.size})
               </Button>
             </View>
           </View>
