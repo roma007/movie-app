@@ -9,7 +9,7 @@ import { Paths, File } from 'expo-file-system';
 const VideoCache: any = (() => { try { return require('expo-video-cache'); } catch { return null; } })();
 import { getProvider } from '../init';
 import { useAppStore, getStore } from '../useAppStore';
-import { ArrowLeft, EyeOff, Heart, ThumbsDown, Star, Settings, PictureInPicture2, Maximize, ChevronUp, ChevronDown, ChevronRight, Play, Pause, X } from 'lucide-react-native';
+import { ArrowLeft, EyeOff, Heart, ThumbsDown, Star, Settings, PictureInPicture2, Maximize, ChevronRight, X } from 'lucide-react-native';
 import { SystemConfigService, UNCATEGORIZED_GENRE, VideoDurationService, resolveDefaultPlayTarget, AdFloatScheduler, BUILTIN_AD_FLOAT_CONFIG, type AdFloatItem } from '@movie-app/core';
 import { clearCategoryFilterCache } from '../categoryFilterCache';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -93,9 +93,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   currentMediaIdRef.current = mediaId;
   const selectedSourceIdRef = useRef<string | null>(selectedSourceId);
   selectedSourceIdRef.current = selectedSourceId;
-  const [plotExpanded, setPlotExpanded] = useState(false);
   const [plotOverflow, setPlotOverflow] = useState(false);
-  const [castExpanded, setCastExpanded] = useState(false);
   const [castOverflow, setCastOverflow] = useState(false);
   // 沉浸信息卡：简介/导演演员伸缩栏点击后底部滑出面板
   const [introSheetVisible, setIntroSheetVisible] = useState(false);
@@ -121,6 +119,13 @@ export default function PlayScreen({ route, navigation }: Props) {
   const [isActuallyPlaying, setIsActuallyPlaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [initialCurrentTime, setInitialCurrentTime] = useState(0);
+  // 沉浸信息卡「播放线路」展开/收起
+  const [sourceListExpanded, setSourceListExpanded] = useState(false);
+  // MOVIE 多语言版本的片源语言列表（在设置面板展示，仅 >1 时显示）
+  const playSourceLangs = useMemo(
+    () => Array.from(new Set(playSources.map((s) => s.language).filter(Boolean))) as string[],
+    [playSources],
+  );
 
   // 功能1: 播放配置
   const [outroThresholdMinutes, setOutroThresholdMinutes] = useState(10);
@@ -287,26 +292,20 @@ export default function PlayScreen({ route, navigation }: Props) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const cardOpacity = useThemeStore((s) => s.cardOpacity);
-  const cardBg = hexToRgba(colors.card, cardOpacity / 100);
-  const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100);
   const accentBg = hexToRgba(colors.cardAccent, cardOpacity / 100);
   const dimBg = hexToRgba(colors.cardDim, cardOpacity / 100);
   const sf = useScaledFontSize();
 
-  // 播放器区块尺寸：宽度=屏宽。高度按真实视频宽高比自适应：
-  // - 已探测到比例 → 高度=屏宽/ratio（竖屏 16:9 反之更矮/更高），封顶屏高；
-  // - 未探测 → 沿用 16:9（屏宽×9/16），封顶屏高。
-  // 超限时 VideoView contentFit="contain" 等比缩放并居中。
   const { width: screenW, height: screenH } = useWindowDimensions();
-  const videoHeight = videoRatio && videoRatio > 0
-    ? Math.min(screenW / videoRatio, screenH)
-    : Math.min(screenW * 9 / 16, screenH);
   /** 竖屏（宽高比 < 1）判定：竖屏片全屏跟随竖屏，横屏片保持横屏（抖音/红果式）。
    *  探测未就绪/换源期间回退到最近一次已知比例，避免沉浸布局在换集/换源时瞬时闪烁。 */
   const effectiveRatio = videoRatio ?? lastRatioRef.current;
   const isVerticalVideo = effectiveRatio != null && effectiveRatio > 0 && effectiveRatio < 1;
-  /** 红果式沉浸：进页即全屏沉浸（横竖屏一致），不再等待视频尺寸探测；探测仅用于 contentFit（竖屏 cover / 横屏 contain） */
-  const isImmersive = videoUrl != null && !error;
+  /** 进页即沉浸（红果式）：始终使用沉浸布局，无非沉浸态兜底。
+   *  canPlay = 真正有视频可播，控制视频内容/信息卡/进度条/选集条/右侧功能键等是否渲染；
+   *  加载中/出错时仅显示全屏模糊海报 + loading/error 覆盖层。 */
+  const canPlay = videoUrl !== '' && !error;
+  const isImmersive = true;
 
   // ─── refs 同步最新 state 供 PanResponder（useMemo 依赖为空）读取 ───
   const videoUrlRef = useRef(videoUrl);
@@ -341,9 +340,6 @@ export default function PlayScreen({ route, navigation }: Props) {
   const styles = useMemo(() => {
     return StyleSheet.create({
     container: { flex: 1 },
-    // 播放器整体在屏幕垂直居中：上方留白 spacerTop(flex:1) 与 下方正文 body(flex:1) 上下等分，
-    // 中间固定高度的播放器即位于屏幕正中
-    spacerTop: { flex: 1 },
     // header 悬浮在播放器上层（半透明）
     header: {
       position: 'absolute',
@@ -360,12 +356,12 @@ export default function PlayScreen({ route, navigation }: Props) {
     headerTitle: { flex: 1, fontSize: sf(16), fontWeight: '600', color: '#fff', marginLeft: 8 },
     headerRight: { flexDirection: 'row', alignItems: 'center', padding: 4 },
     headerRightText: { fontSize: sf(13), color: '#fff' },
-    videoContainer: { width: '100%', height: videoHeight, backgroundColor: colors.playerBg },
     video: { width: '100%', height: '100%' },
     // 应用内全屏时隐藏非全屏 VideoView（避免原 native 全屏 view 透出/重复渲染）
     videoHiddenInFullscreen: { opacity: 0 },
-    // 红果式沉浸（竖屏视频）：播放器区域占满整屏（视频自带 contain 上下留窄黑边，观感贴近短剧沉浸页）
-    videoContainerImm: { width: '100%', flex: 1, backgroundColor: colors.playerBg },
+    // 红果式沉浸：播放器区域占满整屏；canPlay 时纯黑（视频 contain 留窄黑边），
+    // 加载中/出错时透明以透出外层 BlurredBackground 模糊海报
+    videoContainerImm: { width: '100%', flex: 1, backgroundColor: canPlay ? colors.playerBg : 'transparent' },
     // 沉浸态点击视频区 = 播放/暂停（替代已移除的中央圆形按钮，红果式惯例）
     videoTapLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 5 },
     // 底部悬浮信息卡：红果式全宽卡（左缘右缘各 15），叠加在视频上（非弹窗，不受弹窗不透明度规则限制）。
@@ -432,6 +428,13 @@ export default function PlayScreen({ route, navigation }: Props) {
     verticalDetailRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
     verticalSectionTag: { fontSize: sf(12), fontWeight: '600', color: '#fff', marginTop: 1 },
     verticalExpandLink: { fontSize: sf(12), color: '#fff', marginLeft: 6 },
+    // 信息卡「播放线路」chips（点击标签展开/收起）
+    sourceChipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+    sourceChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.sm },
+    sourceChipIdle: { backgroundColor: 'rgba(255,255,255,0.16)' },
+    sourceChipActive: { backgroundColor: '#fff' },
+    sourceChipText: { fontSize: sf(12), color: 'rgba(255,255,255,0.9)' },
+    sourceChipTextActive: { color: '#111', fontWeight: '600' },
     // 底部选集横条（红果式）：视频底部独立水平条，默认常显，点击弹选集列表，位于进度条上方
     episodeBar: {
       position: 'absolute',
@@ -482,8 +485,8 @@ export default function PlayScreen({ route, navigation }: Props) {
     },
     // 红果式跟手滑动：最外层 transform 容器（不含 overflow，三卡并排随 translateY 整体平移）
     swipeTransformBox: { flex: 1 },
-    // 主卡（当前播放内容，铺满容器）
-    swipeCard: { flex: 1, backgroundColor: colors.playerBg },
+    // 主卡（当前播放内容，铺满容器）；背景透明，实际底色由内层 videoContainerImm 决定
+    swipeCard: { flex: 1, backgroundColor: 'transparent' },
     // 上下滑预渲染卡片（整屏卡片，absolute 定位于主卡屏上/屏下一屏处）
     slideCard: {
       position: 'absolute' as const,
@@ -498,24 +501,6 @@ export default function PlayScreen({ route, navigation }: Props) {
     slideCardTitle: { fontSize: sf(15), fontWeight: '700', color: '#fff', textAlign: 'center', marginTop: 14 },
     slideCardEp: { fontSize: sf(12), fontWeight: '700', color: '#ff9d2e', marginTop: 6 },
     slideCardHint: { fontSize: sf(12), color: 'rgba(255,255,255,0.6)', marginTop: 10 },
-    // 五个按钮从视频下方实心行改为悬浮在播放器左上角（压在视频上层）
-    toolbarOverlay: {
-      position: 'absolute',
-      top: 8,
-      left: 12,
-      zIndex: 20,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-    },
-    toolbarButton: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor: 'transparent',
-      justifyContent: 'center' as const,
-      alignItems: 'center' as const,
-    },
     // 右侧竖排放大 + 白底圆（悬浮双层圆按钮样式）
     toolbarButtonRound: {
       width: 60,
@@ -537,12 +522,6 @@ export default function PlayScreen({ route, navigation }: Props) {
     errorOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 1, padding: 20 },
     errorText: { color: colors.error, fontSize: sf(16), textAlign: 'center' },
     retryButton: { marginTop: 16 },
-    body: { flex: 1 },
-    mediaInfo: { padding: 15 },
-    mediaTitle: { fontSize: sf(18), fontWeight: '600', color: colors.text, marginBottom: 4 },
-    mediaSubtitle: { fontSize: sf(14), color: colors.mutedForeground },
-    favGroup: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
-    favButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.sm, gap: 4 },
     ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 },
     ratingValue: { fontSize: sf(18), fontWeight: 'bold', color: colors.warning },
     ratingCount: { fontSize: sf(12), color: colors.mutedForeground },
@@ -575,12 +554,9 @@ export default function PlayScreen({ route, navigation }: Props) {
     settingsLabel: { fontSize: sf(13), marginBottom: 8 },
     settingsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
     settingsChip: { minWidth: 64 },
-    section: { padding: 15 },
-    sectionLabel: { fontSize: sf(14), color: colors.mutedForeground, marginBottom: 10 },
     languageRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 10 },
     languageLabel: { fontSize: sf(14), color: colors.mutedForeground },
     languageChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.sm, minWidth: 48 },
-    episodeListEntry: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, marginBottom: 10, marginHorizontal: 12, paddingVertical: 12, paddingHorizontal: 16, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
     episodesSheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
     episodesSheet: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: 18, maxHeight: '75%' },
     episodesSheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
@@ -588,8 +564,6 @@ export default function PlayScreen({ route, navigation }: Props) {
     seasonTabBtn: { minWidth: 64 },
     episodesSheetTitle: { fontSize: sf(16), fontWeight: '600' },
     episodesSheetBody: { paddingBottom: 8 },
-    row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.sm },
     sourceEpisodeRow: { flexDirection: 'row', alignItems: 'stretch' },
     sourceTabCol: { flexDirection: 'column', alignItems: 'flex-end', gap: 6, paddingLeft: 12 },
     sourceTab: { flex: 1, justifyContent: 'center', borderTopLeftRadius: radius.md, borderBottomLeftRadius: radius.md, borderTopRightRadius: 0, borderBottomRightRadius: 0 },
@@ -608,7 +582,7 @@ export default function PlayScreen({ route, navigation }: Props) {
     episodeBtnTextActive: { color: colors.cardDim },
     episodeDuration: { color: colors.disabledForeground, fontSize: sf(11), marginTop: 4 },
     });
-  }, [colors, cardBg, surfaceBg, accentBg, dimBg, sf, videoHeight, insets, screenH, screenW, isImmersive]);
+  }, [colors, accentBg, dimBg, sf, insets, screenH, screenW, isImmersive, canPlay]);
 
   useEffect(() => {
     if (!mediaId) return;
@@ -2283,25 +2257,22 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
 
   return (
     <>
-    {/* 红果式沉浸：竖屏视频时隐藏系统状态栏，让视频真正延伸到屏幕最顶端；退出/横屏自动恢复全局样式 */}
-    {isImmersive && <StatusBar style="light" />}
+    {/* 红果式沉浸：进页即隐藏系统状态栏，让视频真正延伸到屏幕最顶端 */}
+    <StatusBar style="light" />
     <BlurredBackground imageUrl={bgImageUrl}>
-    <View style={styles.container} {...(isImmersive && !appFullscreen ? swipePanResponder.panHandlers : {})}>
-      {/* 非沉浸态：header 与 spacerTop 固定在 container 层（不启用跟手），保持原有布局 */}
-      {!isImmersive && headerEl}
-      {!isImmersive && <View style={styles.spacerTop} />}
+    <View style={styles.container} {...(canPlay && !appFullscreen ? swipePanResponder.panHandlers : {})}>
       {/* 跟手滑动卡片组（红果三卡并排）：transform 容器无 overflow，内部 = 主卡 + 屏下 next + 屏上 prev，
           整体随 translateY 平移，滑出屏外时下一张卡显形；右侧按钮栏(toolbarVerticalCol)留在容器层不跟手 */}
       <Animated.View
         style={[
-          isImmersive ? styles.swipeTransformBox : undefined,
-          isImmersive && !appFullscreen ? { transform: [{ translateY: animatedY }] } : undefined,
+          styles.swipeTransformBox,
+          canPlay && !appFullscreen ? { transform: [{ translateY: animatedY }] } : undefined,
         ]}
       >
-      <View style={isImmersive ? styles.swipeCard : undefined}>
-      {isImmersive && headerEl}
+      <View style={styles.swipeCard}>
+      {headerEl}
 
-      <View style={isImmersive ? styles.videoContainerImm : styles.videoContainer}>
+      <View style={styles.videoContainerImm}>
         {isLoading && !isActuallyPlaying && (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#fff" />
@@ -2323,14 +2294,13 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
             ref={videoRef}
             style={[styles.video, appFullscreen ? styles.videoHiddenInFullscreen : null]}
             player={player}
-            contentFit={(isImmersive && isVerticalVideo) ? 'cover' : 'contain'}
+            contentFit={(canPlay && isVerticalVideo) ? 'cover' : 'contain'}
             allowsPictureInPicture={isPictureInPictureSupported()}
             startsPictureInPictureAutomatically={isActuallyPlaying && !appFullscreen}
-            nativeControls={!isImmersive}
             fullscreenOptions={{ enable: false }}
           />
         )}
-        {isImmersive && !appFullscreen && (
+        {canPlay && !appFullscreen && (
           <View style={styles.videoTapLayer}>
             <TouchableOpacity
               style={StyleSheet.absoluteFill}
@@ -2344,7 +2314,7 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
         {activeAd && (
           <AdFloatOverlay
             ad={activeAd}
-            topOffset={isImmersive ? 0 : insets.top}
+            topOffset={0}
             onDismissed={() => setActiveAd(null)}
           />
         )}
@@ -2369,40 +2339,7 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
             isHls={videoUrl.toLowerCase().includes('m3u8')}
           />
         )}
-        {videoUrl && !error && !isImmersive && (
-          <View style={styles.toolbarOverlay}>
-            <TouchableOpacity
-              style={styles.toolbarButton}
-              activeOpacity={0.7}
-              onPress={() => setSettingsVisible(true)}
-            >
-              <Settings size={18} color="#fff" />
-            </TouchableOpacity>
-            {isPictureInPictureSupported() && (
-              <TouchableOpacity
-                style={styles.toolbarButton}
-                activeOpacity={0.7}
-                onPress={handlePictureInPicture}
-              >
-                <PictureInPicture2 size={18} color="#fff" />
-              </TouchableOpacity>
-            )}
-            <CastButton
-              onDeviceSelect={handleCastDeviceSelect}
-              onSearch={castManager.searchDevices}
-              style={styles.toolbarButton}
-            />
-            <TouchableOpacity
-              style={styles.toolbarButton}
-              activeOpacity={0.7}
-              onPress={enterAppFullscreen}
-              testID="fullscreen-enter"
-            >
-              <Maximize size={18} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        )}
-        {videoUrl && !error && isImmersive && (() => {
+        {canPlay && (() => {
           const vCastText =
             `${media?.directors.length ? `导演：${media?.directors.join('、')}` : ''}` +
             `${media?.actors.length ? `${media?.directors.length ? '\n' : ''}主演：${media?.actors.join('、')}` : ''}`;
@@ -2503,6 +2440,48 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
                       </View>
                     </View>
                   )}
+                  {/* 播放线路（仅多条时显示；默认收起只显示当前线路，点击标签展开/收起 chips） */}
+                  {playSources.length > 1 && (() => {
+                    const plangs = playSourceLangs;
+                    const displaySources = plangs.length > 1 && selectedLang && plangs.includes(selectedLang)
+                      ? playSources.filter((s) => (s.language ?? null) === selectedLang)
+                      : playSources;
+                    const curSrc = playSources[activePlayIdx];
+                    const curLabel = `${curSrc?.sourceName || `线路${activePlayIdx + 1}`}${curSrc?.quality ? ` · ${curSrc.quality}` : ''}`;
+                    return (
+                      <View style={styles.verticalSection}>
+                        <TouchableOpacity
+                          style={styles.verticalDetailRow}
+                          activeOpacity={0.7}
+                          onPress={() => setSourceListExpanded((v) => !v)}
+                          hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                        >
+                          <Text style={styles.verticalSectionTag}>播放线路</Text>
+                          <Text style={styles.verticalSectionText} numberOfLines={1}>{curLabel}</Text>
+                          <Text style={styles.verticalExpandLink}>{sourceListExpanded ? '收起' : '切换'}</Text>
+                        </TouchableOpacity>
+                        {sourceListExpanded && (
+                          <View style={styles.sourceChipsRow}>
+                            {displaySources.map((s) => {
+                              const origIdx = playSources.findIndex((x) => x.id === s.id);
+                              const label = `${s.sourceName || `线路${origIdx + 1}`}${s.quality ? ` · ${s.quality}` : ''}`;
+                              const active = origIdx === activePlayIdx;
+                              return (
+                                <TouchableOpacity
+                                  key={s.id}
+                                  activeOpacity={0.7}
+                                  onPress={() => { handlePlaySourceChange(origIdx); setSourceListExpanded(false); }}
+                                  style={[styles.sourceChip, active ? styles.sourceChipActive : styles.sourceChipIdle]}
+                                >
+                                  <Text style={[styles.sourceChipText, active && styles.sourceChipTextActive]}>{label}</Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })()}
                 </View>
                 </View>
             </View>
@@ -2537,12 +2516,12 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
 
       {/* 上下滑预渲染卡片：红果三卡并排——next 在主卡下方一屏、prev 在主卡上方一屏，
           均为 transform 容器直接子节点，随 translateY 跟手平移（容器无 overflow，划出屏外时自然显形） */}
-      {isImmersive && !appFullscreen && (
+      {canPlay && !appFullscreen && (
         <View style={[styles.slideCard, { top: screenH }]} pointerEvents="none">
           {renderSlideCard(nextPreview, '继续向上滑动')}
         </View>
       )}
-      {isImmersive && !appFullscreen && (
+      {canPlay && !appFullscreen && (
         <View style={[styles.slideCard, { top: -screenH }]} pointerEvents="none">
           {renderSlideCard(prevPreview, '继续向下滑动')}
         </View>
@@ -2551,7 +2530,7 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
 
       {/* 右侧竖排功能键（红果式：悬浮视频右侧、屏高 55% 起、距右缘 8）——置于卡片组之外固定不跟手；
           进页先显示「图标+按钮名」，5 秒后仅文字淡出、整行缓慢右移让图标落到右缘 */}
-      {videoUrl && !error && isImmersive && !appFullscreen && (
+      {canPlay && !appFullscreen && (
         <View style={[styles.toolbarVerticalCol, {
           bottom: verticalCardH > 0 ? insets.bottom + 76 + verticalCardH + 8 : screenH * 0.12,
         }]}>
@@ -2633,256 +2612,6 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
         />
       )}
 
-      {!isImmersive && (
-      <ScrollView style={styles.body}>
-        {/* 影片信息 */}
-        {media && (() => {
-          const epName = currentTitle?.includes('·')
-            ? currentTitle.split('·').slice(1).join('·').trim()
-            : '';
-          return (
-            <View style={styles.mediaInfo}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text style={[styles.mediaTitle, { marginBottom: 0 }]} numberOfLines={1}>{media.title}</Text>
-                {media.updatedAt && (
-                  <Text style={{ fontSize: sf(12), color: colors.mutedForeground }}>更新时间：{new Date(media.updatedAt).toISOString().split('T')[0]}</Text>
-                )}
-              </View>
-              {epName ? (
-                <Text style={[styles.mediaSubtitle, { marginBottom: 0 }]} numberOfLines={1}>{epName}</Text>
-              ) : null}
-              <Text style={styles.mediaSubtitle}>
-                {media.year}{media.area ? ` · ${media.area}` : ''}
-              </Text>
-              {media.alias && (
-                <Text style={styles.mediaSubtitle}>又名：{media.alias}</Text>
-              )}
-            </View>
-          );
-        })()}
-
-        {media && (() => {
-          const ratingMedia = currentMedia && currentMedia.id === mediaId ? currentMedia : media;
-          return (
-            <View>
-              <View style={styles.favGroup}>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  style={styles.favButton}
-                  leftIcon={<EyeOff size={16} color={colors.textSecondary} />}
-                  onPress={openHideModal}
-                >
-                  隐藏
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  active={isFav}
-                  style={styles.favButton}
-                  leftIcon={<Heart size={16} color={isFav ? colors.text : colors.textSecondary} fill={isFav ? colors.text : 'none'} />}
-                  onPress={handleFav}
-                >
-                  {isFav ? '已收藏' : '收藏'}
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  active={isDisliked}
-                  style={styles.favButton}
-                  leftIcon={<ThumbsDown size={16} color={isDisliked ? colors.error : colors.textSecondary} />}
-                  onPress={handleDislike}
-                >
-                  {isDisliked ? '已不感兴趣' : '不感兴趣'}
-                </Button>
-              </View>
-              {ratingMedia.rating != null && ratingMedia.rating > 0 ? (
-                <View style={styles.ratingRow}>
-                  <Star size={14} color={colors.warning} fill={colors.warning} />
-                  <Text style={styles.ratingValue}>{ratingMedia.rating.toFixed(1)}</Text>
-                  {ratingMedia.ratingCount != null && ratingMedia.ratingCount > 0 && (
-                    <Text style={styles.ratingCount}>
-                      {ratingMedia.ratingCount >= 10000 ? `${(ratingMedia.ratingCount / 10000).toFixed(1)}万人` : `${ratingMedia.ratingCount}人`}评分 (豆瓣)
-                    </Text>
-                  )}
-                </View>
-              ) : isRatingLoading ? (
-                <View style={styles.ratingRow}>
-                  <ActivityIndicator size="small" color={colors.mutedForeground} />
-                  <Text style={styles.ratingLoading}>正在获取评分...</Text>
-                </View>
-              ) : null}
-              <View style={styles.genreRow}>
-                {(media.genres.length > 0 ? media.genres : [UNCATEGORIZED_GENRE]).map((g: string, i: number) => (
-                  <TouchableOpacity
-                    key={i}
-                    activeOpacity={0.7}
-                    onPress={() => {
-                      const screen = typeScreenMap[media.type];
-                      if (screen) navigation.navigate(screen, { subType: g });
-                    }}
-                  >
-                    <Text style={styles.genre}>{g}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          );
-        })()}
-
-        {media && (media.directors.length > 0 || media.actors.length > 0) && (() => {
-          const castText =
-            `${media.directors.length > 0 ? `导演：${media.directors.join('、')}` : ''}` +
-            `${media.actors.length > 0 ? `${media.directors.length > 0 ? '\n' : ''}主演：${media.actors.join('、')}` : ''}`;
-          return (
-            <View style={styles.section}>
-              <Text
-                style={{ position: 'absolute', opacity: 0, height: 0 }}
-                onTextLayout={(e) => setCastOverflow(e.nativeEvent.lines.length > 2)}
-              >
-                {castText}
-              </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                <Text
-                  style={{ flex: 1, fontSize: sf(13), color: colors.text, lineHeight: sf(20) }}
-                  numberOfLines={castExpanded ? undefined : 2}
-                >
-                  {castText}
-                </Text>
-                {castOverflow && (
-                  <TouchableOpacity onPress={() => setCastExpanded((v) => !v)} style={{ marginLeft: 8 }}>
-                    <Text style={{ fontSize: sf(13), color: colors.mutedForeground }}>{castExpanded ? '收起' : '展开'}</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-          );
-        })()}
-
-        {media && media.description && (
-          <View style={styles.section}>
-            <Text
-              style={{ position: 'absolute', opacity: 0, height: 0 }}
-              onTextLayout={(e) => setPlotOverflow(e.nativeEvent.lines.length > 1)}
-            >
-              {media.description}
-            </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-              <Text
-                style={{ flex: 1, fontSize: sf(13), color: colors.text, lineHeight: sf(20) }}
-                numberOfLines={plotExpanded ? undefined : 1}
-              >
-                {media.description}
-              </Text>
-              {plotOverflow && (
-                <TouchableOpacity onPress={() => setPlotExpanded((v) => !v)} style={{ marginLeft: 8 }}>
-                  <Text style={{ fontSize: sf(13), color: colors.mutedForeground }}>{plotExpanded ? '收起' : '展开'}</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-        )}
-
-        {/* 播放线路 (功能5: 质量标签) */}
-        {playSources.length > 1 && (() => {
-          const langs = Array.from(new Set(playSources.map((s) => s.language).filter(Boolean))) as string[];
-          const displaySources = langs.length > 1 && selectedLang && langs.includes(selectedLang)
-            ? playSources.filter((s) => (s.language ?? null) === selectedLang)
-            : playSources;
-          const sourceKeyMap = new Map<string, number>();
-          playSources.forEach(s => {
-            const key = `${s.sourceName || ''}_${s.quality || ''}`;
-            sourceKeyMap.set(key, (sourceKeyMap.get(key) || 0) + 1);
-          });
-          const keyIndexMap = new Map<string, number>();
-          const applyLang = (lang: string) => {
-            const currentIdx = playSources.findIndex((s) => (s.language ?? null) === lang);
-            if (currentIdx >= 0 && currentIdx !== activePlayIdx) {
-              handlePlaySourceChange(currentIdx);
-            }
-            setSelectedLang(lang);
-          };
-          return (
-            <View style={styles.section}>
-              {langs.length > 1 && (
-                <View style={styles.languageRow}>
-                  <Text style={styles.languageLabel}>语言</Text>
-                  {langs.map((lang) => (
-                    <Button
-                      key={lang}
-                      variant="secondary"
-                      size="sm"
-                      active={selectedLang === lang}
-                      style={styles.languageChip}
-                      onPress={() => applyLang(lang)}
-                    >
-                      {lang}
-                    </Button>
-                  ))}
-                </View>
-              )}
-              <Text style={styles.sectionLabel}>播放线路（{activePlayIdx + 1}/{playSources.length}）</Text>
-              <View style={styles.row}>
-                {displaySources.map((s, i) => {
-                  const key = `${s.sourceName || ''}_${s.quality || ''}`;
-                  const count = sourceKeyMap.get(key) || 1;
-                  const idx = (keyIndexMap.get(key) || 0) + 1;
-                  keyIndexMap.set(key, idx);
-                  const baseName = s.sourceName || `线路${i + 1}`;
-                  const qualityStr = s.quality ? ` · ${s.quality}` : '';
-                  const suffix = count > 1 ? ` (${idx})` : '';
-                  const origIdx = playSources.findIndex((x) => x.id === s.id);
-                  return (
-                    <Button
-                      key={s.id}
-                      variant="secondary"
-                      size="sm"
-                      active={origIdx === activePlayIdx}
-                      style={styles.chip}
-                      onPress={() => handlePlaySourceChange(origIdx)}
-                    >
-                      {baseName}{qualityStr}{suffix}
-                    </Button>
-                  );
-                })}
-              </View>
-            </View>
-          );
-        })()}
-
-        {displaySeasons.length > 1 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>季数</Text>
-            <View style={styles.row}>
-              {displaySeasons.map((s: number) => {
-                const isCurrent = seasonToMediaMap.get(s) === mediaId || (!seasonToMediaMap.has(s) && currentSeason === s);
-                return (
-                  <Button
-                    key={s}
-                    variant="secondary"
-                    size="sm"
-                    active={isCurrent}
-                    style={styles.chip}
-                    onPress={() => handleSeasonChange(s)}
-                  >
-                    第{s}季
-                  </Button>
-                );
-              })}
-            </View>
-          </View>
-        )}
-
-        <TouchableOpacity
-          style={[styles.episodeListEntry, { backgroundColor: cardBg }]}
-          activeOpacity={0.7}
-          onPress={() => setEpisodesSheetVisible(true)}
-        >
-          <Text style={[styles.sectionLabel, { marginBottom: 0 }]}>剧集（{filteredEpisodes.length}集）</Text>
-          <ChevronUp size={18} color={colors.mutedForeground} />
-        </TouchableOpacity>
-      </ScrollView>
-      )}
     </View>
     {/* ===== 自绘全屏覆盖层（应用内全屏，对齐桌面端全屏浮窗/设置）===== */}
     {appFullscreen && videoUrl && !error && (() => {
@@ -3053,6 +2782,33 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
           style={[styles.settingsSheet, { backgroundColor: colors.background, transform: [{ translateY: settingsSlide }] }]}
         >
           <Text style={[styles.settingsTitle, { color: colors.text }]}>播放设置</Text>
+
+          {/* 多语言版本：片源语言切换（仅 >1 时显示；TV 语言在选集面板） */}
+          {playSourceLangs.length > 1 && (
+            <>
+              <Text style={[styles.settingsLabel, { color: colors.mutedForeground }]}>语言</Text>
+              <View style={styles.settingsRow}>
+                {playSourceLangs.map((lang) => (
+                  <Button
+                    key={lang}
+                    variant="secondary"
+                    size="sm"
+                    active={selectedLang === lang}
+                    style={styles.settingsChip}
+                    onPress={() => {
+                      const currentIdx = playSources.findIndex((s) => (s.language ?? null) === lang);
+                      if (currentIdx >= 0 && currentIdx !== activePlayIdx) {
+                        handlePlaySourceChange(currentIdx);
+                      }
+                      setSelectedLang(lang);
+                    }}
+                  >
+                    {lang}
+                  </Button>
+                ))}
+              </View>
+            </>
+          )}
 
           <Text style={[styles.settingsLabel, { color: colors.mutedForeground }]}>倍速</Text>
           <View style={styles.settingsRow}>
