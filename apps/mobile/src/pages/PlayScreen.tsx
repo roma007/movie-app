@@ -18,8 +18,6 @@ import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
 import { useScaledFontSize } from '../themes/useScaledFontSize';
 import { hexToRgba } from '../themes/colorUtils';
-import { NextEpisodeOverlay } from '../components/NextEpisodeOverlay';
-import { SkipForwardOverlay } from '../components/SkipForwardOverlay';
 import { CastButton } from '../components/cast/CastButton';
 import { CastRemoteControl } from '../components/cast/CastRemoteControl';
 import { useCastManager } from '../hooks/useCastManager';
@@ -127,9 +125,6 @@ export default function PlayScreen({ route, navigation }: Props) {
     [playSources],
   );
 
-  // 功能1: 播放配置
-  const [outroThresholdMinutes, setOutroThresholdMinutes] = useState(10);
-  const [showNextEpisodeOverlay, setShowNextEpisodeOverlay] = useState(true);
   // 功能12: 移动端 N 并发分片读取
   const [prefetchConcurrency, setPrefetchConcurrency] = useState(6);
   const [videoCacheReady, setVideoCacheReady] = useState(false);
@@ -204,11 +199,7 @@ export default function PlayScreen({ route, navigation }: Props) {
 
   // 功能3: 影片信息
   const [media, setMedia] = useState<Media | null>(null);
-
-  // 功能4: 下一集浮层
-  const [overlayVisible, setOverlayVisible] = useState(false);
   const [verticalCardH, setVerticalCardH] = useState(0);
-  const overlayDismissedRef = useRef(false);
 
   // 播放中横幅广告（配置驱动，随机出现一次，不打断播放）
   const [activeAd, setActiveAd] = useState<AdFloatItem | null>(null);
@@ -216,13 +207,6 @@ export default function PlayScreen({ route, navigation }: Props) {
   const lastAdShownRef = useRef<AdFloatItem | null>(null);
   const activeAdRef = useRef<AdFloatItem | null>(null);
   activeAdRef.current = activeAd;
-
-  // 功能7: 从头播放快进浮窗
-  const [skipForwardVisible, setSkipForwardVisible] = useState(false);
-  const skipForwardVisibleRef = useRef(false);
-  const skipDismissedRef = useRef(false);
-  const skipEligibleRef = useRef(false);
-  const lastTimeRef = useRef(0);
 
   // 待应用的恢复位置：source 真正就绪后再 seek，避免一次性赋值被丢弃
   const pendingSeekRef = useRef(0);
@@ -316,8 +300,6 @@ export default function PlayScreen({ route, navigation }: Props) {
   isImmersiveRef.current = isImmersive;
   const settingsVisibleRef = useRef(settingsVisible);
   settingsVisibleRef.current = settingsVisible;
-  const overlayVisibleRef = useRef(overlayVisible);
-  overlayVisibleRef.current = overlayVisible;
   const fullscreenControlsVisibleRef = useRef(fullscreenControlsVisible);
   fullscreenControlsVisibleRef.current = fullscreenControlsVisible;
   const episodesSheetVisibleRef = useRef(episodesSheetVisible);
@@ -630,8 +612,6 @@ export default function PlayScreen({ route, navigation }: Props) {
       setError(null);
       setPlotOverflow(false);
       setCastOverflow(false);
-      setOverlayVisible(false);
-      overlayDismissedRef.current = false;
       try {
         const provider = getProvider();
         const episode = await provider.getEpisodeById(currentEpisodeId);
@@ -659,8 +639,6 @@ export default function PlayScreen({ route, navigation }: Props) {
         // 播放配置
         const configService = new SystemConfigService(provider);
         const playbackConfig = await configService.getPlaybackConfig();
-        setOutroThresholdMinutes(playbackConfig.outroThresholdMinutes);
-        setShowNextEpisodeOverlay(playbackConfig.showNextEpisodeOverlay);
         setPrefetchConcurrency(playbackConfig.prefetchConcurrency);
         setShowSegmentProgress(playbackConfig.showSegmentProgress);
         // 同步写入 Android 原生可读的并发文件（必须在播放源构建前落盘，避免首播读到默认 5）
@@ -717,11 +695,6 @@ export default function PlayScreen({ route, navigation }: Props) {
         }
         setInitialCurrentTime(seekTime);
         pendingSeekRef.current = seekTime;
-        skipEligibleRef.current = seekTime < 2 * 60;
-        setSkipForwardVisible(false);
-        skipForwardVisibleRef.current = false;
-        skipDismissedRef.current = false;
-        lastTimeRef.current = seekTime;
         setPlaySources(sources);
         // 语言层：MOVIE 多语言版本时默认选中第一个语言（仅 MOVIE 处理；TV 由剧集语言层 effect 维护，此处不重置）
         if (media && media.type === 'MOVIE') {
@@ -1218,7 +1191,7 @@ export default function PlayScreen({ route, navigation }: Props) {
     return episodes[idx + 1] as Episode;
   }, [currentEpisodeId, episodes, media?.type]);
 
-  // 定时保存进度 (10s) + 下一集浮层检测 + 从头播放快进浮窗
+  // 定时保存进度 (10s)
   useEffect(() => {
     if (!player) return;
     const interval = setInterval(() => {
@@ -1227,55 +1200,12 @@ export default function PlayScreen({ route, navigation }: Props) {
         const dur = player.duration || 0;
         setPlayStat({ playing: true, cur: ct, dur });
         handleTimeUpdate(ct, dur);
-
-        // 下一集浮层检测
-        const threshold = outroThresholdMinutes * 60;
-        // 短片（时长 ≤ 预热阈值）在剩余 60s 内触发；长片沿用阈值窗口
-        const outroWindow = dur <= threshold ? 60 : threshold;
-        const canShow =
-          !overlayDismissedRef.current &&
-          showNextEpisodeOverlay &&
-          nextEpisode != null &&
-          dur > 0 &&
-          ct > 0 &&
-          dur - ct <= outroWindow;
-        if (canShow) {
-          setOverlayVisible(true);
-          setSkipForwardVisible(false);
-          skipForwardVisibleRef.current = false;
-          skipDismissedRef.current = true;
-        }
-
-        // 主动向后拖动（currentTime 明显回落）：离开片尾隐藏下一集浮窗，并恢复快进浮窗可选性
-        const backwardSeek = lastTimeRef.current - ct >= 3;
-        lastTimeRef.current = ct;
-        if (!canShow) {
-          setOverlayVisible(false);
-        }
-        if (backwardSeek) {
-          skipDismissedRef.current = false;
-          skipEligibleRef.current = ct < 2 * 60;
-        }
-
-        // 从头播放快进浮窗（按播放位置：0:00–2:00 内可见，过 2:00 消失）
-        if (ct >= 2 * 60) {
-          setSkipForwardVisible(false);
-          skipForwardVisibleRef.current = false;
-        } else if (
-          skipEligibleRef.current &&
-          !skipDismissedRef.current &&
-          !skipForwardVisibleRef.current &&
-          ct > 0
-        ) {
-          setSkipForwardVisible(true);
-          skipForwardVisibleRef.current = true;
-        }
       } else {
         setPlayStat((prev) => ({ ...prev, playing: false }));
       }
     }, 5000);
     return () => clearInterval(interval);
-  }, [player, outroThresholdMinutes, showNextEpisodeOverlay, nextEpisode]);
+  }, [player]);
 
   const togglePlayPause = () => {
     const p = playerRef.current;
@@ -1876,24 +1806,6 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
     </View>
   );
 
-  const handleOverlayClose = () => {
-    setOverlayVisible(false);
-    overlayDismissedRef.current = true;
-  };
-
-  const handleSkipForward = (delta: number) => {
-    const p = playerRef.current;
-    if (!p) return;
-    const dur = p.duration || 0;
-    p.currentTime = Math.min(p.currentTime + delta, dur > 0 ? dur : p.currentTime + delta);
-  };
-
-  const handleSkipForwardClose = () => {
-    setSkipForwardVisible(false);
-    skipForwardVisibleRef.current = false;
-    skipDismissedRef.current = true;
-  };
-
   // 功能11: 源失败自动换源（对齐桌面 handleSourceFail：有剩余线路 1.5s 切下一线；
   // 全部失败 2s 循环回第 0 条重试，不再弹「所有播放线路均失败」）
   const autoRetryRef = useRef({ activePlayIdx, change: handlePlaySourceChange });
@@ -2231,9 +2143,6 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
     );
   };
 
-  const nextEpisodeTitle = nextEpisode
-    ? `下一集${nextEpisode.title ? ` · ${nextEpisode.title}` : ''}`
-    : '';
   // 红果式沉浸信息卡使用的集名（去掉「片名 · 」前缀的当前集名）
   const vmEpName = currentTitle?.includes('·') ? currentTitle.split('·').slice(1).join('·').trim() : '';
 
@@ -2318,19 +2227,6 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
             onDismissed={() => setActiveAd(null)}
           />
         )}
-        <NextEpisodeOverlay
-          show={overlayVisible}
-          nextEpisodeTitle={nextEpisodeTitle}
-          onNext={handleNextEpisode}
-          onClose={handleOverlayClose}
-          topOffset={96}
-        />
-        <SkipForwardOverlay
-          show={skipForwardVisible}
-          onSkip={handleSkipForward}
-          onClose={handleSkipForwardClose}
-          topOffset={96}
-        />
         {showSegmentProgress && videoUrl && (
           <SegmentProgress
             snapshot={segmentSnapshot}
@@ -2703,17 +2599,6 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
               <Text style={fsStyles.msgText}>加载中...</Text>
             </View>
           )}
-          <NextEpisodeOverlay
-            show={overlayVisible}
-            nextEpisodeTitle={nextEpisodeTitle}
-            onNext={handleNextEpisode}
-            onClose={handleOverlayClose}
-          />
-          <SkipForwardOverlay
-            show={skipForwardVisible}
-            onSkip={handleSkipForward}
-            onClose={handleSkipForwardClose}
-          />
           {showSegmentProgress && (
             <SegmentProgress
               snapshot={segmentSnapshot}

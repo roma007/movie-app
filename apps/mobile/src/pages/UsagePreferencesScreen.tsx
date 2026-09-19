@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { ArrowLeft, Check } from 'lucide-react-native';
 import { useAppStore, getProvider } from '../useAppStore';
@@ -31,16 +31,12 @@ export default function UsagePreferencesScreen({ navigation }: Props) {
   const cardBg = hexToRgba(colors.card, cardOpacity / 100);
   const s = useScaledFontSize();
 
-  const [playbackEnabled, setPlaybackEnabled] = useState(true);
-  const [playbackThreshold, setPlaybackThreshold] = useState(10);
   const [prefetchConcurrency, setPrefetchConcurrency] = useState(3);
 
   useEffect(() => {
     loadUserUsageTypes();
     const configService = new SystemConfigService(provider);
     configService.getPlaybackConfig().then((cfg: any) => {
-      setPlaybackEnabled(cfg.showNextEpisodeOverlay);
-      setPlaybackThreshold(cfg.outroThresholdMinutes);
       setPrefetchConcurrency(cfg.prefetchConcurrency);
     }).catch(() => {});
   }, []);
@@ -50,18 +46,6 @@ export default function UsagePreferencesScreen({ navigation }: Props) {
       ? userUsageTypes.filter((t) => t !== type)
       : [...userUsageTypes, type];
     if (next.length > 0) setUserUsageTypes(next);
-  };
-
-  const handleTogglePlayback = async (next: boolean) => {
-    setPlaybackEnabled(next);
-    const configService = new SystemConfigService(provider);
-    await configService.setPlaybackConfig({ showNextEpisodeOverlay: next });
-  };
-
-  const handleThresholdChange = async (minutes: number) => {
-    setPlaybackThreshold(minutes);
-    const configService = new SystemConfigService(provider);
-    await configService.setPlaybackConfig({ outroThresholdMinutes: minutes });
   };
 
   const handlePrefetchChange = async (n: number) => {
@@ -128,15 +112,6 @@ export default function UsagePreferencesScreen({ navigation }: Props) {
       color: colors.mutedForeground,
       marginBottom: 10,
     },
-    thresholdButtons: {
-      flexDirection: 'row',
-      gap: 10,
-    },
-    thresholdBtn: {
-      flex: 1,
-      paddingVertical: 10,
-      borderRadius: radius.md,
-    },
     thresholdSliderTrack: {
       justifyContent: 'center',
       height: 40,
@@ -179,37 +154,6 @@ export default function UsagePreferencesScreen({ navigation }: Props) {
                 );
               })}
             </View>
-          </View>
-
-          <View style={styles.card}>
-            <View style={styles.menuItem}>
-              <Text style={styles.menuText}>启用片尾提示</Text>
-              <Switch
-                value={playbackEnabled}
-                onValueChange={handleTogglePlayback}
-                trackColor={{ false: colors.swiftTrack, true: colors.swiftActiveTrack }}
-                thumbColor={playbackEnabled ? colors.swiftThumb : colors.disabledForeground}
-              />
-            </View>
-            {playbackEnabled && (
-              <View style={styles.thresholdRow}>
-                <Text style={styles.thresholdLabel}>提前提示时间</Text>
-                <View style={styles.thresholdButtons}>
-                  {[5, 10, 15].map((m) => (
-                    <Button
-                      key={m}
-                      variant="secondary"
-                      size="sm"
-                      active={playbackThreshold === m}
-                      style={styles.thresholdBtn}
-                      onPress={() => handleThresholdChange(m)}
-                    >
-                      {m} 分钟
-                    </Button>
-                  ))}
-                </View>
-              </View>
-            )}
           </View>
 
           <View style={styles.card}>

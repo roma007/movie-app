@@ -101,14 +101,17 @@ export function SplashOverlay({ ready }: SplashOverlayProps) {
 
   if (gone) return null;
 
-  const showingAd = phase === 'ad' && adLoaded && !leaving;
+  // 广告内容渲染条件：leaving 期间仍渲染以下层内容，配合容器 opacity 平滑淡出
+  const showingAd = phase === 'ad' && adLoaded;
+  // logo 层独立显隐：logo 阶段、或广告未就绪时显示；leaving/done 一律透明，防止淡出期间闪现
+  const logoVisible = phase === 'logo' || (phase === 'ad' && !adLoaded);
 
   return (
     <div className="fixed inset-0 z-[999] select-none">
       {/* 欢迎页（logo）layer */}
       <div
         className="absolute inset-0 flex flex-col items-center justify-center bg-[#0b0f19] transition-opacity duration-300"
-        style={{ opacity: showingAd ? 0 : 1, pointerEvents: showingAd ? 'none' : 'auto' }}
+        style={{ opacity: logoVisible ? 1 : 0, pointerEvents: logoVisible ? 'auto' : 'none' }}
       >
         <img
           src="/logo.png"

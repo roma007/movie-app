@@ -1252,15 +1252,36 @@ const title = await normalizer.normalizeTitle(item.vod_name);
     return { saved, hiddenItems };
   }
 
+  /** 判断一条 TV 记录是否像「被误判为电视剧的电影」：genre 首个元素为「XX片」类（喜剧片/动作片…，来自源 type_name，是电影类目固有命名）。 */
+  private isMovieLikeTvRow(row: { genre: string | null }): boolean {
+    if (!row.genre) return false;
+    try {
+      const genres: string[] = JSON.parse(row.genre);
+      if (genres.length === 0) return false;
+      return /片$/.test(genres[0]);
+    } catch {
+      return false;
+    }
+  }
+
   /**
-   * 存量纠错：合并历史「电影被误判为电视剧」产生的重复指纹记录。
-   * 规则：存在 `tv:<title>:<year>:s1` 且存在同 title+year 的 `movie:<title>:<year>` 双胞胎时，
-   * 若 tv 记录结构符合「被误判电影」特征（无剧集或全部集标题为版式词，如 HD国语），
-   * 则把 tv 记录的播放资源并入电影记录、引用表转指、删除 tv 记录。
-   * 幂等、best-effort：单条失败不影响其余与调用方；重跑结果一致。不做 schema 变更。
+   * 存量纠错：把历史「电影被误判为电视剧」的记录修复为电影。
+   *
+   * 背景：mapType 早期版本对 type_name='XX片'（喜剧片/动作片…）因含「剧」字兜底判成 TV，
+   * 且入库后类型从不重判导致误判滞留。已由 bd5c720 修复判定逻辑，本方法批量修复存量。
+   *
+   * 两条路径（幂等、best-effort，单条失败不影响其余与调用方）：
+   * - 库中已存在同 title+year 的 `movie:<title>:<year>` 记录（双胞胎）→ mergeTvIntoMovie 并入真电影；
+   * - 无同名电影 → 原地转正（改 type/fingerprint/集数 + episode 重建为 movie 形态）。
+   * 护栏：仅处理 TV 非短剧、current/total ≤ 2、且 genre 首元素为「XX片」候选；≥2 条且全无版式词标题的跳过。
    */
   async repairMediaTypeMismatches(): Promise<number> {
-    const tvRows = await this.db.select<{ id: string; fingerprint: string }>(`SELECT id, fingerprint FROM media WHERE type = 'TV' AND fingerprint LIKE 'tv:%:s1'`);
+    const tvRows = await this.db.select<{ id: string; fingerprint: string; genre: string | null }>(
+      `SELECT id, fingerprint, genre FROM media
+       WHERE type = 'TV' AND fingerprint LIKE 'tv:%:s1' AND is_short_drama = 0
+         AND (current_episodes IS NULL OR current_episodes <= 2)
+         AND (total_episodes IS NULL OR total_episodes <= 2)`
+    );
     if (tvRows.length === 0) return 0;
 
     const movieRows = await this.db.select<{ id: string; fingerprint: string }>(`SELECT id, fingerprint FROM media WHERE type = 'MOVIE' AND fingerprint LIKE 'movie:%'`);
@@ -1271,26 +1292,90 @@ const title = await normalizer.normalizeTitle(item.vod_name);
       try {
         const match = row.fingerprint.match(/^tv:([^:]+):(\d{4}):s1$/);
         if (!match) continue;
-        const movieId = movieIdByFp.get(`movie:${match[1]}:${match[2]}`);
-        if (!movieId || movieId === row.id) continue;
+        if (!this.isMovieLikeTvRow(row)) continue;
 
-        // 护栏：仅当 tv 记录无剧集或全部剧集标题为版式词时才判定为误判电影，
-        // 避免把同名同年的真实剧集误并入电影记录。
+        // 护栏：≥2 条且没有任何版式词标题（正片/HD/国语…）才判为真实电视剧跳过；
+        // 已限定 current/total ≤ 2，电影的多线路/版本集即使混入「第N集」标题，只要含任一版式词即放行转正。
         const tvEpisodes = await this.db.getEpisodesByMediaId(row.id);
-        if (tvEpisodes.length > 0) {
-          const moviesLike = tvEpisodes.every((ep) => isVersionTitle(ep.title || ''));
-          if (!moviesLike) continue;
+        if (tvEpisodes.length >= 2) {
+          const hasMovieStyleTitle = tvEpisodes.some((ep) => isVersionTitle(ep.title || ''));
+          if (!hasMovieStyleTitle) continue;
         }
 
-        const movieTitle = (await this.db.selectOne<{ title: string }>(`SELECT title FROM media WHERE id = ?`, [movieId]))?.title || movieId;
-        await this.mergeTvIntoMovie(row.id, movieId);
-        repaired++;
-        await this.logToDb(`类型纠错：合并误判剧集记录 → 电影 «${movieTitle}»，删除 ${row.id.slice(0, 8)}…`, 'info', { sourceId: `tv:${match[1]}` });
+        const movieFp = `movie:${match[1]}:${match[2]}`;
+        const movieId = movieIdByFp.get(movieFp);
+
+        if (movieId && movieId !== row.id) {
+          // 双胞胎：并入已有电影记录
+          const movieTitle = (await this.db.selectOne<{ title: string }>(`SELECT title FROM media WHERE id = ?`, [movieId]))?.title || movieId;
+          await this.mergeTvIntoMovie(row.id, movieId);
+          repaired++;
+          await this.logToDb(`类型纠错：合并误判剧集记录 → 电影 «${movieTitle}»，删除 ${row.id.slice(0, 8)}…`, 'info', { sourceId: `tv:${match[1]}` });
+        } else if (movieId !== row.id) {
+          // 无同名电影：原地转正为电影
+          await this.convertTvToMovieSelf(row.id, movieFp);
+          repaired++;
+          await this.logToDb(`类型纠错：误判剧集原地转正为电影 «${match[1]}»(${match[2]})，删除 ${row.id.slice(0, 8)}…`, 'info', { sourceId: `tv:${match[1]}` });
+        }
       } catch (err) {
         console.error(`[Collector] 类型纠错失败 (${row.id}):`, err);
       }
     }
     return repaired;
+  }
+
+  /**
+   * 原地把「被误判为电视剧」的单条记录转正为电影：
+   * 剧集按 source 归组重建为 movie 形态单集（ep_<mid>_movie_src_<src>），播放源改指、
+   * 删除旧剧集（进度随旧集丢弃），media 行改 type/fingerprint/集数/季信息。
+   */
+  private async convertTvToMovieSelf(tvId: string, movieFp: string): Promise<void> {
+    await this.db.withTransactionAsync(async () => {
+      const tvEpisodes = await this.db.getEpisodesByMediaId(tvId);
+      const sources = Array.from(new Set(tvEpisodes.map((ep) => ep.sourceId || 'default')));
+
+      for (const sourceId of sources) {
+        const srcEps = tvEpisodes.filter((ep) => (ep.sourceId || 'default') === sourceId);
+        const movieEpId = `ep_${tvId}_movie_src_${sourceId}`;
+        await this.db.upsertEpisode({
+          id: movieEpId,
+          mediaId: tvId,
+          seasonNumber: 1,
+          episodeNumber: 1,
+          title: null,
+          duration: srcEps.find((ep) => ep.duration != null)?.duration ?? null,
+          sourceId,
+        });
+        const existingUrls = new Set<string>();
+        for (const srcEp of srcEps) {
+          const psList = await this.db.getPlaySourcesByEpisodeId(srcEp.id);
+          for (const ps of psList) {
+            if (existingUrls.has(ps.url)) {
+              await this.db.execute('DELETE FROM play_source WHERE id = ?', [ps.id]);
+              continue;
+            }
+            await this.db.execute('UPDATE play_source SET episode_id = ? WHERE id = ?', [movieEpId, ps.id]);
+            existingUrls.add(ps.url);
+          }
+        }
+      }
+
+      for (const ep of tvEpisodes) {
+        await this.db.execute('DELETE FROM episode WHERE id = ?', [ep.id]);
+      }
+
+      // 播放进度/线路进度指向将被删除的旧剧集，直接丢弃（同 mergeTvIntoMovie 策略）；
+      // favorite/impression/dislike/recommend_snapshot/media_change_log 按 mediaId 关联，mediaId 未变无需转指。
+      await this.db.execute('DELETE FROM watch_history WHERE media_id = ?', [tvId]);
+      await this.db.execute('DELETE FROM watch_line_progress WHERE media_id = ?', [tvId]);
+
+      await this.db.execute(
+        `UPDATE media SET type = 'MOVIE', fingerprint = ?, current_episodes = NULL, total_episodes = NULL,
+         series_group = NULL, series_season = NULL, updated_at = ?
+         WHERE id = ?`,
+        [movieFp, new Date().toISOString(), tvId]
+      );
+    });
   }
 
   /** 把「误判为电视剧」记录（tvId）的播放资源并入电影记录（movieId），随后删除 tv 记录。 */
