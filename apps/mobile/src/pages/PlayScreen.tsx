@@ -202,6 +202,7 @@ export default function PlayScreen({ route, navigation }: Props) {
 
   // 功能4: 下一集浮层
   const [overlayVisible, setOverlayVisible] = useState(false);
+  const [verticalCardH, setVerticalCardH] = useState(0);
   const overlayDismissedRef = useRef(false);
 
   // 播放中横幅广告（配置驱动，随机出现一次，不打断播放）
@@ -332,6 +333,7 @@ export default function PlayScreen({ route, navigation }: Props) {
     zone: 'left' | 'right' | 'middle' | null;
     mode: 'main' | 'fullscreen';
     phase: 'tracking' | 'longpress' | 'swipe' | null;
+    source: 'video' | 'card';
   } | null>(null);
   // 双击收藏：首击入队单击延迟，280ms 内第二击到 → 取消单击改调 handleFav
   const doubleTapRef = useRef<{ ts: number; timer: ReturnType<typeof setTimeout> | null }>({ ts: 0, timer: null });
@@ -366,12 +368,12 @@ export default function PlayScreen({ route, navigation }: Props) {
     videoContainerImm: { width: '100%', flex: 1, backgroundColor: colors.playerBg },
     // 沉浸态点击视频区 = 播放/暂停（替代已移除的中央圆形按钮，红果式惯例）
     videoTapLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 5 },
-    // 底部悬浮信息卡：红果式左下卡（非全宽），叠加在视频上（非弹窗，不受弹窗不透明度规则限制）。
-    // 宽度自适应：左缘 15，右缘对齐右侧竖排功能键列左缘并留 VERTICAL_CARD_RIGHT_GAP 空隙
+    // 底部悬浮信息卡：红果式全宽卡（左缘右缘各 15），叠加在视频上（非弹窗，不受弹窗不透明度规则限制）。
+    // 全宽确保信息卡左右缘滑动手势均可触发；右侧功能列已上移到信息卡顶部之上，不遮卡
     verticalCard: {
       position: 'absolute',
       left: 15,
-      right: 8 + TOOLBAR_COL_WIDTH + VERTICAL_CARD_RIGHT_GAP,
+      right: 15,
       bottom: insets.bottom + 76,
       zIndex: 15,
       backgroundColor: 'transparent',
@@ -380,11 +382,11 @@ export default function PlayScreen({ route, navigation }: Props) {
       paddingBottom: 4,
       paddingHorizontal: 12,
     },
-    // 右侧竖排功能键列（现有 6 键：收藏/不感兴趣/隐藏/语音/画中画/投屏；竖屏视频时另含全屏键）——红果式：悬浮视频右侧、屏高 42% 起、距右缘 8
+    // 右侧竖排功能键列（现有 6 键：收藏/不感兴趣/隐藏/语音/画中画/投屏；竖屏视频时另含全屏键）——红果式：悬浮视频右侧、距右缘 8。
+    // bottom 由 JSX 动态计算：竖屏固定于信息卡顶部之上（不遮卡；否则信息卡右缘手势会被整列拦截全部失效），全屏横屏不显示该列
     toolbarVerticalCol: {
       position: 'absolute',
       right: 8,
-      bottom: screenH * 0.12,
       zIndex: 16,
       flexDirection: 'column' as const,
       alignItems: 'flex-end',
@@ -561,8 +563,10 @@ export default function PlayScreen({ route, navigation }: Props) {
     lockBadgeText: { fontSize: sf(12), fontWeight: '600', color: '#fff' },
     guideBubble: { position: 'absolute', top: isImmersive ? 100 : (insets.top + 100), alignSelf: 'center', zIndex: 25, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
     guideBubbleText: { fontSize: sf(13), color: '#fff' },
-    pressHintWrap: { position: 'absolute', bottom: insets.bottom + 150, alignSelf: 'center', zIndex: 25, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10 },
+    pressHintWrap: { position: 'absolute', top: isImmersive ? 150 : (insets.top + 150), alignSelf: 'center', zIndex: 25, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10 },
+    pressHintWrapLight: { backgroundColor: '#fff' },
     pressHintTitle: { fontSize: sf(15), fontWeight: '700', color: '#fff' },
+    pressHintTitleLight: { color: '#111' },
 
     settingsOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'flex-end', zIndex: 10000, elevation: 30 },
     settingsBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.5)' },
@@ -1533,9 +1537,12 @@ export default function PlayScreen({ route, navigation }: Props) {
   // 完成一次跟手切换：卡片已滑出一屏后调用（松手且越过阈值）
   const completeSwipe = async (dir: 'next' | 'prev', mode: 'main' | 'fullscreen') => {
     const yVal = mode === 'fullscreen' ? fsAnimatedY : animatedY;
+    if (__DEV__) console.log('[MOBSWIPE] completeSwipe', dir, mode);
     try {
       const target = await resolveSwipeTarget(dir);
+      if (__DEV__) console.log('[MOBSWIPE] target=', target ? `${target.kind}${target.kind === 'episode' ? `/ep#${target.ep.id}` : `/media#${target.media.id}`}` : 'null');
       if (!target) {
+        if (__DEV__) console.log('[MOBSWIPE] no-target spring-back');
         Animated.spring(yVal, { toValue: 0, useNativeDriver: true, friction: 8, tension: 60 }).start();
         return;
       }
@@ -1544,12 +1551,16 @@ export default function PlayScreen({ route, navigation }: Props) {
       } else {
         await switchToMediaById(target.media.id, target.index);
       }
+      // 切集/切源成功后复位速率与锁定标：长按瞬时倍速/锁定 2x 不跨集残留
+      pressActionsRef.current.resetLocked();
+      if (__DEV__) console.log('[MOBSWIPE] switched-ok');
       // 切换完成：瞬时归位（注意 completeSwipe 前 transform 已到 ±screenH，
       // 必须在新内容状态已提交后归位，避免归位时仍是旧内容）——setTimeout 宏任务确保 setMediaId/setXxx 已 flush
       setTimeout(() => {
         yVal.setValue(0);
       }, 0);
-    } catch {
+    } catch (e) {
+      if (__DEV__) console.log('[MOBSWIPE] completeSwipe-err', e);
       Animated.spring(yVal, { toValue: 0, useNativeDriver: true, friction: 8, tension: 60 }).start();
     }
   };
@@ -1570,27 +1581,39 @@ export default function PlayScreen({ route, navigation }: Props) {
     setCurrentSpeed(rate);
   };
   const pressLock2x = () => {
+    if (__DEV__) console.log('[MOBSWIPE] lock2x');
     locked2xRef.current = true;
     setLocked2x(true);
     pressApplyRate(2);
   };
   const pressUnlock2x = () => {
+    if (__DEV__) console.log('[MOBSWIPE] unlock2x');
     locked2xRef.current = false;
     setLocked2x(false);
     pressApplyRate(1);
   };
   // 长按手势结束时复位（若未锁定则恢复 1x，已锁定则保持 2x）
   const pressUnlockTemp = () => {
+    if (__DEV__) console.log('[MOBSWIPE] unlock-temp locked=', locked2xRef.current);
     if (!locked2xRef.current) pressApplyRate(1);
   };
   // 统一复位：锁定标记 + 速率，切集/切源/卸载时调用
   const pressResetLocked = () => {
+    if (__DEV__) console.log('[MOBSWIPE] reset-locked');
     locked2xRef.current = false;
     setLocked2x(false);
     pressApplyRate(1);
   };
 
   // ─── 红果式长按手势：热区判定 ───
+  // 按 x 屏宽比例归一的分区（左/中/右），供视频区 zoneInPoint 与信息卡手势层共用
+  const zoneByX = useCallback((pageX: number): 'left' | 'right' | 'middle' => {
+    const W = screenW;
+    if (pageX < W * ZONE_LEFT_R) return 'left';
+    if (pageX > W * ZONE_RIGHT_R) return 'right';
+    return 'middle';
+  }, [screenW]);
+
   const zoneInPoint = useCallback((
     pageX: number,
     pageY: number,
@@ -1599,25 +1622,20 @@ export default function PlayScreen({ route, navigation }: Props) {
     if (settingsVisibleRef.current) return null;
     if (mode === 'main') {
       if (!isImmersiveRef.current || appFullscreenRef.current) return null;
-      if (overlayVisibleRef.current || skipForwardVisibleRef.current) return null;
       if (!videoUrlRef.current || errorRef.current) return null;
       // 顶部 header 区域（沉浸态 top44 + 留白）
       if (pageY < 120) return null;
-      // 底部信息卡 / 进度条 / 选集栏（y > 72% 屏高）
+      // 底部信息卡 / 进度条 / 选集栏（y > 72% 屏高）——信息卡手势由独立冒泡层接管，此处仍排除
       if (pageY > screenH * 0.72) return null;
       // 右侧竖排功能键列（宽 ~80px）
       if (pageX > screenW - 80) return null;
     } else {
       // 全屏
-      if (overlayVisibleRef.current || skipForwardVisibleRef.current) return null;
       if (pageY < (insets.top + 70)) return null;
       if (pageY > screenH - 170) return null;
     }
-    const W = screenW;
-    if (pageX < W * ZONE_LEFT_R) return 'left';
-    if (pageX > W * ZONE_RIGHT_R) return 'right';
-    return 'middle';
-  }, [screenW, screenH, insets.top]);
+    return zoneByX(pageX);
+  }, [screenW, screenH, insets.top, zoneByX]);
 
   // 供 PanResponder 读取最新处理函数（手势 useMemo 依赖为空）
   const pressActionsRef = useRef<{
@@ -1644,6 +1662,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   pressActionsRef.current = {
     zoneInPoint,
     onLongPress: (zone: 'left' | 'right' | 'middle', mode: 'main' | 'fullscreen') => {
+      if (__DEV__) console.log('[MOBSWIPE] LP zone=', zone, 'mode=', mode);
       if (zone === 'left' || zone === 'right') {
         if (!locked2xRef.current) pressApplyRate(2);
         setPressHint('ff');
@@ -1674,128 +1693,200 @@ export default function PlayScreen({ route, navigation }: Props) {
   };
 
   // ─── 红果式跟手滑动 + 长按双意图 PanResponder ───
-  const createSwipeResponder = (yVal: Animated.Value, mode: 'main' | 'fullscreen') => PanResponder.create({
-    onStartShouldSetPanResponder: () => false,
-    onStartShouldSetPanResponderCapture: (e) => {
-      const st = pressRef.current;
-      if (st) return false;
-      const zone = pressActionsRef.current.zoneInPoint(
-        e.nativeEvent.pageX,
-        e.nativeEvent.pageY,
-        mode,
-      );
-      if (zone) {
-        pressRef.current = { zone, mode, phase: 'tracking' };
-        longPressTimerRef.current = setTimeout(() => {
-          const cur = pressRef.current;
-          if (cur && cur.phase === 'tracking') {
-            cur.phase = 'longpress';
-            pressActionsRef.current.onLongPress(cur.zone!, cur.mode);
+  const createSwipeResponder = (yVal: Animated.Value, mode: 'main' | 'fullscreen', opts?: { bubble?: boolean; threshold?: number }) => {
+    const bubble = opts?.bubble ?? false;
+    // 信息卡贴屏幕底，可滑动空间只有 ~(1-0.72)*screenH ≈ 0.28H；沿用 0.25H 阈值永远够不着
+    // （实测起手上滑最大 ~215px < 阈值 228 → 永远回弹）。故信息卡用独立阈值。
+    const swipeThreshold = opts?.threshold ?? screenH * 0.25;
+    return PanResponder.create({
+      // bubble=false（视频区/全屏）：capture 抢占；bubble=true（信息卡）：冒泡获取，
+      // 卡内 Touchable 控件（类型标签/「展开」）优先拿 responder，空白处才落入手势层
+      onStartShouldSetPanResponder: bubble
+        ? () => {
+            // 挡板与 zoneInPoint 同源（信息卡/胶囊不遮手势区：overlay 胶囊在屏顶、不抢卡区触感）：
+            // settings/全屏/非沉浸/无视频/错误态不抢触
+            if (mode !== 'main') return false;
+            if (settingsVisibleRef.current) return false;
+            if (appFullscreenRef.current) return false;
+            if (!isImmersiveRef.current) return false;
+            if (!videoUrlRef.current || errorRef.current) return false;
+            // 已有活动手势（含视频区首指）不叠加第二指
+            if (pressRef.current) return false;
+            return true;
           }
-        }, LONG_PRESS_MS);
-        return true;
-      }
-      return false;
-    },
-    onMoveShouldSetPanResponder: () => false,
-    onMoveShouldSetPanResponderCapture: (_, g) => {
-      const st = pressRef.current;
-      if (!st) return false;
-      if (Math.abs(g.dy) > 30 && Math.abs(g.dy) > Math.abs(g.dx) * 2) {
+        : () => false,
+      onStartShouldSetPanResponderCapture: bubble
+        ? () => false
+        : (e) => {
+            const st = pressRef.current;
+            if (st) return false;
+            const zone = pressActionsRef.current.zoneInPoint(
+              e.nativeEvent.pageX,
+              e.nativeEvent.pageY,
+              mode,
+            );
+            if (zone) {
+              pressRef.current = { zone, mode, phase: 'tracking', source: 'video' };
+              longPressTimerRef.current = setTimeout(() => {
+                const cur = pressRef.current;
+                if (cur && cur.phase === 'tracking') {
+                  cur.phase = 'longpress';
+                  pressActionsRef.current.onLongPress(cur.zone!, cur.mode);
+                }
+              }, LONG_PRESS_MS);
+              return true;
+            }
+            return false;
+          },
+      onMoveShouldSetPanResponder: bubble
+        ? (_, g) => {
+            // 从卡内控件起手再上/下滑（确认项 A）：纵向位移占优时接管切集
+            if (Math.abs(g.dy) > 30 && Math.abs(g.dy) > Math.abs(g.dx) * 2) return true;
+            return false;
+          }
+        : () => false,
+      // 信息卡区块化关键：视频区 move capture 会在信息卡滑动时把 responder 抢回
+      // （dy>30 即接管），导致信息卡 onPanResponderMove/Release 被中断、swipe 永不执行——
+      // 表现为「长按有效、滑动无效」。信息卡自身已共享完整 swipe 链，拒绝被接管即可。
+      onPanResponderTerminationRequest: bubble ? () => false : () => true,
+      onMoveShouldSetPanResponderCapture: bubble
+        ? () => false
+        : (_, g) => {
+            const st = pressRef.current;
+            if (!st) return false;
+            // 信息卡持有 responder（source='card'）：信息卡自带完整跟手/切集/锁定链，视频区不得再抢；
+            // 否则长按左/右缘（2x）再上滑会被改写成 swipe → 同时触发「锁定2x + 切集」双效果
+            if (st.source === 'card') return false;
+            // 已进入长按语义（2x/设置面板）：上滑=锁定、下滑=退出，不转为切集
+            if (st.phase === 'longpress') return false;
+            if (Math.abs(g.dy) > 30 && Math.abs(g.dy) > Math.abs(g.dx) * 2) {
+              clearTimeout(longPressTimerRef.current!);
+              st.phase = 'swipe';
+              return true;
+            }
+            return false;
+          },
+      onPanResponderGrant: bubble
+        ? (e, g) => {
+            if (__DEV__) console.log('[MOBSWIPE] CARD-G x=', Math.round(e.nativeEvent.pageX), 'y=', Math.round(e.nativeEvent.pageY), 'dy=', Math.round(g.dy));
+            // 幂等：单指下仅一源；从控件接管时已带位移 → 直接转 swipe，空白首触 → tracking+400ms 长按计时
+            if (pressRef.current) return;
+            const zone = zoneByX(e.nativeEvent.pageX);
+            const fast = Math.abs(g.dy) > 30 && Math.abs(g.dy) > Math.abs(g.dx) * 2;
+            pressRef.current = { zone, mode, phase: fast ? 'swipe' : 'tracking', source: 'card' };
+            if (fast) return;
+            longPressTimerRef.current = setTimeout(() => {
+              const cur = pressRef.current;
+              if (cur && cur.phase === 'tracking') {
+                cur.phase = 'longpress';
+                pressActionsRef.current.onLongPress(cur.zone!, cur.mode);
+              }
+            }, LONG_PRESS_MS);
+          }
+        : () => {},
+      onPanResponderMove: (_, g) => {
+        const st = pressRef.current;
+        if (!st) return;
+        if (st.phase === 'swipe' || (st.phase === 'tracking' && Math.abs(g.dy) > 30 && Math.abs(g.dy) > Math.abs(g.dx) * 2)) {
+          if (__DEV__) console.log('[MOBSWIPE] M→swipe dy=', Math.round(g.dy), 'phase=', st.phase);
+          st.phase = 'swipe';
+          clearTimeout(longPressTimerRef.current!);
+          const max = screenH;
+          yVal.setValue(Math.max(-max, Math.min(max, g.dy)));
+          return;
+        }
+if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
+          if (locked2xRef.current) {
+            // 已锁定：上滑/静止保持「已锁定倍速」提示，下滑提示「松手退出倍速」
+            if (g.dy >= LOCK_GESTURE_DY) setPressHint('exit');
+            else setPressHint('ff');
+          } else if (g.dy <= -LOCK_GESTURE_DY) {
+            setPressHint('lock');
+          } else {
+            // 未锁定下滑不掉入"退出倍速"：仅结束临时倍速，保持快进提示
+            setPressHint('ff');
+          }
+        }
+      },
+      onPanResponderRelease: (_, g) => {
+        const st = pressRef.current;
         clearTimeout(longPressTimerRef.current!);
-        st.phase = 'swipe';
-        return true;
-      }
-      return false;
-    },
-    onPanResponderGrant: () => {},
-    onPanResponderMove: (_, g) => {
-      const st = pressRef.current;
-      if (!st) return;
-      if (st.phase === 'swipe' || (st.phase === 'tracking' && Math.abs(g.dy) > 30 && Math.abs(g.dy) > Math.abs(g.dx) * 2)) {
-        st.phase = 'swipe';
-        clearTimeout(longPressTimerRef.current!);
-        const max = screenH;
-        yVal.setValue(Math.max(-max, Math.min(max, g.dy)));
-        return;
-      }
-      if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
-        if (g.dy <= -LOCK_GESTURE_DY) setPressHint('lock');
-        else if (g.dy >= LOCK_GESTURE_DY) setPressHint('exit');
-        else setPressHint('ff');
-      }
-    },
-    onPanResponderRelease: (_, g) => {
-      const st = pressRef.current;
-      clearTimeout(longPressTimerRef.current!);
-      if (!st) return;
+        if (!st) return;
 
-      if (st.phase === 'swipe') {
-        const threshold = screenH * 0.25;
-        const dir = g.dy < 0 ? 'next' : 'prev';
-        if (Math.abs(g.dy) > threshold) {
-          Animated.timing(yVal, {
-            toValue: g.dy < 0 ? -screenH : screenH,
-            duration: 220,
-            useNativeDriver: true,
-          }).start(() => {
-            swipeActionsRef.current[dir](mode);
-          });
+        if (st.phase === 'swipe') {
+          const threshold = swipeThreshold;
+          const dir = g.dy < 0 ? 'next' : 'prev';
+          if (__DEV__) console.log('[MOBSWIPE] R-swipe dy=', Math.round(g.dy), 'dir=', dir, 'thr=', Math.round(threshold), 'bubble=', bubble);
+          if (Math.abs(g.dy) > threshold) {
+            Animated.timing(yVal, {
+              toValue: g.dy < 0 ? -screenH : screenH,
+              duration: 220,
+              useNativeDriver: true,
+            }).start(() => {
+              swipeActionsRef.current[dir](mode);
+            });
+          } else {
+            Animated.spring(yVal, { toValue: 0, useNativeDriver: true, friction: 8, tension: 60 }).start();
+          }
+          pressRef.current = null;
+          return;
+        }
+
+        if (st.phase === 'longpress') {
+          if (st.zone === 'middle') {
+            // settings 在 onLongPress 时已打开，release 不再重复
+          } else {
+            // 红果语义：上滑=锁定 2x；下滑=退出倍速（已锁定解除、未锁定的临时 2x 也恢复 1x）；
+            // 位移不足 |dy|<24 → 结束临时（未锁定恢复 1x，已锁定保持 2x）
+            if (g.dy <= -LOCK_GESTURE_DY) pressActionsRef.current.lock2x();
+            // 已锁定才走“退出倍速”；未锁定下滑仅结束临时倍速（回 1x），不属于退出语义
+            else if (g.dy >= LOCK_GESTURE_DY && locked2xRef.current) pressActionsRef.current.unlock2x();
+            else pressActionsRef.current.unlockTemp();
+          }
+          setPressHint(null);
+          pressRef.current = null;
+          return;
+        }
+
+        const now = Date.now();
+        const dt = doubleTapRef.current;
+        if (now - dt.ts <= DOUBLE_TAP_MS) {
+          clearTimeout(dt.timer);
+          dt.ts = 0;
+          dt.timer = null;
+          pressActionsRef.current.onDoubleTap();
         } else {
-          Animated.spring(yVal, { toValue: 0, useNativeDriver: true, friction: 8, tension: 60 }).start();
+          dt.ts = now;
+          dt.timer = setTimeout(() => {
+            pressActionsRef.current.onTapFallback(mode);
+          }, DOUBLE_TAP_MS);
         }
         pressRef.current = null;
-        return;
-      }
-
-      if (st.phase === 'longpress') {
-        if (st.zone === 'middle') {
-          // settings 在 onLongPress 时已打开，release 不再重复
-        } else {
-          // 红果语义：上滑=锁定 2x；下滑=退出倍速（已锁定解除、未锁定的临时 2x 也恢复 1x）；
-          // 位移不足 |dy|<24 → 结束临时（未锁定恢复 1x，已锁定保持 2x）
-          if (g.dy <= -LOCK_GESTURE_DY) pressActionsRef.current.lock2x();
-          else if (g.dy >= LOCK_GESTURE_DY) pressActionsRef.current.unlock2x();
-          else pressActionsRef.current.unlockTemp();
+      },
+      onPanResponderTerminate: () => {
+        clearTimeout(longPressTimerRef.current!);
+        const dt = doubleTapRef.current;
+        if (dt.timer) {
+          clearTimeout(dt.timer);
+          dt.timer = null;
+          dt.ts = 0;
         }
+        pressRef.current = null;
         setPressHint(null);
-        pressRef.current = null;
-        return;
-      }
-
-      const now = Date.now();
-      const dt = doubleTapRef.current;
-      if (now - dt.ts <= DOUBLE_TAP_MS) {
-        clearTimeout(dt.timer);
-        dt.ts = 0;
-        dt.timer = null;
-        pressActionsRef.current.onDoubleTap();
-      } else {
-        dt.ts = now;
-        dt.timer = setTimeout(() => {
-          pressActionsRef.current.onTapFallback(mode);
-        }, DOUBLE_TAP_MS);
-      }
-      pressRef.current = null;
-    },
-    onPanResponderTerminate: () => {
-      clearTimeout(longPressTimerRef.current!);
-      const dt = doubleTapRef.current;
-      if (dt.timer) {
-        clearTimeout(dt.timer);
-        dt.timer = null;
-        dt.ts = 0;
-      }
-      pressRef.current = null;
-      setPressHint(null);
-      Animated.spring(yVal, { toValue: 0, useNativeDriver: true, friction: 8, tension: 60 }).start();
-    },
-  });
+        Animated.spring(yVal, { toValue: 0, useNativeDriver: true, friction: 8, tension: 60 }).start();
+      },
+    });
+  };
 
   // 沉浸态主卡片组跟手手势
   const swipePanResponder = useMemo(() => createSwipeResponder(animatedY, 'main'), [screenH]);
   // 全屏覆盖层跟手手势（独立 Animated.Value，互不干扰）
   const fsSwipePanResponder = useMemo(() => createSwipeResponder(fsAnimatedY, 'fullscreen'), [screenH]);
+  // 信息卡区域手势（冒泡式）：卡内控件优先，空白处六手势与视频区语义一致
+  const cardSwipeResponder = useMemo(() => createSwipeResponder(animatedY, 'main', {
+    bubble: true,
+    threshold: Math.max(90, screenH * 0.11),
+  }), [screenH, zoneByX]);
 
   // 预渲染下一张卡（海报+标题）
   const renderSlideCard = (info: SwipePreview | null, hint: string) => (
@@ -2319,7 +2410,7 @@ export default function PlayScreen({ route, navigation }: Props) {
           const epLabelText = vmEpName || (epIdx >= 0 ? `第${epIdx + 1}集` : '');
           return (
             <>
-            <View style={styles.verticalCard}>
+            <View style={styles.verticalCard} {...cardSwipeResponder.panHandlers} onLayout={(e) => setVerticalCardH(Math.round(e.nativeEvent.layout.height))}>
               {/* 信息区：红果式信息卡常驻全量显示（不伸缩） */}
                 <View style={styles.verticalInfoWrap}>
                 <View style={styles.verticalInfo} >
@@ -2460,8 +2551,10 @@ export default function PlayScreen({ route, navigation }: Props) {
 
       {/* 右侧竖排功能键（红果式：悬浮视频右侧、屏高 55% 起、距右缘 8）——置于卡片组之外固定不跟手；
           进页先显示「图标+按钮名」，5 秒后仅文字淡出、整行缓慢右移让图标落到右缘 */}
-      {videoUrl && !error && isImmersive && (
-        <View style={styles.toolbarVerticalCol}>
+      {videoUrl && !error && isImmersive && !appFullscreen && (
+        <View style={[styles.toolbarVerticalCol, {
+          bottom: verticalCardH > 0 ? insets.bottom + 76 + verticalCardH + 8 : screenH * 0.12,
+        }]}>
           {!isVerticalVideo && (
             <Animated.View style={[styles.toolbarRow, {
               transform: [{ translateX: toolbarHintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, TOOLBAR_LABEL_EXTRA] }) }],
@@ -2831,7 +2924,7 @@ export default function PlayScreen({ route, navigation }: Props) {
               onPress={pressUnlock2x}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Text style={styles.lockBadgeText}>2x 长按锁定</Text>
+<Text style={styles.lockBadgeText}>2.0倍速锁定中</Text>
             </TouchableOpacity>
           )}
           {/* 红果式长按：首次使用引导气泡 */}
@@ -2840,11 +2933,11 @@ export default function PlayScreen({ route, navigation }: Props) {
               <Text style={styles.guideBubbleText}>长按左右快进 · 长按中间打开功能</Text>
             </View>
           )}
-          {/* 红果式长按：倍速/锁定提示胶囊（底部控制条上方） */}
+          {/* 红果式长按：倍速/锁定提示气泡（屏幕中上方） */}
           {pressHint && (
-            <View pointerEvents="none" style={[fsStyles.pressHintWrap, { bottom: insets.bottom + 170 }]}>
-              <Text style={styles.pressHintTitle}>
-                {pressHint === 'ff' ? '2.0倍速快进中' : pressHint === 'lock' ? '松手锁定倍速' : '下滑退出倍速'}
+            <View pointerEvents="none" style={[fsStyles.pressHintWrap, { top: 150 }, pressHint === 'lock' || pressHint === 'exit' ? styles.pressHintWrapLight : null]}>
+              <Text style={[styles.pressHintTitle, pressHint === 'lock' || pressHint === 'exit' ? styles.pressHintTitleLight : null]}>
+                {pressHint === 'lock' && !locked2x ? '松手锁定倍速' : pressHint === 'exit' ? '松手退出倍速' : locked2x ? '已锁定倍速\n下滑退出倍速' : '2.0倍速快进中\n上滑锁定倍速'}
               </Text>
             </View>
           )}
@@ -2932,7 +3025,7 @@ export default function PlayScreen({ route, navigation }: Props) {
         onPress={pressUnlock2x}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       >
-        <Text style={styles.lockBadgeText}>2x 长按锁定</Text>
+        <Text style={styles.lockBadgeText}>2.0倍速锁定中</Text>
       </TouchableOpacity>
     )}
     {/* 红果式长按手势：首次使用引导气泡（顶部） */}
@@ -2941,11 +3034,11 @@ export default function PlayScreen({ route, navigation }: Props) {
         <Text style={styles.guideBubbleText}>长按左右快进 · 长按中间打开功能</Text>
       </View>
     )}
-    {/* 红果式长按手势：倍速/锁定提示胶囊（中下） */}
+    {/* 红果式长按手势：倍速/锁定提示气泡（屏幕中上方） */}
     {pressHint && (
-      <View pointerEvents="none" style={styles.pressHintWrap}>
-        <Text style={styles.pressHintTitle}>
-          {pressHint === 'ff' ? '2.0倍速快进中' : pressHint === 'lock' ? '松手锁定倍速' : '下滑退出倍速'}
+      <View pointerEvents="none" style={[styles.pressHintWrap, pressHint === 'lock' || pressHint === 'exit' ? styles.pressHintWrapLight : null]}>
+        <Text style={[styles.pressHintTitle, pressHint === 'lock' || pressHint === 'exit' ? styles.pressHintTitleLight : null]}>
+          {pressHint === 'lock' && !locked2x ? '松手锁定倍速' : pressHint === 'exit' ? '松手退出倍速' : locked2x ? '已锁定倍速\n下滑退出倍速' : '2.0倍速快进中\n上滑锁定倍速'}
         </Text>
       </View>
     )}

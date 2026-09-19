@@ -98,8 +98,8 @@ android {
         applicationId 'com.movie.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 142
-        versionName "1.0.142"
+        versionCode 143
+        versionName "1.0.143"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
