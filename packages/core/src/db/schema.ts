@@ -66,6 +66,8 @@ export const SCHEMA_SQL = `
     rating_updated_at TEXT,
     hidden INTEGER DEFAULT 0,
     kid_safe INTEGER,
+    -- 历史遗留：v2 全表物化推荐分。自「候选召回归一」起不再由推荐重算维护/读取，
+    -- 推荐排序改走 recommend_candidates；本列与相关索引仅保留避免重建表。
     personal_score INTEGER DEFAULT 0,
     series_group TEXT,
     series_season INTEGER,
@@ -238,6 +240,16 @@ export const SCHEMA_SQL = `
     genre_group TEXT
   );
 
+  -- 推荐候选集（v2 候选召回归一）：UI「推荐排序」的数据源。
+  -- 每轮重算对候选集（行为相关 ∪ 画像命中 ∪ 探索最新，几千行）现算分并有序落库；
+  -- 分类页「推荐」排序 = 候选表 JOIN media 后在候选内筛选/翻页，不再全表物化打分。
+  CREATE TABLE IF NOT EXISTS recommend_candidates (
+    media_id TEXT PRIMARY KEY,
+    position INTEGER,
+    score INTEGER DEFAULT 0,
+    genre_group TEXT
+  );
+
   -- 用户「不感兴趣」反馈：屏蔽具体影片（打分 -10、推荐序剔除、标签画像负向）
   CREATE TABLE IF NOT EXISTS dislike (
     media_id TEXT PRIMARY KEY,
@@ -254,6 +266,7 @@ export const SCHEMA_SQL = `
 
   CREATE INDEX IF NOT EXISTS idx_user_interest_tag_strength ON user_interest_tag(strength);
   CREATE INDEX IF NOT EXISTS idx_recommend_snapshot_position ON recommend_snapshot(position);
+  CREATE INDEX IF NOT EXISTS idx_recommend_candidates_position ON recommend_candidates(position);
 
   CREATE INDEX IF NOT EXISTS idx_collection_log_ts ON collection_log(timestamp);
   CREATE INDEX IF NOT EXISTS idx_collection_log_task ON collection_log(task_id);
@@ -312,6 +325,12 @@ export const SCHEMA_SQL = `
   -- 采集跳过判定的点查（getMediaByFingerprint/getMediaByVodId），全表扫一次 10-30s
   CREATE INDEX IF NOT EXISTS idx_media_fingerprint ON media(fingerprint);
   CREATE INDEX IF NOT EXISTS idx_media_vod_id ON media(vod_id);
+
+  -- 推荐候选召回（v5）的「最新（explore）池」与画像命中/关键词倒排均带
+  -- ORDER BY updated_at DESC LIMIT N；无该索引时对 22 万行全表临时排序实测 8.5s，
+  -- 此部分索引（可见行子集）使 LIMIT 早停走纯索引反向扫描，亚毫秒级。
+  CREATE INDEX IF NOT EXISTS idx_media_updated_at_visible ON media(updated_at)
+    WHERE (hidden IS NULL OR hidden = 0);
 
   -- 推荐重算变化跟踪表：记录自上次重算以来变化的媒体ID
   CREATE TABLE IF NOT EXISTS media_change_log (

@@ -1432,6 +1432,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
       await repointUnique('impression');
       await repointUnique('dislike');
       await repointUnique('recommend_snapshot');
+      await repointUnique('recommend_candidates');
       await repointUnique('media_change_log');
 
       // 4) 删除被合并的 tv 记录（episode/play_source 外键级联兜底清理）
@@ -1583,6 +1584,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
       await repointUnique('impression');
       await repointUnique('dislike');
       await repointUnique('recommend_snapshot');
+      await repointUnique('recommend_candidates');
       await repointUnique('media_change_log');
 
       await this.db.execute('DELETE FROM media WHERE id = ?', [v.id]);

@@ -19,6 +19,35 @@ import type {
 export const UNCATEGORIZED_GENRE = '未分类';
 
 /**
+ * 与数据库筛选谓词（buildWhere/分类页 CSV 筛选）语义等价的 JS 判定，
+ * 用于「推荐排序」候选段在内存中过滤候选行（候选表仅数百~数千行）。
+ * row 为 media 表的行（snake_case 字段）。参数为 ListParams。
+ */
+export function mediaMatchesFilters(
+  row: {
+    hidden?: number | null;
+    kid_safe?: number | null;
+    type?: string | null;
+    year?: number | null;
+    area?: string | null;
+    genre?: string | null;
+    is_short_drama?: number | null;
+  },
+  params: ListParams,
+  kidModeActive: boolean
+): boolean {
+  if (!(row.hidden == null || row.hidden === 0)) return false;
+  if (kidModeActive && row.kid_safe !== 1) return false;
+  if (params.type && row.type !== params.type) return false;
+  if (params.year != null && row.year !== params.year) return false;
+  if (params.area && row.area !== params.area) return false;
+  if (params.genre && !(row.genre ?? '').includes(params.genre)) return false;
+  if (params.subType && !(row.genre ?? '').includes(params.subType)) return false;
+  if (params.isShortDrama !== undefined && (row.is_short_drama === 1) !== params.isShortDrama) return false;
+  return true;
+}
+
+/**
  * 数据库访问抽象层接口。
  * 移动端用 expo-sqlite 实现（ExpoSqliteProvider），
  * 桌面端用 tauri-plugin-sql 实现（TauriSqlProvider）。
@@ -195,7 +224,14 @@ export interface DatabaseProvider {
     score: number;
     genreGroup: string;
   }[]): Promise<void>;
-  /** 清空 impression、user_interest_tag、recommend_snapshot 并将全表 personal_score 置 0（「清空重学」数据部分）。 */
+  /** 重建推荐候选表（候选召回归一：推荐排序数据源，先清空后批量插入，分块写）。 */
+  replaceRecommendationCandidates(rows: {
+    mediaId: string;
+    position: number;
+    score: number;
+    genreGroup: string;
+  }[]): Promise<void>;
+  /** 清空 impression、user_interest_tag、recommend_snapshot、recommend_candidates（「清空重学」数据部分）。 */
   resetRecommendationData(): Promise<void>;
 
   // —— Dislike DAO（不感兴趣） ——

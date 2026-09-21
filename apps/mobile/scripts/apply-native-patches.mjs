@@ -524,6 +524,322 @@ function patchIOS() {
   console.log('[patch] iOS expo-video-cache 已打补丁（NetworkDownloader + SessionRouter + ExpoVideoCacheModule）');
 }
 
+// ---------- iOS: 功能15 播放静默停排查 - expo-video-cache 数据链路打点 ----------
+// 背景：播中「静默停」时 isPlaying=false 但无 error/loading。需区分「磁盘直读卡死」「Range 失配
+// 等字节」「网络下载挂起」。打点追加写 Library/Caches/vc_trace.log（与 segment_progress.json 同目录，
+// 可用 devicectl copy 拉取），JS play_trace.log 负责上层事件、此处负责下层字节流。
+function patchIOSTrace() {
+  const pkgDir = resolvePkg('expo-video-cache');
+  if (!pkgDir) {
+    console.log('[patch] expo-video-cache 未安装，跳过 iOS 数据链路打点');
+    return;
+  }
+  const nd = join(pkgDir, 'ios', 'NetworkDownloader.swift');
+  const ds = join(pkgDir, 'ios', 'DataSource.swift');
+  const cch = join(pkgDir, 'ios', 'ClientConnectionHandler.swift');
+  if (!existsSync(nd) || !existsSync(ds) || !existsSync(cch)) {
+    console.log('[patch] expo-video-cache ios 源文件缺失，跳过 iOS 数据链路打点');
+    return;
+  }
+
+  // 1) NetworkDownloader.swift：注入 VCTrace 打点器（线程安全追加写文件）
+  let nContent = readFileSync(nd, 'utf8');
+  if (!nContent.includes('final class VCTrace')) {
+    const anchorNW = 'final class NetworkDownloader {';
+    if (!nContent.includes(anchorNW)) {
+      console.log('[patch][iOS trace] 未匹配到 NetworkDownloader 锚点，跳过打点器注入');
+    } else {
+      const vctrace = `// 功能15: 播放静默停排查 - 数据链路打点器（追加写 Library/Caches/vc_trace.log）
+final class VCTrace {
+  static let shared = VCTrace()
+  private let queue = DispatchQueue(label: "com.videocache.vctrace")
+  private let path: URL
+  private init() {
+    let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+    self.path = dir.appendingPathComponent("vc_trace.log")
+  }
+  func log(_ msg: String) {
+    queue.async {
+      let line = "\\(Self.ts()) \\(msg)\\n"
+      if let h = try? FileHandle(forWritingTo: self.path) {
+        h.seekToEndOfFile()
+        h.write(line.data(using: .utf8)!)
+        try? h.close()
+      } else {
+        try? line.data(using: .utf8)?.write(to: self.path, options: .atomic)
+      }
+    }
+  }
+  static func ts() -> String {
+    let f = DateFormatter()
+    f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+    f.timeZone = TimeZone(abbreviation: "UTC")
+    return f.string(from: Date())
+  }
+}
+
+final class NetworkDownloader {`;
+      nContent = nContent.replace(anchorNW, vctrace);
+      writeFileSync(nd, nContent);
+      console.log('[patch] iOS VCTrace 打点器已注入 NetworkDownloader.swift');
+    }
+  } else {
+    console.log('[patch] iOS VCTrace 打点器已存在，跳过');
+  }
+
+  // 2) DataSource.swift：命中/网络/响应/完成打点 + 累计字节
+  let dContent = readFileSync(ds, 'utf8');
+  if (!dContent.includes('功能15')) {
+    // 2a) 累计字节属性（含功能15 标记，保证幂等）
+    dContent = dContent.replace(
+      '    private var fileHandle: FileHandle?\n    private var isManifest: Bool\n    private let segmentLimit: Int',
+      '    private var fileHandle: FileHandle?\n    private var isManifest: Bool\n    private let segmentLimit: Int\n    // 功能15: 累计已读/已下载字节数（打点用）\n    private var receivedBytes: Int64 = 0'
+    );
+    // 2b) start() 打点（磁盘命中 or 网络）
+    dContent = dContent.replace(
+      '    func start() {\n        if storage.exists(for: storageKey) {',
+      '    func start() {\n        VCTrace.shared.log("DS.start hit=\\(storage.exists(for: storageKey)) manifest=\\(isManifest) key=\\(storageKey)")\n        if storage.exists(for: storageKey) {'
+    );
+    // 2c) serveFileFromDisk 完成打点（累计下发字节）
+    dContent = dContent.replace(
+      '        while true {\n            let data = handle.readData(ofLength: 64 * 1024)\n            if data.isEmpty { break }\n            delegate?.didReceiveData(data: data)\n        }\n        \n        try? handle.close()\n        delegate?.didComplete(error: nil)',
+      '        while true {\n            let data = handle.readData(ofLength: 64 * 1024)\n            if data.isEmpty { break }\n            receivedBytes += Int64(data.count)\n            delegate?.didReceiveData(data: data)\n        }\n        \n        try? handle.close()\n        VCTrace.shared.log("DS.diskDone sent=\\(receivedBytes) key=\\(storageKey)")\n        delegate?.didComplete(error: nil)'
+    );
+    // 2d) didReceiveResponse 打点
+    dContent = dContent.replace(
+      '    func didReceiveResponse(task: NetworkTask, response: URLResponse) {\n        if let httpResponse = response as? HTTPURLResponse {\n            if (200...299).contains(httpResponse.statusCode) {',
+      '    func didReceiveResponse(task: NetworkTask, response: URLResponse) {\n        if let httpResponse = response as? HTTPURLResponse {\n            VCTrace.shared.log("DS.resp \\(httpResponse.statusCode) len=\\(response.expectedContentLength) key=\\(storageKey)")\n            if (200...299).contains(httpResponse.statusCode) {'
+    );
+    // 2e) didReceiveData 累计
+    dContent = dContent.replace(
+      '    func didReceiveData(task: NetworkTask, data: Data) {\n        delegate?.didReceiveData(data: data)\n        if let handle = fileHandle {\n            try? handle.write(contentsOf: data)\n        }\n    }',
+      '    func didReceiveData(task: NetworkTask, data: Data) {\n        receivedBytes += Int64(data.count)\n        delegate?.didReceiveData(data: data)\n        if let handle = fileHandle {\n            try? handle.write(contentsOf: data)\n        }\n    }'
+    );
+    // 2f) didComplete 打点
+    dContent = dContent.replace(
+      '        delegate?.didComplete(error: error)\n    }',
+      '        VCTrace.shared.log("DS.done sent=\\(receivedBytes) err=\\(error?.localizedDescription ?? "nil") key=\\(storageKey)")\n        delegate?.didComplete(error: error)\n    }'
+    );
+    // 2g) sendRewrittenManifest 打点（重写后分片数）
+    dContent = dContent.replace(
+      '    private func sendRewrittenManifest(_ content: String) {\n        let rewritten = rewriteManifest(content, originalUrl: url)',
+      '    private func sendRewrittenManifest(_ content: String) {\n        let rewritten = rewriteManifest(content, originalUrl: url)\n        VCTrace.shared.log("DS.manifest seg=\\(rewritten.components(separatedBy: "\\n").filter { $0.hasPrefix("http") }.count) key=\\(storageKey)")'
+    );
+    // 2h) serveFileFromDisk 起始打点（磁盘直读路径确认）
+    dContent = dContent.replace(
+      '        let fileSize = (try? FileManager.default.attributesOfItem(atPath: path.path)[.size] as? UInt64) ?? 0\n        \n        if fileSize == 0 {',
+      '        let fileSize = (try? FileManager.default.attributesOfItem(atPath: path.path)[.size] as? UInt64) ?? 0\n        VCTrace.shared.log("DS.disk fileSize=\\(fileSize) key=\\(storageKey)")\n        \n        if fileSize == 0 {'
+    );
+    writeFileSync(ds, dContent);
+    console.log('[patch] iOS DataSource.swift 已注入数据链路打点');
+  } else {
+    console.log('[patch] iOS DataSource.swift 打点已存在，跳过');
+  }
+
+  // 3) ClientConnectionHandler.swift：请求 Range / 下发字节打点
+  let chContent = readFileSync(cch, 'utf8');
+  if (!chContent.includes('功能15')) {
+    chContent = chContent.replace(
+      '    /// Buffer to accumulate incoming raw HTTP request bytes.\n    private var buffer = Data()',
+      '    /// Buffer to accumulate incoming raw HTTP request bytes.\n    private var buffer = Data()\n    /// 功能15: 累计下发给播放器的字节数\n    private var sentToPlayer: Int64 = 0'
+    );
+    chContent = chContent.replace(
+      '        var byteRange: Range<Int>? = nil\n        for line in lines {',
+      '        var byteRange: Range<Int>? = nil\n        VCTrace.shared.log("CCH.req path=\\(path) hasRange=\\(lines.contains { $0.lowercased().hasPrefix("range:") })")\n        for line in lines {'
+    );
+    chContent = chContent.replace(
+      '        dataSource?.delegate = self\n        dataSource?.start()',
+      '        VCTrace.shared.log("CCH.start key url=\\(url.absoluteString) range=\\(byteRange?.description ?? "nil")")\n        dataSource?.delegate = self\n        dataSource?.start()'
+    );
+    chContent = chContent.replace(
+      '    func didReceiveData(data: Data) {\n        connection.send(content: data, completion: .contentProcessed { _ in })\n    }',
+      '    func didReceiveData(data: Data) {\n        sentToPlayer += Int64(data.count)\n        connection.send(content: data, completion: .contentProcessed { _ in })\n    }'
+    );
+    chContent = chContent.replace(
+      '        if error != nil {\n            stop()\n        } else {\n            connection.send(content: nil, contentContext: .defaultStream, isComplete: true, completion: .contentProcessed { [weak self] _ in\n                self?.stop()\n            })\n        }',
+      '        VCTrace.shared.log("CCH.done err=\\(error != nil) sent=\\(sentToPlayer)")\n        if error != nil {\n            stop()\n        } else {\n            connection.send(content: nil, contentContext: .defaultStream, isComplete: true, completion: .contentProcessed { [weak self] _ in\n                self?.stop()\n            })\n        }'
+    );
+    // 3c) CCH.headers 响应码打点（功能15 补充：200/206/404/403 直接可辨）
+    chContent = chContent.replace(
+      '    func didReceiveHeaders(headers: [String : String], status: Int) {\n        VCTrace.shared.log("CCH.headers status=\\(status) contentLength=\\(headers["Content-Length"] ?? "nil")")\n        var response = "HTTP/1.1 \\(status) \\(status == 200 ? "OK" : "Partial Content")\\r\\n"',
+      '    func didReceiveHeaders(headers: [String : String], status: Int) {\n        VCTrace.shared.log("CCH.headers status=\\(status) contentLength=\\(headers["Content-Length"] ?? "nil")")\n        var response = "HTTP/1.1 \\(status) \\(status == 200 ? "OK" : "Partial Content")\\r\\n"'
+    );
+    writeFileSync(cch, chContent);
+    console.log('[patch] iOS ClientConnectionHandler.swift 已注入数据链路打点');
+  } else {
+    console.log('[patch] iOS ClientConnectionHandler.swift 打点已存在，跳过');
+  }
+
+  // 4) expo-video: AVPlayer 自身状态打点（功能16，静默停直接看 reasonForWaitingToPlay）
+  // 背景：供给链（功能15）已证明数据就绪，卡点只剩 AVPlayer 播控/解码。此打点输出
+  // timeControlStatus 变化 + reason + currentTime + bufferedPosition + item 状态，可分辨
+  // 「等数据(.toMinimizeStalls/.insufficientMediaData)」vs「速率评估卡住(.evaluatingBufferingRate)」
+  // vs「seek/无item(.noItemToPlay)」。与功能15 同文件 vc_trace.log，便于对齐时序。
+  const exdir = resolvePkg('expo-video');
+  if (exdir && existsSync(join(exdir, 'ios', 'ExpoVideo.podspec'))) {
+    const vob = join(exdir, 'ios', 'VideoPlayerObserver.swift');
+    let voContent = readFileSync(vob, 'utf8');
+    if (!voContent.includes('功能16')) {
+      // 4a) 注入 descr 辅助函数（文件尾部 extension 之后）
+      voContent = voContent.replace(
+        "private extension AVPlayerItemAccessLogEvent {\n  // Matches the LogEvent to an existing VideoTrack based on the uri, or returns null if doesn't exist",
+        "// 功能16: AVPlayer.TimeControlStatus 描述辅助（打点用）\nprivate func descr(_ s: AVPlayer.TimeControlStatus?) -> String {\n  switch s {\n  case .playing: return \"playing\"\n  case .paused: return \"paused\"\n  case .waitingToPlayAtSpecifiedRate: return \"waiting\"\n  case .none: return \"nil\"\n  @unknown default: return \"unknown\"\n  }\n}\n\nprivate extension AVPlayerItemAccessLogEvent {\n  // Matches the LogEvent to an existing VideoTrack based on the uri, or returns null if doesn't exist"
+      );
+      // 4b) timeControlStatus 打点（含 reason + 时间 + 缓冲 + item 状态）
+      voContent = voContent.replace(
+        "  private func onTimeControlStatusChanged(_ player: AVPlayer, _ change: NSKeyValueObservedChange<AVPlayer.TimeControlStatus>) {\n    // iOS changes timeControlStatus after an error, so we need to check for errors.",
+        "  private func onTimeControlStatusChanged(_ player: AVPlayer, _ change: NSKeyValueObservedChange<AVPlayer.TimeControlStatus>) {\n    VCTraceExpo.shared.log(\"AVPlayer.tcs old=\\(descr(change.oldValue)) new=\\(descr(player.timeControlStatus)) reason=\\(player.reasonForWaitingToPlay?.rawValue ?? \"nil\") t=\\(player.currentTime().seconds) buf=\\(owner?.bufferedPosition ?? -1) rate=\\(player.rate) itemStatus=\\(player.currentItem?.status.rawValue ?? -1) bufEmpty=\\(player.currentItem?.isPlaybackBufferEmpty ?? false) likelyKeepUp=\\(player.currentItem?.isPlaybackLikelyToKeepUp ?? false)\")\n    // iOS changes timeControlStatus after an error, so we need to check for errors."
+      );
+      // 4c) bufferEmpty / keepUp 打点
+      voContent = voContent.replace(
+        "  private func onIsBufferEmptyChanged(_ playerItem: AVPlayerItem, _ change: NSKeyValueObservedChange<Bool>) {\n    if playerItem.isPlaybackBufferEmpty {",
+        "  private func onIsBufferEmptyChanged(_ playerItem: AVPlayerItem, _ change: NSKeyValueObservedChange<Bool>) {\n    VCTraceExpo.shared.log(\"AVPlayer.bufEmpty now=\\(playerItem.isPlaybackBufferEmpty) t=\\(player?.currentTime().seconds ?? -1) buf=\\(owner?.bufferedPosition ?? -1)\")\n    if playerItem.isPlaybackBufferEmpty {"
+      );
+      voContent = voContent.replace(
+        "  private func onPlayerLikelyToKeepUpChanged(_ playerItem: AVPlayerItem, _ change: NSKeyValueObservedChange<Bool>) {\n    if !playerItem.isPlaybackLikelyToKeepUp && playerItem.isPlaybackBufferEmpty {",
+        "  private func onPlayerLikelyToKeepUpChanged(_ playerItem: AVPlayerItem, _ change: NSKeyValueObservedChange<Bool>) {\n    VCTraceExpo.shared.log(\"AVPlayer.keepUp now=\\(playerItem.isPlaybackLikelyToKeepUp) t=\\(player?.currentTime().seconds ?? -1) buf=\\(owner?.bufferedPosition ?? -1)\")\n    if !playerItem.isPlaybackLikelyToKeepUp && playerItem.isPlaybackBufferEmpty {"
+      );
+      // 4d) AVPlayerItem 失败时打点完整 NSError（domain/code/msg），区分
+      //     「URL 无效」「代理连接拒绝(NSURLError)」「源自身 AVError」等失败类别
+      voContent = voContent.replace(
+        "    if newStatus == .error {\n      let playerItemError = (playerItem as? VideoPlayerItem)?.urlAsset.transportError ?? playerItem.error ?? error\n      error = PlayerItemLoadException(playerItemError?.localizedDescription)\n      status = .error",
+        "    if newStatus == .error {\n      let playerItemError = (playerItem as? VideoPlayerItem)?.urlAsset.transportError ?? playerItem.error ?? error\n      error = PlayerItemLoadException(playerItemError?.localizedDescription)\n      VCTraceExpo.shared.log(\"AVPlayer.itemError domain=\\((playerItemError as NSError?)?.domain ?? \"nil\") code=\\((playerItemError as NSError?)?.code ?? -1) msg=\\(playerItemError?.localizedDescription ?? \"nil\") playerErrDomain=\\(player?.error as NSError? == nil ? \"nil\" : (player?.error as NSError?)!.domain) playerErrCode=\\(player?.error as NSError? == nil ? -1 : (player?.error as NSError?)!.code) t=\\(player?.currentTime().seconds ?? -1)\")\n      status = .error"
+      );
+      // 4e) 周期采样器（500ms），抓「声音断续但视频不断、无状态跃迁」时的内部抖动：
+      //     item 时间基与实际播放时间的漂移（drift）、速率、loadedTimeRanges 水位
+      if (!voContent.includes('AVPlayer.samp')) {
+        voContent = voContent.replace(
+          "  // 功能16 sampler: 500ms 周期采样，抓「声音断续但视频不断、无状态跃迁」时的内部抖动\n  private var samplerTimer: Timer?",
+          "  // 功能16 sampler: 500ms 周期采样，抓「声音断续但视频不断、无状态跃迁」时的内部抖动\n  private var samplerTimer: Timer?"
+        );
+        // 注入 sampler 方法：追在 keepUp 打点函数之后（onPlayerLikelyToKeepUpChanged 方法体内结束 `}\n` 后）
+        const keepUpTail = "      status = .readyToPlay\n    }\n  }\n\n  // 功能16 sampler:";
+        if (voContent.includes(keepUpTail)) {
+          voContent = voContent.replace(
+            keepUpTail,
+            "      status = .readyToPlay\n    }\n  }\n\n  // 功能16 sampler: 250ms 周期采样（抓无状态跃迁时内部抖动）\n  fileprivate func startSampler() {\n    guard samplerTimer == nil else { return }\n    let t = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in\n      guard let self = self else { return }\n      guard let p = self.player, let item = p.currentItem else { return }\n      let t = p.currentTime().seconds\n      let tb = item.timebase\n      let rate = tb.map { CMTimebaseGetRate($0) } ?? -1\n      let itemTime = tb.map { CMTimeGetSeconds(CMTimebaseGetTime($0)) } ?? -1\n      let drift = (itemTime.isFinite && t.isFinite) ? itemTime - t : -999\n      let loaded = item.loadedTimeRanges.last.map { CMTimeGetSeconds(CMTimeRangeGetEnd($0.timeRangeValue)) } ?? -1\n      VCTraceExpo.shared.log(\"AVPlayer.samp t=\\(t) buf=\\(loaded) itemT=\\(itemTime) drift=\\(String(format: \"%.3f\", drift)) rate=\\(rate) tcs=\\(descr(p.timeControlStatus)) itemStatus=\\(item.status.rawValue)\")\n    }\n    t.tolerance = 0.2\n    RunLoop.main.add(t, forMode: .common)\n    samplerTimer = t\n  }\n\n  fileprivate func stopSampler() {\n    samplerTimer?.invalidate()\n    samplerTimer = nil\n  }"
+          );
+        }
+      }
+      // 4f) 生命周期挂载：cleanup() 停止采样
+      voContent = voContent.replace(
+        "    invalidateCurrentPlayerItemObservers()\n    stopTimeUpdates()\n    stopSampler()",
+        "    invalidateCurrentPlayerItemObservers()\n    stopTimeUpdates()\n    stopSampler()"
+      );
+      if (!voContent.includes('stopTimeUpdates()\n    stopSampler()')) {
+        voContent = voContent.replace(
+          "    invalidateCurrentPlayerItemObservers()\n    stopTimeUpdates()",
+          "    invalidateCurrentPlayerItemObservers()\n    stopTimeUpdates()\n    stopSampler()"
+        );
+      }
+      if (!voContent.includes('    startSampler()')) {
+        voContent = voContent.replace(
+          "    initializePlayerObservers()\n    self.videoSourceLoader?.registerListener(listener: self)",
+          "    initializePlayerObservers()\n    self.videoSourceLoader?.registerListener(listener: self)\n    startSampler()"
+        );
+      }
+      writeFileSync(vob, voContent);
+      console.log('[patch] iOS expo-video VideoPlayerObserver.swift 已注入 AVPlayer 状态打点（功能16）');
+    } else {
+      console.log('[patch] iOS expo-video AVPlayer 打点已存在，跳过');
+    }
+    // 4d) VCTraceExpo 打点器类（内联进 VideoPlayerObserver.swift，因新增 .swift 文件不被 pod 编译识别）
+    if (!voContent.includes('final class VCTraceExpo')) {
+      voContent = voContent.replace(
+        "// Copyright 2024-present 650 Industries. All rights reserved.\n\nimport Foundation\nimport ExpoModulesCore\nimport AVFoundation",
+        "// Copyright 2024-present 650 Industries. All rights reserved.\n\nimport Foundation\nimport ExpoModulesCore\nimport AVFoundation\n\n" + VCE_TRACE_EXPO_CONTENT
+      );
+      console.log('[patch] iOS expo-video VCTraceExpo 已内联进 VideoPlayerObserver.swift');
+    } else {
+      console.log('[patch] iOS expo-video VCTraceExpo 已存在，跳过');
+    }
+    writeFileSync(vob, voContent);
+  } else {
+    console.log('[patch] expo-video 未找到，跳过 AVPlayer 状态打点');
+  }
+
+  // 5) 功能17: JS→native 命令层打点（VideoSourceLoader 加载队列 + VideoPlayer replace/seek）
+  // 背景：功能16 只有 AVPlayer 被动状态，缺「用户操作命令」时间线（切源 replace、seek 目标、加载队列取消），
+  // 无法把「t 归零」「item failed」对到具体操作。此处补齐命令入口全量记录。
+  if (exdir && existsSync(join(exdir, 'ios', 'ExpoVideo.podspec'))) {
+    // 5a) VideoSourceLoader.swift：load / cancel 打点
+    const vsl = join(exdir, 'ios', 'VideoSourceLoader.swift');
+    let vslContent = readFileSync(vsl, 'utf8');
+    if (!vslContent.includes('功能17')) {
+      vslContent = vslContent.replace(
+        '    isLoading = true\n    if let currentTask {\n      currentTask.cancel()',
+        '    isLoading = true\n    // 功能17: JS→native 命令层（VSL.load 入口）\n    VCTraceExpo.shared.log("VSL.load start uri=\\(videoSource.uri?.absoluteString ?? "nil") hadTask=\\(currentTask != nil)")\n    if let currentTask {\n      currentTask.cancel()\n      VCTraceExpo.shared.log("VSL.load cancelPrev uri=\\(currentSource?.uri?.absoluteString ?? "nil")")'
+      );
+      vslContent = vslContent.replace(
+        '    isLoading = false\n    self.currentSource = nil\n    self.currentTask = nil\n    return loadingResult.value\n  }',
+        '    // 功能17: VSL.load 完成\n    VCTraceExpo.shared.log("VSL.load finished cancelled=\\(loadingResult.isCancelled) item=\\(loadingResult.value == nil)")\n    isLoading = false\n    self.currentSource = nil\n    self.currentTask = nil\n    return loadingResult.value\n  }'
+      );
+      vslContent = vslContent.replace(
+        '  func cancelCurrentTask() {\n    currentTask?.cancel()',
+        '  func cancelCurrentTask() {\n    // 功能17: VSL.cancel 命令\n    VCTraceExpo.shared.log("VSL.cancel uri=\\(currentSource?.uri?.absoluteString ?? "nil")")\n    currentTask?.cancel()'
+      );
+      writeFileSync(vsl, vslContent);
+      console.log('[patch] iOS VideoSourceLoader.swift 已注入命令层打点（功能17）');
+    } else {
+      console.log('[patch] iOS VideoSourceLoader.swift 命令层打点已存在，跳过');
+    }
+
+    // 5b) VideoPlayer.swift：replaceCurrentItem(sync/async) + currentTime setter 打点
+    const vp = join(exdir, 'ios', 'VideoPlayer.swift');
+    let vpContent = readFileSync(vp, 'utf8');
+    if (!vpContent.includes('功能17')) {
+      vpContent = vpContent.replace(
+        '  func replaceCurrentItem(with videoSource: VideoSource?) throws {\n    dangerousPropertiesStore.ownerIsReplacing = true',
+        '  func replaceCurrentItem(with videoSource: VideoSource?) throws {\n    // 功能17: VP.replaceSync 命令\n    VCTraceExpo.shared.log("VP.replaceSync uri=\\(videoSource?.uri?.absoluteString ?? "nil") t=\\(currentTime) oldUri=\\((ref.currentItem as? VideoPlayerItem)?.urlAsset.url.absoluteString ?? "nil")")\n    dangerousPropertiesStore.ownerIsReplacing = true'
+      );
+      vpContent = vpContent.replace(
+        '  func replaceCurrentItem(with videoSource: VideoSource?) async throws {\n    guard let videoSource, videoSource.uri != nil else {',
+        '  func replaceCurrentItem(with videoSource: VideoSource?) async throws {\n    // 功能17: VP.replaceAsync 命令\n    VCTraceExpo.shared.log("VP.replaceAsync uri=\\(videoSource?.uri?.absoluteString ?? "nil") t=\\(currentTime) oldUri=\\((ref.currentItem as? VideoPlayerItem)?.urlAsset.url.absoluteString ?? "nil")")\n    guard let videoSource, videoSource.uri != nil else {'
+      );
+      vpContent = vpContent.replace(
+        '      let timeToSeek = CMTimeMakeWithSeconds(clampedTime, preferredTimescale: .max)\n\n      // AVPlayer can\'t apply the currentTime while the resource is loading',
+        '      let timeToSeek = CMTimeMakeWithSeconds(clampedTime, preferredTimescale: .max)\n      // 功能17: VP.seek 命令\n      VCTraceExpo.shared.log("VP.seek target=\\(clampedTime) currentItemStatus=\\(ref.currentItem?.status.rawValue ?? -1)")\n\n      // AVPlayer can\'t apply the currentTime while the resource is loading'
+      );
+      writeFileSync(vp, vpContent);
+      console.log('[patch] iOS VideoPlayer.swift 已注入命令层打点（功能17）');
+    } else {
+      console.log('[patch] iOS VideoPlayer.swift 命令层打点已存在，跳过');
+    }
+  }
+}
+
+const VCE_TRACE_EXPO_CONTENT = `// 功能16: 播放「静默停」排查 - AVPlayer 自身状态打点（追加写 Library/Caches/vc_trace.log）
+// 直接观察 timeControlStatus + reasonForWaitingToPlay，可分辨「等数据(.toMinimizeStalls/
+// .insufficientMediaData)」「速率评估卡住(.evaluatingBufferingRate)」「seek/无item(.noItemToPlay)」。
+// 与功能15（expo-video-cache 分片供给）写同一文件，便于对齐时序。
+final class VCTraceExpo {
+  static let shared = VCTraceExpo()
+  private let queue = DispatchQueue(label: "com.movieapp.vctraceexpo")
+  private let path: URL
+  private init() {
+    let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+    self.path = dir.appendingPathComponent("vc_trace.log")
+  }
+  func log(_ msg: String) {
+    queue.async {
+      let line = "\\(Self.ts()) \\(msg)\\n"
+      if let h = try? FileHandle(forWritingTo: self.path) {
+        h.seekToEndOfFile()
+        h.write(line.data(using: .utf8)!)
+        try? h.close()
+      } else {
+        try? line.data(using: .utf8)?.write(to: self.path, options: .atomic)
+      }
+    }
+  }
+  static func ts() -> String {
+    let f = DateFormatter()
+    f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+    f.timeZone = TimeZone(abbreviation: "UTC")
+    return f.string(from: Date())
+  }
+}`;
+
 // ---------- iOS: expo-video PiP 主线程补丁 ----------
 // 根因：expo-modules AsyncFunction 默认在后台队列执行（expo.modules.AsyncFunctionQueue），
 // AVPlayerViewController 的 startPictureInPicture 必须主线程调用，后台线程调用被 AVKit 静默忽略 → 点击 PiP 无效。
@@ -566,6 +882,7 @@ try {
   patchAndroidPipAspectRatio();
   patchIOS();
   patchIOSPictureInPicture();
+  patchIOSTrace();
 } catch (e) {
   console.log('[patch] 原生补丁脚本异常（已忽略，不阻断安装）: ' + (e && e.message));
 }

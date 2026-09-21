@@ -8,6 +8,7 @@ import {
   splitSqlStatements,
   MEDIA_FILE_EXTENSIONS,
   UNCATEGORIZED_GENRE,
+  mediaMatchesFilters,
   rowToMedia,
   rowToEpisode,
   rowToPlaySource,
@@ -57,6 +58,9 @@ export class TauriSqlProvider implements DatabaseProvider {
 
   /** 儿童模式开关缓存（启动时由 system_config 初始化，setKidModeActive 同步更新）。 */
   private kidModeActive = false;
+
+  /** 推荐排序「候选∩筛选」视图缓存：同筛选键 120s 内复用，翻页只需对有序候选切片（毫秒级）。 */
+  private recommendViewCache: { key: string; view: string[]; at: number } | null = null;
 
   private wrapWithRetry(db: any): any {
     const originalExecute = db.execute.bind(db);
@@ -763,50 +767,79 @@ export class TauriSqlProvider implements DatabaseProvider {
       return { where: ` WHERE ${conditions.join(' AND ')}`, qp, conds: conditions };
     };
 
-    // 「为你推荐」：筛选范围内全部视频按推荐分排序（personal_score 全量打分，0 分亦为计算值），
-    // 与「最新」候选集完全一致，仅排序依据不同。候选不再限推荐快照（快照仅 500 行，
-    // 严格筛选下会把匹配集截断成几条）。
-    // 索引策略（真实库 22.5 万 media + 230GB 行数据，冷缓存实测）：
-    //   COUNT 与 SELECT 用不同索引：
-    //   - COUNT：走最紧前缀可见部分索引（year/area/genre/isShortDrama/type），纯索引计数不回表；
-    //   - SELECT：含 year 走 idx_media_type_year_visible（候选几百~几千行 temp sort，避免按分早停漏筛），
-    //              仅 type 走 idx_media_type_personal_score_visible（沿分数据早停），无 type 走全局分索引；
-    //   冷缓存实测：TV 首屏 44ms / TV 深页 12ms / TV+2026+大陆 191ms / TV+剧情 61ms，全部 <0.2s。
+    // 「为你推荐」（候选召回归一）+「全量可翻」：
+    // 列表 = 候选段（recommend_candidates，几千行按 position 推荐序）在前 +
+    //        候选外全量段（media 中不在候选表内的行，按 updated_at DESC 兜底）在后。
+    // 用「推荐排序」必须能翻出所有符合筛选条件的视频（与抖音只给推荐 feed 不同的产品语义），
+    // 候选表只决定头部的个性化顺序；推荐外内容以新度承接，任何页/深翻都不会漏片。
+    // 实现：候选表（~3k 行）全取后分批 PK 拉全列，再由 mediaMatchesFilters 在 JS 侧等价筛选
+    // 并保持 position 序（带筛选条件的 IN/JOIN 在真库上被优化器以 22.6 万行 media 大表驱动，
+    // 实测 11-52s；仅 IN 大列表则必走 PK 探测，毫秒级）。
     if (params.sort === 'recommend') {
-      const countIndex =
-        params.year !== undefined
-          ? 'idx_media_type_year_visible'
-          : params.area
-            ? 'idx_media_type_area_visible'
-            : params.genre || params.subType
-              ? 'idx_media_type_genre_visible'
-              : params.isShortDrama !== undefined
-                ? 'idx_media_is_short_drama_visible'
-                : params.type
-                  ? 'idx_media_type_updated_at_visible'
-                  : 'idx_media_personal_score_visible';
-      const selectIndex =
-        params.year !== undefined
-          ? 'idx_media_type_year_visible'
-          : params.type
-            ? 'idx_media_type_personal_score_visible'
-            : 'idx_media_personal_score_visible';
       const { where, qp } = buildWhere('');
-      const total =
-        params.knownTotal ??
-        (await this.db!.select<{ count: number }[]>(
-          `SELECT COUNT(*) as count FROM media INDEXED BY ${countIndex}${where}`,
-          qp
-        ))[0]?.count ??
-        0;
-      const totalPages = Math.ceil(total / pageSize);
       const { where: whereM, qp: qpM } = buildWhere('m');
-      const rows = await this.db!.select<any[]>(
-        `SELECT m.* FROM media m INDEXED BY ${selectIndex}${whereM}
-         ORDER BY m.personal_score DESC, m.updated_at DESC LIMIT ? OFFSET ?`,
-        [...qpM, pageSize, offset]
-      );
-      return { items: rows.map(rowToMedia), meta: { page, pageSize, total, totalPages } };
+      // 全部符合筛选条件的 media 总数（推荐/最新/其它排序一致）
+      let total: number;
+      if (params.knownTotal !== undefined) {
+        total = params.knownTotal;
+      } else {
+        total =
+          (await this.db!.select<{ count: number }[]>(
+            `SELECT COUNT(*) as count FROM media${where}`,
+            qp
+          ))[0]?.count ?? 0;
+      }
+      const totalPages = Math.ceil(total / pageSize);
+      // 候选∩筛选：保持候选表 position 序，JS 侧等价筛选（避免优化器转大表扫描）。
+      // 同筛选键 120s 内复用有序候选视图，翻页只对 view 切片，无需重复全量过滤。
+      const cacheKey = `${this.kidModeActive ? 'k1' : 'k0'}|${params.type ?? ''}|${params.year ?? ''}|${params.area ?? ''}|${params.genre ?? ''}|${params.subType ?? ''}|${params.isShortDrama !== undefined ? (params.isShortDrama ? 's1' : 's0') : ''}`;
+      let view = this.recommendViewCache && this.recommendViewCache.key === cacheKey && Date.now() - this.recommendViewCache.at < 120000
+        ? this.recommendViewCache.view
+        : null;
+      if (!view) {
+        const candAll = await this.db!.select<{ media_id: string }[]>(
+          `SELECT media_id FROM recommend_candidates ORDER BY position`
+        );
+        const candRows = new Map<string, any>();
+        const PK_BATCH = 400;
+        for (let i = 0; i < candAll.length; i += PK_BATCH) {
+          const chunk = candAll.slice(i, i + PK_BATCH).map((r) => r.media_id);
+          const hit = await this.db!.select<any[]>(
+            `SELECT id, type, year, area, genre, is_short_drama, hidden, kid_safe
+             FROM media WHERE id IN (${chunk.map(() => '?').join(',')})`,
+            chunk
+          );
+          for (const r of hit) candRows.set(r.id, r);
+        }
+        view = candAll
+          .map((r) => r.media_id)
+          .filter((id) => {
+            const row = candRows.get(id);
+            return !!row && mediaMatchesFilters(row, params, this.kidModeActive);
+          });
+        this.recommendViewCache = { key: cacheKey, view, at: Date.now() };
+      }
+      const candCnt = view.length;
+      const slice = view.slice(offset, offset + pageSize);
+      let items: any[] = [];
+      if (slice.length > 0) {
+        const rows = await this.db!.select<any[]>(
+          `SELECT * FROM media WHERE id IN (${slice.map(() => '?').join(',')})`,
+          slice
+        );
+        const byId = new Map(rows.map((r) => [r.id, r]));
+        items = slice.map((id) => byId.get(id)).filter(Boolean) as any[];
+      }
+      // 候选段不足一页时，以候选外全量按 updated_at 兜底补齐（保证每页可翻满）
+      if (items.length < pageSize) {
+        const tailRows = await this.db!.select<any[]>(
+          `SELECT * FROM media m${whereM} AND NOT EXISTS (SELECT 1 FROM recommend_candidates rc WHERE rc.media_id = m.id)
+           ORDER BY m.updated_at DESC LIMIT ? OFFSET ?`,
+          [...qpM, pageSize - items.length, Math.max(0, offset - candCnt)]
+        );
+        items = items.concat(tailRows);
+      }
+      return { items: items.map(rowToMedia), meta: { page, pageSize, total, totalPages } };
     }
 
     const { where, qp } = buildWhere('');
@@ -1874,10 +1907,33 @@ async clearWatchHistory(): Promise<void> {
     }
   }
 
+  async replaceRecommendationCandidates(rows: {
+    mediaId: string;
+    position: number;
+    score: number;
+    genreGroup: string;
+  }[]): Promise<void> {
+    await this.db!.execute('DELETE FROM recommend_candidates');
+    const batchSize = 300;
+    for (let i = 0; i < rows.length; i += batchSize) {
+      const batch = rows.slice(i, i + batchSize);
+      const placeholders = batch.map(() => '(?, ?, ?, ?)').join(', ');
+      const params: any[] = [];
+      for (const r of batch) {
+        params.push(r.mediaId, r.position, r.score, r.genreGroup);
+      }
+      await this.db!.execute(
+        `INSERT INTO recommend_candidates (media_id, position, score, genre_group) VALUES ${placeholders}`,
+        params
+      );
+    }
+  }
+
   async resetRecommendationData(): Promise<void> {
     await this.db!.execute('DELETE FROM impression');
     await this.db!.execute('DELETE FROM user_interest_tag');
     await this.db!.execute('DELETE FROM recommend_snapshot');
+    await this.db!.execute('DELETE FROM recommend_candidates');
     await this.db!.execute('UPDATE media SET personal_score = 0');
   }
 

@@ -208,3 +208,37 @@ Gradle `Configuration` 把每项转成正则匹配 `project.name`，命中即 `f
 **编译要点**：Media3 1.9.0 的 `AnalyticsListener.LoadEventInfo/MediaLoadData` 实际位于
 `androidx.media3.exoplayer.source` 包（不是 `AnalyticsListener` 内嵌类），override 签名必须写
 `androidx.media3.exoplayer.source.LoadEventInfo` / `.MediaLoadData`，否则 Kotlin 报 overrides nothing。
+
+## iOS（功能15）：expo-video-cache 数据链路打点（播放「静默停」排查）
+
+**背景**：播中偶发 `playingChange isPlaying=false` 且无 error/loading 事件（AVPlayer 缓冲等待态）。
+需区分「磁盘直读卡死」/「Range 失配等字节」/「网络下载挂起」。JS 层 play_trace 只管上层事件，
+本打点管代理→AVPlayer 字节流。
+
+**补丁函数**：`apply-native-patches.mjs` → `patchIOSTrace()`（幂等，以 `功能15` 标记判重）。
+
+**注入点（三个 Swift 文件）**：
+1. `NetworkDownloader.swift`：新增 `VCTrace` 单例，线程安全追加写 `Library/Caches/vc_trace.log`。
+2. `DataSource.swift`：
+   - `DS.start hit=... manifest=... key=...`（磁盘命中 or 网络）
+   - `DS.disk fileSize=...`（磁盘直读起始，fileSize 非 0 才继续）
+   - `DS.diskDone sent=...`（磁盘直读完成，累计下发字节）
+   - `DS.resp <code> len=...`（网络响应状态码/长度；Range 失配时会出现 200 全长 vs 期望 206）
+   - `DS.done sent=... err=...`（网络路径完成/错误）
+   - `DS.manifest seg=...`（manifest 重写后的分片数）
+3. `ClientConnectionHandler.swift`：
+   - `CCH.req path=... hasRange=...`（原始请求行是否带 Range 头）
+   - `CCH.start url=... range=...`（解析后 url 与 byteRange；range 有值时 key 会带 `-lower-upper` 后缀 → 命中判断关键）
+   - `CCH.done err=... sent=...`（本次连接下发给播放器总字节）
+
+**取文件**：
+```
+xcrun devicectl device copy from --device 1D4B63FE-82F6-5C8B-9C7F-DAA006E0B13D \
+  --domain-type appDataContainer --domain-identifier com.mengfeng.movieapp \
+  --source Library/Caches/vc_trace.log
+```
+
+**分析要点**：
+- 若最后一条是 `DS.diskDone` 缺失：磁盘直读挂起；若 `DS.resp 200` 且请求带 Range：服务端回全长、AVPlayer 等缺字节。
+- `CCH.sentToPlayer` 停在某个值而该连接不 `CCH.done`：代理卡在 send。
+- 恢复标记：重装/清理缓存后 `vc_trace.log` 重建，无残留。

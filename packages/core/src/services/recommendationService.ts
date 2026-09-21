@@ -1,13 +1,14 @@
 import type { DatabaseProvider } from '../db/provider';
 
 /**
- * 「越看越懂你」抖音式推荐服务（v4）。
+ * 「越看越懂你」抖音式推荐服务（v5）。
  *
  * 原理：从应用自身数据（watch_history / favorite / impression / search_history）
- * 全量重算用户兴趣标签画像 user_interest_tag，再对全量 media 按「直接信号 +
- * 兴趣匹配」打分，经「已看剔除 → 已看抑制 → 线性打散 → 探索插槽」生成最终推荐序（限量，
- * 默认 top 500），原子落库到 recommend_snapshot，列表按快照 position 分页。
- * 重算幂等：任何时刻都能从原始数据恢复同一结果，可随时清空重学。
+ * 构建用户兴趣标签画像 user_interest_tag，然后**候选召回归一**：
+ * 每轮重算只对「召回候选集」（行为相关 ∪ 画像命中 ∪ 探索最新，几千行）现算分并重排，
+ * 生成全部候选序落 recommend_candidates（UI「推荐」数据源），前 snapshotLimit 作为精选快照。
+ * **任何时刻都不对全库打分/物化**（v5 删除 personal_score 全表物化维护）。
+ * 重算幂等：给定行为数据 + 候选集，结果确定；行为/画像/新采集变化才进入重算。
  *
  * v4 重构（修复「点开即退全判弃看」导致的类型负分爆炸 + 全量重排/写库性能问题）：
  *   - 完全移除弃看惩罚：进度 <30% 的「点开即退」不再算负向信号，只作为统计（overview）。
@@ -18,8 +19,13 @@ import type { DatabaseProvider } from '../db/provider';
  *     桶排序开销）、探索池限量 explorePoolLimit、启动增量状态从 user_interest_tag 读回
  *     （不再进程重启即全量）、新增 media 判据改用 media_change_log、算法版本号 forceFull 一次
  *     保证升级一致性。
+ * v5（候选召回归一，去全表物化）：
+ *   - 删除「全表计算 personal_score 并回写 media」链路：不再有增量 A 集/全表物化。
+ *   - 重算 = 召回候选（行为/画像倒排/探索最新，SQL 限量）→ 对候选现算 → 落 recommend_candidates。
+ *   - 冷启动/清空重学/算法升级均不再全表打分（升级只强制重建候选）。
+ *   - 分类页「推荐」排序改由 recommend_candidates JOIN media 驱动（候选内筛选+翻页）。
  *
- * 完播定义（v3 多源修订，沿用）：作品完播 = 看完「用户实际使用主源」的当前最新一集。
+ * 完播定义（沿用）：作品完播 = 看完「用户实际使用主源」的当前最新一集。
  *   - 主源 = 该 media 观看记录中 episode 所属 source 记录数最多的源（源内集号自洽，规避跨源错位）
  *   - 目标集 = 主源内 max(season, episode_number)，title 含预告/花絮等噪声则降级到次大集
  *   - 连载剧：追到最新 = 完播；完结剧：看完结局 = 完播
@@ -42,8 +48,8 @@ import type { DatabaseProvider } from '../db/provider';
  */
 
 export const LEARN_RESET_KEY = 'recommend.learnResetAt';
-/** 算法版本号：评分/重排规则变更时 +1，低于当前版本的库在下次重算时强制全量一次（升级一致性）。 */
-export const RECOMMEND_ALGO_VERSION = '4';
+/** 算法版本号：评分/重排/召回规则变更时 +1，低于当前版本的库在下次重算时强制重建候选（升级一致性）。 */
+export const RECOMMEND_ALGO_VERSION = '5';
 export const ALGO_VERSION_KEY = 'recommend.algoVersion';
 
 const UNKNOWN_GENRE = '未知';
@@ -115,10 +121,22 @@ export const RECOMMEND_PARAMS = {
   overviewStrengthFloor: 0.5,
   /** 推荐快照限量：桌面 30/页≈16 页、移动 20/页≈25 页，满足「翻 10 页」体验。 */
   snapshotLimit: 500,
+  /** 推荐候选集限量（UI「推荐」数据源，越大筛选命中越多；写入/翻页成本随其线性增长）。 */
+  candidateSize: 2000,
   /** 进入线性打散的高分候选池规模（远小于全量，控制打散成本）。 */
   highScorePoolSize: 1500,
   /** 探索候选池限量（未互动零分 media 中取 updated_at 最新的 N 条）。 */
   explorePoolLimit: 800,
+  /** 画像命中最多携带的候选行数：genre 各标签回带的上限（召回近邻没起则漏，宁多勿漏）。 */
+  recallHitGenreLimit: 800,
+  recallHitDirectorLimit: 500,
+  recallHitActorLimit: 300,
+  recallHitKeywordLimit: 400,
+  /** 画像命中倒排的扫描窗口：仅对可见行中 updated_at 最新的 N 行做 INSTR/LIKE 过滤。
+   *  不加窗口时 keyword 匹配稀疏的行需全表反向扫描直至收集满（实测 title LIKE '%x%' 8.6s），
+   *  加 updated_at>=窗口 谓词后部分索引区间扫描只 eval 最近 N 行（实测 5ms），
+   *  语义上即「近邻且新鲜」：画像召回天然限定在热门/新鲜窗口内。 */
+  recallWindow: 5000,
 } as const;
 
 /** 不感兴趣列表项（设置页展示）。 */
@@ -140,7 +158,7 @@ export interface RecommendationOverview {
   giveUpCount: number;
   penalizedSubtypes: string[];
   topInterestTags: { tag: string; type: string; strength: number }[];
-  /** 当前 personal_score 最高的影片（为你推荐靠前）。 */
+  /** 当前推荐候选 top（为你推荐靠前，来自候选表）。 */
   topMedia: { id: string; title: string; score: number }[];
   searchKeywordCount: number;
   impressionMediaCount: number;
@@ -262,8 +280,6 @@ export class RecommendationService {
   // —— 增量重算状态（内存 + user_interest_tag 表持久化：重启后从表读回，避免启动全量） ——
   private lastWrittenInterest?: Map<string, InterestTag>;
   private lastResetAt?: string | null;
-  // 上次成功重算时的「行为涉及 media 并集」，用于覆盖收藏/不喜欢「移除类」操作导致的分数变化
-  private lastBehaviorMediaIds?: Set<string>;
 
   /**
    * 对比新旧兴趣画像，返回发生变化的 tag。
@@ -399,11 +415,11 @@ export class RecommendationService {
       }));
   }
 
-  /** 启动期是否需要全量重算：存在变化日志，或推荐快照尚不存在（冷启动需构建一次）。 */
+  /** 启动期是否需要重建候选：存在变化日志，或推荐候选表尚不存在（冷启动需构建一次）。 */
   async needsStartupRecompute(): Promise<boolean> {
     if (await this.hasChangesSinceLastRecompute()) return true;
     try {
-      const row = await this.db.selectOne<{ c: number }>('SELECT COUNT(*) as c FROM recommend_snapshot');
+      const row = await this.db.selectOne<{ c: number }>('SELECT COUNT(*) as c FROM recommend_candidates');
       return (row?.c ?? 0) === 0;
     } catch {
       return true;
@@ -481,7 +497,8 @@ export class RecommendationService {
   async recomputeAll(): Promise<number> {
     const resetAt = await this.getLearnResetAt();
     const algoVersion = await this.getAlgoVersion();
-    // 增量重算：算法版本升级 / 清学重置后强制全量，并清空内存状态（避免旧画像残留）
+    // 算法版本升级 / 清学重置后强制重建候选；并清空内存画像基准（避免旧画像残留）。
+    // v5 语义：升级只需按最新行为数据重召回+重排候选，不再触发任何全表打分。
     let forceFull = false;
     if (algoVersion !== RECOMMEND_ALGO_VERSION) {
       forceFull = true;
@@ -489,7 +506,7 @@ export class RecommendationService {
       this.lastResetAt = undefined;
     }
     // resetAt 为空（未设置）时统一归一化为 null：DB 查询返回 null，而内存初始为 undefined，
-    // 直接 !== 比较会把「从未重置」误判成「重置过」，导致进程重启后首轮必然 forceFull 全量重算。
+    // 直接 !== 比较会把「从未重置」误判成「重置过」，导致进程重启后首轮必然强制重建候选。
     if ((resetAt ?? null) !== (this.lastResetAt ?? null)) {
       forceFull = true;
       this.lastWrittenInterest = undefined;
@@ -569,8 +586,7 @@ export class RecommendationService {
       }
     }
 
-    // —— 观看信号（v3 主源内完播口径） ——
-    // v4：无坏源豁免（giveUp 仅统计不参与打分，无需 exemptMedia → 省去 play_source 全 JOIN 25s）
+    // —— 观看信号（主源内完播口径；v4 起弃看仅统计不参与打分，无坏源豁免） ——
     const signals = this.buildWatchSignals(historyRows, episodesByMediaAndSource, new Set(), now);
     const { watchedMedia, completedMedia, giveUpMedia, bingeCount, latest } = signals;
 
@@ -593,7 +609,7 @@ export class RecommendationService {
       if (!isNaN(t) && now - t <= recentWindowMs) recentWatched.add(mediaId);
     }
 
-    // —— 懒加载前置：画像构建只需「行为直接涉及的 media 子集」标签，避免短路前全量读 15 万行 ——
+    // —— 画像构建前置：只需「行为直接涉及的 media 子集」标签，避免短路前全量读 15 万行 ——
     const kidModeActive = await this.db.getKidModeActive();
     // v4：impression 仅统计不参与画像，子集只取 watched/favorite/disliked
     const signalIds = new Set<string>([...watchedMedia, ...favorites, ...disliked]);
@@ -610,7 +626,7 @@ export class RecommendationService {
       tagsOf.set(row.id, this.parseTags(row));
     }
 
-    // —— 构建用户兴趣画像（每次重建：interest 依赖行为数据，须与全量重算一致，不缓存） ——
+    // —— 构建用户兴趣画像（每次重建：interest 依赖行为数据，须与重算一致，不缓存） ——
     const interest = this.buildUserInterestTags({
       tagsOf,
       watchedMedia,
@@ -628,10 +644,10 @@ export class RecommendationService {
     });
 
     // 落库时 strength 舍入到 2 位小数（见 persistInterest）。为让「重启后读回的 diff 基准」与
-    // 持久化值可空集短路，画像强度统一按相同舍入规整后再参与 diff/打分/落库，避免首轮误全量。
+    // 持久化值可空集短路，画像强度统一按相同舍入规整后再参与 diff/打分/落库，避免首轮误重建。
     for (const it of interest.values()) it.strength = Math.round(it.strength * 100) / 100;
 
-    // —— 增量判定：变化集与受影响 media 计算 ——
+    // —— 增量判定：变化集（v5 起仅作短路依据；非 forceFull 且无变化则跳过整次候选重建） ——
     // 重启后内存态丢失：从 user_interest_tag 表读回上次画像作为 diff 基准（forceFull 除外）
     if (!forceFull && this.lastWrittenInterest === undefined) {
       this.lastWrittenInterest = await this.loadPersistedInterest();
@@ -639,134 +655,199 @@ export class RecommendationService {
     const changed = this.diffInterest(interest, this.lastWrittenInterest);
     const changedExact = changed.exact;
     const changedKeyword = changed.keyword;
-    // 新增/更新 media（采集 UPSERT / STATUS_UPDATE 时写入 media_change_log）。快照限量后不能再用
-    // `id NOT IN recommend_snapshot`（快照仅 top 500，几乎所有 media 都不在），改用变化日志。
-    let deltaRows: { id: string }[] = [];
+    // 新增/更新 media（采集 UPSERT / STATUS_UPDATE 时写入 media_change_log）。
+    let hasDelta = false;
     try {
       const cntRow = await this.db.selectOne<{ c: number }>('SELECT COUNT(*) as c FROM media_change_log');
-      if ((cntRow?.c ?? 0) > 0) {
-        deltaRows = await this.db.select<{ id: string }>(
-          `SELECT DISTINCT m.id FROM media_change_log cl JOIN media m ON m.id = cl.media_id
-           WHERE (m.hidden IS NULL OR m.hidden = 0)${kidModeActive ? ' AND m.kid_safe = 1' : ''}`
-        );
-      }
+      hasDelta = (cntRow?.c ?? 0) > 0;
     } catch {
       // 旧版数据库可能缺 media_change_log 表，忽略（退化到仅画像变化驱动）
     }
-    const hasDelta = deltaRows.length > 0;
-    // 冷启动（快照空）需构建一次；否则仅变化日志/画像变化才进入重算
-    const snapshotCountRow = await this.db.selectOne<{ c: number }>('SELECT COUNT(*) as c FROM recommend_snapshot');
-    const snapshotEmpty = (snapshotCountRow?.c ?? 0) === 0;
-    // 零成本短路：画像无变化 且 无新增 media 且 快照已有 且 非强制全量 → 直接返回
-    if (!forceFull && changedExact.size === 0 && changedKeyword.size === 0 && !hasDelta && !snapshotEmpty) {
+    // 候选表是否已就绪（幂等重跑判据）
+    const candidatesReady = await (async () => {
+      try {
+        const row = await this.db.selectOne<{ c: number }>('SELECT COUNT(*) as c FROM recommend_candidates');
+        return (row?.c ?? 0) > 0;
+      } catch {
+        return false;
+      }
+    })();
+    // 零成本短路：画像无变化 且 无新增 media 且 候选表已就绪 且 非强制重建 → 直接返回
+    if (!forceFull && changedExact.size === 0 && changedKeyword.size === 0 && !hasDelta && candidatesReady) {
       return 0;
     }
 
-    // —— 需要重算：才加载全量非隐藏 media（儿童模式下仅取儿童安全内容） ——
-    const mediaRows = await this.db.select<any>(
-      `SELECT id, title, original_title, alias, genre, director, "cast", hidden, updated_at, personal_score,
-              series_group, series_season
-       FROM media WHERE (hidden IS NULL OR hidden = 0)${kidModeActive ? ' AND kid_safe = 1' : ''}`
-    );
-    for (const row of mediaRows) {
-      tagsOf.set(row.id, this.parseTags(row));
-    }
-
-    // —— 续季关联：已消费（作品完播/追多集/收藏）series_group 的最大 season ——
+    // —— 续季关联：已消费（作品完播/追多集/收藏）series_group 的最大 season（只对消费集中的行查，不再发全库） ——
     const consumed = new Set<string>(completedMedia);
     for (const [mediaId, n] of bingeCount) {
       if (n >= RECOMMEND_PARAMS.bingeEpisodeCount) consumed.add(mediaId);
     }
     for (const id of favorites) consumed.add(id);
     const watchedSeriesMaxSeason = new Map<string, number>();
-    for (const row of mediaRows) {
-      if (!row.series_group || !consumed.has(row.id)) continue;
-      const season = row.series_season ?? 0;
-      const cur = watchedSeriesMaxSeason.get(row.series_group) ?? -1;
-      if (season > cur) watchedSeriesMaxSeason.set(row.series_group, season);
+    if (consumed.size > 0) {
+      const cRows = await this.db.select<{ series_group: string; series_season: number }>(
+        `SELECT series_group, series_season FROM media
+         WHERE id IN (${Array.from(consumed).map(() => '?').join(',')})`,
+        Array.from(consumed)
+      );
+      for (const r of cRows) {
+        if (!r.series_group) continue;
+        const season = r.series_season ?? 0;
+        const cur = watchedSeriesMaxSeason.get(r.series_group) ?? -1;
+        if (season > cur) watchedSeriesMaxSeason.set(r.series_group, season);
+      }
     }
 
-    // —— 计算受影响 media 集 A ——
-    const mediaRowById = new Map<string, any>();
-    for (const r of mediaRows) mediaRowById.set(r.id, r);
-    const currentB = new Set<string>([
-      ...watchedMedia, ...completedMedia, ...giveUpMedia, ...favorites,
-      ...disliked,
-    ]);
-    const prevB = this.lastBehaviorMediaIds || new Set<string>();
-    const behaviorUnion = new Set<string>([...currentB, ...prevB]);
-    const A = new Set<string>();
-    if (forceFull || this.lastWrittenInterest === undefined || snapshotEmpty) {
-      for (const r of mediaRows) A.add(r.id);
-    } else {
-      // 新增/更新 media（采集）必须重算打分，否则会沿用旧 personal_score 与全量结果不等价
-      for (const d of deltaRows) A.add(d.id);
-      // 行为直接涉及的 media（当前 + 上次，覆盖收藏/不喜欢「移除类」操作导致的分数变化）
-      for (const id of behaviorUnion) A.add(id);
-      const tagToMedia = new Map<string, Set<string>>();
-      const addIdx = (key: string, id: string) => {
-        let s = tagToMedia.get(key);
-        if (!s) { s = new Set(); tagToMedia.set(key, s); }
-        s.add(id);
-      };
-      for (const r of mediaRows) {
-        const t = tagsOf.get(r.id)!;
-        for (const g of t.genres) addIdx(`genre\u0000${g}`, r.id);
-        for (const d of t.directors) addIdx(`director\u0000${d}`, r.id);
-        for (const a of t.actors) addIdx(`actor\u0000${a}`, r.id);
+    // —— 候选召回（v5 核心：只对召回候选现算分，任何时刻不对全库打分） ——
+    const visibleSql = `(hidden IS NULL OR hidden = 0)${kidModeActive ? ' AND kid_safe = 1' : ''}`;
+    // v5 候选召回的「近邻且新鲜」倒排全部走 updated_at 部分索引反向扫描早停：
+    // 无该索引时优化器选 idx_media_hidden + 全表 TEMP 排序（实测 22.6 万行 9-11s/次），
+    // INDEXED BY 后毫秒级。kid 模式开启时可见谓词含 kid_safe=1，与被索引 part 条件不等价，
+    // 退化为无 INDEXED BY 的原查询（kid 库行数少，仍可接受）。
+    const updatedAtIdx = kidModeActive ? '' : ' INDEXED BY idx_media_updated_at_visible';
+    // 画像倒排扫描窗口截止值（可见行最新 recallWindow 行的 min(updated_at)，一次查 5ms 级）。
+    // kid 模式（无 INDEXED BY 可走）退化为 null，召回不加窗口谓词（行数少可接受）。
+    const recallWindowTs = kidModeActive
+      ? null
+      : (
+          await this.db.select<{ ts: string | null }>(
+            `SELECT min(updated_at) AS ts FROM (
+               SELECT updated_at FROM media${updatedAtIdx}
+               WHERE ${visibleSql} ORDER BY updated_at DESC LIMIT ?)`,
+            [RECOMMEND_PARAMS.recallWindow]
+          )
+        )[0]?.ts ?? null;
+    const candidates = new Set<string>();
+    // a) 行为直接相关（看完/收藏/不感兴趣 必进候选，直接信号在该范围内加成）
+    for (const id of watchedMedia) candidates.add(id);
+    for (const id of favorites) candidates.add(id);
+    for (const id of disliked) candidates.add(id);
+    // b) 画像命中召回（对应双塔召回的用户向量近邻）：按型聚合所有显著标签为少量
+    //    批量 INSTR/LIKE 倒排（避免「每标签一条 select」串行——桌面遗留 68 标签实测
+    //    每条 250ms 串行成 17s+，合并后单批毫秒级），ORDER BY updated_at DESC 取「近邻且新鲜」，
+    //    每型 LIMIT = 各标签限量之和再封顶（宁多勿漏，最终由 candidateSize 截断）。
+    const interestBatch = { genre: [] as string[], director: [] as string[], actor: [] as string[], keyword: [] as string[] };
+    const genreRawTabs = new Map<string, string[]>();
+    for (const [raw, std] of Object.entries(GENRE_NORMALIZE)) {
+      let arr = genreRawTabs.get(std);
+      if (!arr) { arr = []; genreRawTabs.set(std, arr); }
+      arr.push(raw);
+    }
+    for (const it of interest.values()) {
+      if (Math.abs(it.strength) <= 1e-4) continue;
+      const tag = it.tag;
+      if (it.type === 'genre') {
+        const raws = genreRawTabs.get(tag) || [];
+        for (const t of [tag, ...raws]) {
+          const p = t.replace(/"/g, '');
+          if (p) interestBatch.genre.push(p);
+        }
+      } else if (it.type === 'director' || it.type === 'actor') {
+        const p = tag.replace(/"/g, '');
+        if (p) (it.type === 'director' ? interestBatch.director : interestBatch.actor).push(p);
+      } else if (it.type === 'keyword') {
+        const lower = tag.toLowerCase();
+        if (!lower) continue;
+        const escaped = lower.replace(/[%_\\]/g, (c) => '\\' + c);
+        interestBatch.keyword.push(`%${escaped}%`);
       }
-      const bSeries = new Set<string>();
-      for (const id of behaviorUnion) {
-        const r = mediaRowById.get(id);
-        if (r && r.series_group) bSeries.add(r.series_group);
+    }
+    // 批量执行：每批变量数上限（SQLite 变量 999；keyword 每标签 6 个 LIKE 条件）
+    const RECALL_VAR_LIMIT = 90;
+    const RECALL_CAP = 2500;
+    const flushRecall = async (conds: string[], params: string[], limit: number) => {
+      const windowCond = recallWindowTs != null ? ' AND updated_at >= ?' : '';
+      for (let i = 0; i < conds.length; i += RECALL_VAR_LIMIT) {
+        const c = conds.slice(i, i + RECALL_VAR_LIMIT);
+        const p = params.slice(i, i + RECALL_VAR_LIMIT);
+        const rows = await this.db.select<{ id: string }>(
+          `SELECT id FROM media${updatedAtIdx} WHERE ${visibleSql}${windowCond} AND (${c.join(' OR ')})
+           ORDER BY updated_at DESC LIMIT ?`,
+          recallWindowTs != null ? [recallWindowTs, ...p, limit] : [...p, limit]
+        );
+        for (const r of rows) candidates.add(r.id);
       }
-      for (const r of mediaRows) {
-        if (r.series_group && bSeries.has(r.series_group)) A.add(r.id);
-      }
-      for (const key of changedExact) {
-        const ids = tagToMedia.get(key);
-        if (ids) for (const id of ids) A.add(id);
-      }
-      for (const kw of changedKeyword) {
-        const lower = kw.toLowerCase();
-        for (const r of mediaRows) {
-          if (this.mediaText(r).toLowerCase().includes(lower)) A.add(r.id);
+    };
+    if (interestBatch.genre.length) {
+      await flushRecall(
+        interestBatch.genre.map(() => 'instr(genre, ?) > 0'),
+        interestBatch.genre,
+        Math.min(interestBatch.genre.length * RECOMMEND_PARAMS.recallHitGenreLimit, RECALL_CAP)
+      );
+    }
+    if (interestBatch.director.length) {
+      await flushRecall(
+        interestBatch.director.map(() => 'instr(director, ?) > 0'),
+        interestBatch.director,
+        Math.min(interestBatch.director.length * RECOMMEND_PARAMS.recallHitDirectorLimit, RECALL_CAP)
+      );
+    }
+    if (interestBatch.actor.length) {
+      await flushRecall(
+        interestBatch.actor.map(() => 'instr("cast", ?) > 0'),
+        interestBatch.actor,
+        Math.min(interestBatch.actor.length * RECOMMEND_PARAMS.recallHitActorLimit, RECALL_CAP)
+      );
+    }
+    if (interestBatch.keyword.length) {
+      const kwConds: string[] = [];
+      const kwParams: string[] = [];
+      for (const like of interestBatch.keyword) {
+        for (const col of ['title', 'original_title', 'alias', 'director', '"cast"', 'genre']) {
+          kwConds.push(`${col} LIKE ? ESCAPE '\\'`);
+          kwParams.push(like);
         }
       }
+      await flushRecall(
+        kwConds,
+        kwParams,
+        Math.min(interestBatch.keyword.length * RECOMMEND_PARAMS.recallHitKeywordLimit, RECALL_CAP)
+      );
     }
+    // c) 探索候选：可见范围内最新的一批（未互动由 reorder 内部按已看/不感兴趣剔除；explore 插槽取零分）
+    const exploreRows = await this.db.select<{ id: string }>(
+      `SELECT id FROM media${updatedAtIdx} WHERE ${visibleSql}
+       ORDER BY updated_at DESC LIMIT ?`,
+      [RECOMMEND_PARAMS.explorePoolLimit + 300]
+    );
+    for (const r of exploreRows) candidates.add(r.id);
 
-    // —— 全量打分（仅 A 调 computeMediaScore，其余复用 personal_score） ——
+    // —— 只对候选集取行并现算分（分批 IN 规避 SQLite 变量上限） ——
     const keywordStrengths = new Map<string, number>();
     for (const it of interest.values()) {
       if (it.type === 'keyword' && it.strength !== 0) keywordStrengths.set(it.tag, it.strength);
     }
-
+    const candRows: any[] = [];
+    const candIds = Array.from(candidates);
+    const IN_BATCH = 400;
+    for (let i = 0; i < candIds.length; i += IN_BATCH) {
+      const chunk = candIds.slice(i, i + IN_BATCH);
+      const rows = await this.db.select<any>(
+        `SELECT id, title, original_title, alias, genre, director, "cast", hidden, updated_at,
+                series_group, series_season
+         FROM media WHERE id IN (${chunk.map(() => '?').join(',')})`,
+        chunk
+      );
+      candRows.push(...rows);
+    }
     const scores = new Map<string, ScoreEntry>();
-    const updates: { id: string; score: number }[] = [];
-    // 分批打分并周期性让出主线程：大数据量下避免一次性同步循环占满 JS 线程导致界面卡死
     const YIELD_EVERY = 500;
     let processed = 0;
-    for (const row of mediaRows) {
-      const tags = tagsOf.get(row.id)!;
-      const inA = A.has(row.id);
-      let total: number;
-      if (inA) {
-        total = this.computeMediaScore({
-          row,
-          tags,
-          interest,
-          keywordStrengths,
-          watchedMedia,
-          completedMedia,
-          completedDuration: signals.completedDuration,
-          bingeCount,
-          favorites,
-          watchedSeriesMaxSeason,
-          disliked,
-        });
-      } else {
-        total = row.personal_score ?? 0;
-      }
+    for (const row of candRows) {
+      const tags = this.parseTags(row);
+      const total = this.computeMediaScore({
+        row,
+        tags,
+        interest,
+        keywordStrengths,
+        watchedMedia,
+        completedMedia,
+        completedDuration: signals.completedDuration,
+        bingeCount,
+        favorites,
+        watchedSeriesMaxSeason,
+        disliked,
+      });
       scores.set(row.id, {
         total,
         updatedAt: row.updated_at || '',
@@ -774,51 +855,20 @@ export class RecommendationService {
         directorGroup: tags.directors[0] || '',
         seriesGroup: row.series_group || '',
       });
-      // 仅对受影响 media 写回 personal_score（分数变化才更新）
-      if (inA) {
-        const old = row.personal_score ?? 0;
-        if (old !== total) updates.push({ id: row.id, score: total });
-      }
       if (++processed % YIELD_EVERY === 0) {
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
     }
 
-    // 批量回写 personal_score：每 200 条拼一条 UPDATE（内联值，避免逐条 IPC 与参数上限）
-    const BATCH = 200;
-    for (let i = 0; i < updates.length; i += BATCH) {
-      const chunk = updates.slice(i, i + BATCH);
-      const esc = (s: string) => s.replace(/'/g, "''");
-      const caseSql = chunk.map((u) => `WHEN id = '${esc(u.id)}' THEN ${u.score}`).join(' ');
-      const idsSql = chunk.map((u) => `'${esc(u.id)}'`).join(', ');
-      await this.db.execute(
-        `UPDATE media SET personal_score = CASE ${caseSql} ELSE personal_score END WHERE id IN (${idsSql})`,
-        []
-      );
-    }
-
-    // —— 落库兴趣画像 ——
-    const interestRows = Array.from(interest.values())
-      .filter((it) => Math.abs(it.strength) > 0.0001)
-      .map((it) => ({
-        tag: it.tag,
-        tagType: it.type,
-        strength: Math.round(it.strength * 100) / 100,
-        sampleCount: it.n,
-        updatedAt: it.updatedAt,
-      }));
-    await this.db.replaceUserInterestTags(interestRows);
-
-    // —— 生成并落库推荐快照 ——
+    // —— 生成并落库推荐候选 / 精选快照 ——
     const hasSignal =
       Array.from(interest.values()).some((it) => Math.abs(it.strength) > 0.0001) ||
       Array.from(scores.values()).some((s) => s.total !== 0);
-    if (hasSignal) {
-      const snapshotRows = this.reorder(scores, mediaRows, watchedMedia, favorites, recentWatched, excludedCompleted, disliked);
-      await this.db.replaceRecommendationSnapshot(snapshotRows);
-    } else {
-      await this.db.replaceRecommendationSnapshot([]);
-    }
+    const ordered = hasSignal
+      ? this.reorder(scores, candRows, watchedMedia, favorites, recentWatched, excludedCompleted, disliked, RECOMMEND_PARAMS.candidateSize)
+      : [];
+    await this.db.replaceRecommendationCandidates(ordered.slice(0, RECOMMEND_PARAMS.candidateSize));
+    await this.db.replaceRecommendationSnapshot(ordered.slice(0, RECOMMEND_PARAMS.snapshotLimit));
 
     // 重算完成后清空变化日志
     await this.clearChangeLog();
@@ -826,18 +876,12 @@ export class RecommendationService {
     // 记录本次成功重算的状态，供下次增量 diff
     this.lastWrittenInterest = interest;
     this.lastResetAt = resetAt || null;
-    this.lastBehaviorMediaIds = currentB;
-    // 标记算法版本：下次启动 getAlgoVersion 命中即不再强制全量
+    // 标记算法版本：下次启动 getAlgoVersion 命中即不再强制重建
     await this.setAlgoVersion(RECOMMEND_ALGO_VERSION);
 
-    return updates.length;
+    return ordered.length;
   }
 
-  /**
-   * v3 完播口径：主源内对齐。
-   * 主源 = 观看记录中 episode 所属 source 记录数最多的源；目标集 = 主源内 max(season, number)（噪声降级）。
-   * 作品完播 = 目标集进度比 ≥ completeThreshold；无 episode（电影）兜底任一记录完播。
-   */
   private buildWatchSignals(
     historyRows: any[],
     episodesByMediaAndSource: Map<string, Map<string, EpisodeView[]>>,
@@ -1133,7 +1177,8 @@ export class RecommendationService {
     favorites: Set<string>,
     recentWatched: Set<string>,
     excludedCompleted: Set<string>,
-    disliked: Set<string>
+    disliked: Set<string>,
+    limit: number = RECOMMEND_PARAMS.snapshotLimit
   ): { mediaId: string; position: number; score: number; genreGroup: string }[] {
     interface Item {
       id: string;
@@ -1296,8 +1341,8 @@ export class RecommendationService {
       }
     }
 
-    // 快照限量：仅保留前 snapshotLimit 条（桌面 30/页×~10 页 ≈ 500），重排/翻页保持确定性
-    return final.slice(0, RECOMMEND_PARAMS.snapshotLimit).map((m, idx) => ({
+    // 快照限量：仅保留前 limit 条（重排/翻页保持确定性；候选表用 candidateSize，精选快照用 snapshotLimit）
+    return final.slice(0, limit).map((m, idx) => ({
       mediaId: m.id,
       position: idx,
       score: m.score,
@@ -1338,8 +1383,8 @@ export class RecommendationService {
         'SELECT tag, tag_type as type, strength FROM user_interest_tag WHERE abs(strength) >= ? ORDER BY strength DESC LIMIT 10',
         [RECOMMEND_PARAMS.overviewStrengthFloor]
       ),
-      this.db.select<{ id: string; title: string; personal_score: number }>(
-        'SELECT id, title, personal_score FROM media WHERE personal_score > 0 AND IFNULL(hidden, 0) = 0 ORDER BY personal_score DESC, updated_at DESC LIMIT 10'
+      this.db.select<{ id: string; title: string; score: number }>(
+        'SELECT c.media_id AS id, COALESCE(m.title, \'\') AS title, c.score FROM recommend_candidates c LEFT JOIN media m ON m.id = c.media_id WHERE c.position < 10 ORDER BY c.position LIMIT 10'
       ),
       this.db.selectOne<{ count: number }>('SELECT COUNT(*) as count FROM dislike'),
       this.db.select<{ tag: string; tag_type: string; created_at: string }>(
@@ -1408,7 +1453,7 @@ export class RecommendationService {
       giveUpCount: giveUpMedia.size,
       penalizedSubtypes,
       topInterestTags: interestRows.map((r) => ({ tag: r.tag, type: r.type, strength: r.strength })),
-      topMedia: topMediaRows.map((r) => ({ id: r.id, title: r.title, score: r.personal_score })),
+      topMedia: topMediaRows.map((r) => ({ id: r.id, title: r.title, score: r.score })),
       searchKeywordCount: searchCountRow?.count || 0,
       impressionMediaCount: impressionCountRow?.count || 0,
       dislikedMediaCount: dislikedCountRow?.count || 0,

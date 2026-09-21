@@ -251,16 +251,14 @@ export default function TaskListScreen({ navigation }: Props) {
                   </View>
                 )}
 
-                <View style={styles.taskMeta}>
-                  <Text style={styles.taskStat}>成功: {task.collectedCount}</Text>
-                  <Text style={styles.taskStat}>失败: {task.failedCount}</Text>
+<View style={styles.taskMeta}>
                   {task.type === 'REPROBE' && (task.shortDramaCount || task.longDramaCount) ? (
                     <>
                       <Text style={[styles.taskStat, { color: colors.success }]}>短剧: {task.shortDramaCount || 0}</Text>
                       <Text style={[styles.taskStat, { color: colors.textSecondary }]}>长剧: {task.longDramaCount || 0}</Text>
                     </>
                   ) : null}
-                    <View style={styles.taskRight}>
+                  <View style={styles.taskRight}>
                       <View style={[styles.statusBadge, { borderColor: statusStyle.color }]}>
                         {task.status === 'RUNNING' && <Spinner size={10} color={statusStyle.color} strokeWidth={2} style={{ marginRight: 4 }} />}
                         <Text style={[styles.statusText, { color: statusStyle.color }]}>{statusStyle.label}</Text>
@@ -301,9 +299,13 @@ export default function TaskListScreen({ navigation }: Props) {
                   <View style={styles.failedRow}>
                     {parseFailedItems(task).length > 0 ? (
                       <>
-                        <Text style={styles.failedToggle} onPress={() => setExpandedTaskId(expandedTaskId === task.taskId ? null : task.taskId)}>
-                          {expandedTaskId === task.taskId ? '▾ 收起失败明细' : `▸ 查看失败明细（${parseFailedItems(task).length}条）`}
-                        </Text>
+                        <View style={styles.taskMeta}>
+                          <Text style={styles.taskStat}>成功: {task.collectedCount}</Text>
+                          <Text style={styles.taskStat}>失败: {task.failedCount}</Text>
+                          <Text style={[styles.failedToggle, { marginLeft: 'auto' }]} onPress={() => setExpandedTaskId(expandedTaskId === task.taskId ? null : task.taskId)}>
+                            {expandedTaskId === task.taskId ? '▾ 收起失败明细' : `▸ 查看失败明细（${parseFailedItems(task).length}条）`}
+                          </Text>
+                        </View>
                         {expandedTaskId === task.taskId && (
                           <ScrollView style={styles.failedList} nestedScrollEnabled>
                             {parseFailedItems(task).map((fi, idx) => (

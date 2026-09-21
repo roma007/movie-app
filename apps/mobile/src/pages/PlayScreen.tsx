@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity
 import { VideoView, createVideoPlayer, isPictureInPictureSupported } from 'expo-video';
 import { StatusBar } from 'expo-status-bar';
 import { Paths, File } from 'expo-file-system';
+import { appendPlayTrace } from '../services/playTrace';
 // 可选原生依赖：expo-video-cache（iOS 本地代理，将 HLS 分片改为 N 并发下载）。
 // 仅在用户构建环境安装；此处用 try/require 守卫，未安装时自动降级为直连。
 // @ts-ignore - optional native dependency, resolvable after pnpm install in build env
@@ -32,6 +33,8 @@ import { createSegmentSnapshotBuilder, type SegmentProgressSnapshot } from '../s
 import { FullscreenControlBar } from '../components/FullscreenControlBar';
 import { AdFloatOverlay } from '../components/AdFloatOverlay';
 import PosterImage from '../components/PosterImage';
+import { Image } from 'expo-image';
+import { useScrubPreview } from '../hooks/useScrubPreview';
 
 interface Props {
   route: any;
@@ -59,6 +62,15 @@ const ZONE_LEFT_R = 0.18; // 左侧快进条：< 屏宽 18%
 const ZONE_RIGHT_R = 0.68; // 右侧快进条：> 屏宽 68%
 const LOCK_GESTURE_DY = 24; // 上滑锁定 / 下滑退出位移阈值
 const DOUBLE_TAP_MS = 280; // 双击判定窗口：两次轻点间隔 ≤ 280ms 视为双击（收藏切换）
+
+function formatTime(seconds: number): string {
+  if (!seconds || !isFinite(seconds)) return '00:00';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
 
 export default function PlayScreen({ route, navigation }: Props) {
   const { episodeId, mediaId: paramMediaId, sourceId: paramSourceId, playSourceId: paramPlaySourceId, title: paramTitle, playContext: paramPlayContext } = route.params;
@@ -112,6 +124,9 @@ export default function PlayScreen({ route, navigation }: Props) {
   const [tvLangInfo, setTvLangInfo] = useState<{ language: string; episodeId: string; sourceId: string }[]>([]);
   activePlayIdxRef.current = activePlayIdx;
   const [videoUrl, setVideoUrl] = useState('');
+  // 同 URL 强制重载标记：setVideoUrl 相同值被 React bail-out 时不触发 replace effect，
+  // 该 nonce 变化强制 replace effect 重跑（单线路 error 重试 / 换同一线路）
+  const [replaceNonce, setReplaceNonce] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   // 高频真实播放态（playingChange 驱动）：渲染层强不变量「在播即不显示转圈」，兜底 isLoading 残留
   const [isActuallyPlaying, setIsActuallyPlaying] = useState(false);
@@ -220,6 +235,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   getDurationRef.current = () => player?.duration || 0;
 
   const handleResumeLocal = useCallback((position: number) => {
+    appendPlayTrace('[trace] resumeLocal position=', position);
     setVideoUrl(getVideoUrlRef.current());
     setIsLoading(true);
     setError(null);
@@ -433,7 +449,7 @@ export default function PlayScreen({ route, navigation }: Props) {
     },
     episodeBarTitle: { fontSize: sf(15), fontWeight: '700', color: '#fff' },
     episodeBarSub: { fontSize: sf(13), color: 'rgba(255,255,255,0.7)', marginLeft: 4 },
-    // 红果式底部进度条（紧贴预读进度条上方，对齐原生控件位置）；可拖动 seek，白点 thumb 标记当前进度
+    // 红果式底部进度条（紧贴预读进度条上方，对齐原生控件位置）；可拖动 seek，白色 thumb 标记当前进度（拖动中拉高为竖条）
     progressWrap: {
       position: 'absolute',
       left: 0,
@@ -446,24 +462,45 @@ export default function PlayScreen({ route, navigation }: Props) {
     },
     progressTrack: {
       flex: 1,
-      height: 3,
-      borderRadius: 1.5,
-      backgroundColor: 'rgba(255,255,255,0.3)',
+      height: 2,
+      borderRadius: 1,
+      backgroundColor: 'rgba(255,255,255,0.12)',
       marginHorizontal: 14,
     },
-    progressFill: { height: 3, borderRadius: 1.5, backgroundColor: '#fff' },
+    progressFill: { height: 2, borderRadius: 1, backgroundColor: 'rgba(255,255,255,0.92)' },
     progressThumb: {
       position: 'absolute' as const,
-      top: -3.5,
-      width: 10,
-      height: 10,
-      borderRadius: 5,
-      marginLeft: -5,
+      top: -1,
+      width: 4,
+      height: 4,
+      borderRadius: 2,
+      marginLeft: -2,
       backgroundColor: '#fff',
       shadowColor: '#000',
       shadowOpacity: 0.3,
-      shadowRadius: 2,
-      shadowOffset: { width: 0, height: 1 },
+      shadowRadius: 1,
+      shadowOffset: { width: 0, height: 0 },
+    },
+    // 拖动帧预览浮层：气泡（黑底不透明 + 圆角）+ 其正下方居中的时间（cur/total），随拖动点水平移动
+    scrubPopover: {
+      position: 'absolute' as const,
+      bottom: 116,
+      zIndex: 27,
+      alignItems: 'center' as const,
+    },
+    // 气泡正下方、水平居中；红果式「拖动位置时间/总时长」纯白文字
+    // （2026-09-21 拍板 A：加半透明黑底片 chip——任何亮卡/信息卡上时间都白字清晰不混色）
+    scrubTimeText: {
+      marginTop: 6,
+      color: '#fff',
+      fontSize: sf(13),
+      fontVariant: ['tabular-nums'] as const,
+      // 拍板 A：半透明黑底片 chip（任何亮卡/信息卡上白字都清晰不混色）
+      backgroundColor: 'rgba(0,0,0,0.55)',
+      borderRadius: 4,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      overflow: 'hidden' as const,
     },
     // 红果式跟手滑动：最外层 transform 容器（不含 overflow，三卡并排随 translateY 整体平移）
     swipeTransformBox: { flex: 1 },
@@ -610,6 +647,7 @@ export default function PlayScreen({ route, navigation }: Props) {
     (async () => {
       setIsLoading(true);
       setError(null);
+      appendPlayTrace('[trace] mainLoad begin episodeId=', currentEpisodeId);
       setPlotOverflow(false);
       setCastOverflow(false);
       try {
@@ -706,10 +744,12 @@ export default function PlayScreen({ route, navigation }: Props) {
           }
         }
         if (sources.length > 0) {
+          appendPlayTrace('[trace] mainLoad setVideoUrl idx=', pickIdx, 'url=', sources[pickIdx].url);
           setVideoUrl(sources[pickIdx].url);
           setActivePlayIdx(pickIdx);
           setSelectedSourceId(sources[pickIdx].sourceId ?? null);
         } else {
+          appendPlayTrace('[trace] mainLoad noSources');
           setError('无可播放的线路');
         }
 
@@ -717,9 +757,11 @@ export default function PlayScreen({ route, navigation }: Props) {
         adSchedulerRef.current = new AdFloatScheduler(BUILTIN_AD_FLOAT_CONFIG);
         lastAdShownRef.current = null;
         setActiveAd(null);
-      } catch {
+      } catch (e) {
+        appendPlayTrace('[trace] mainLoad error', String(e));
         setError('加载失败');
       } finally {
+        appendPlayTrace('[trace] mainLoad finally isLoading=false');
         setIsLoading(false);
         setConfigLoaded(true);
       }
@@ -913,18 +955,48 @@ export default function PlayScreen({ route, navigation }: Props) {
   const videoRef = useRef<VideoView>(null);
   const playerRef = useRef<any>(null);
   const lastPushedCastUrlRef = useRef<string>('');
+  // ─── 进度条拖动帧预览（scrub）：拖动放大动画 + 实时取帧气泡 ───
+  const scrubAnim = useRef(new Animated.Value(0)).current;
+  const scrubScaleY = scrubAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 7] });
+  // 拖动时竖条（thumb）拉高：thumb 是 track 子节点会被父级 scaleY(7) 放大，
+  // 用 1→0.7 反向补偿后仍净放大 → 竖条终值高 ≈ 4×7×0.7 = 19.6 DIP（高于条本身 ~14 DIP）
+  const scrubThumbScaleY = scrubAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0.7] });
+  const {
+    thumbnail: scrubThumbnail,
+    previewTime: scrubPreviewTime,
+    loading: scrubLoading,
+    requestPreview: requestScrubFrame,
+    reset: resetScrubPreview,
+  } = useScrubPreview(playerRef, () => Math.min(screenW * 0.3, 260));
+  const scrubPreviewFnRef = useRef<(ratio: number) => void>(() => {});
+  scrubPreviewFnRef.current = (ratio: number) => {
+    const dur = playerRef.current?.duration || 0;
+    if (dur > 0) requestScrubFrame(Math.max(0, Math.min(1, ratio)) * dur);
+  };
+  const finishScrub = useCallback(() => {
+    setDragProgress(null);
+    resetScrubPreview();
+    Animated.timing(scrubAnim, { toValue: 0, duration: 120, useNativeDriver: true }).start();
+  }, [resetScrubPreview, scrubAnim]);
 
   // iOS: 经 expo-video-cache 本地代理改写 URL，使 HLS 分片走 N 并发下载
   // 用 VideoSource 对象显式控制 useCaching：iOS 走代理（代理自带缓存）故 false；Android 用 expo-video 缓存故 true
   const effectiveVideoUrl = useMemo(() => {
-    if (!videoUrl) return videoUrl;
+    if (!videoUrl) {
+      appendPlayTrace('[trace] effectiveUrl empty');
+      return videoUrl;
+    }
     if (Platform.OS === 'ios' && VideoCache && videoCacheReady) {
       try {
-        return { uri: VideoCache.convertUrl(videoUrl), useCaching: false } as any;
+        const proxied = VideoCache.convertUrl(videoUrl);
+        appendPlayTrace('[trace] effectiveUrl proxy=', proxied, 'cacheReady=', videoCacheReady);
+        return { uri: proxied, useCaching: false } as any;
       } catch {
+        appendPlayTrace('[trace] effectiveUrl proxyFailFallback');
         return { uri: videoUrl, useCaching: false } as any;
       }
     }
+    appendPlayTrace('[trace] effectiveUrl direct=', videoUrl, 'cacheReady=', videoCacheReady);
     return { uri: videoUrl, useCaching: Platform.OS === 'android' } as any;
   }, [videoUrl, videoCacheReady]);
 
@@ -933,6 +1005,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   // 改用 createVideoPlayer 手动管理：source 变化用 replace 复用同一实例；
   // 卸载时 pause() 停止播放 + 释放（iOS 规避崩溃的 release，Android 正常 release）。
   const player = useMemo(() => {
+    appendPlayTrace('[trace] player create effectiveUrl=', JSON.stringify(effectiveVideoUrl)?.slice(0, 200));
     const p = createVideoPlayer(effectiveVideoUrl as any);
     p.loop = false;
     playerRef.current = p;
@@ -944,13 +1017,17 @@ export default function PlayScreen({ route, navigation }: Props) {
   }, []);
 
   // source 变化（换集/换线路/初始就绪）时复用同一播放器替换内容
+  // replaceNonce：同 URL 重试（setVideoUrl 相同值 React bail-out）时强制重新加载
   useEffect(() => {
     const p = playerRef.current;
     if (!p || !effectiveVideoUrl) return;
     // 换源后清空宽高比，待新源 videoTrackChange 重新上报真实比例
     setVideoRatio(null);
-    try { p.replace(effectiveVideoUrl as any, true); } catch {}
-  }, [effectiveVideoUrl]);
+    // 换源后旧源预览帧失效，清空 scrub 预览避免残留
+    resetScrubPreview();
+    appendPlayTrace('[trace] player replace effectiveUrl=', JSON.stringify(effectiveVideoUrl)?.slice(0, 200));
+    try { p.replace(effectiveVideoUrl as any, true); } catch (e) { appendPlayTrace('[trace] player replace error', String(e)); }
+  }, [effectiveVideoUrl, replaceNonce, resetScrubPreview]);
 
   // 卸载：先暂停（停止播放/声音），再视平台释放。
   // iOS 上 release() 本身即崩溃（fatal abort 无法 try/catch 拦截），故跳过以规避闪退；
@@ -1009,14 +1086,19 @@ export default function PlayScreen({ route, navigation }: Props) {
     try {
       subs.push(p.addListener('playingChange', (e: { isPlaying: boolean }) => {
         setIsActuallyPlaying(e.isPlaying);
+        appendPlayTrace('[trace] playingChange isPlaying=', e.isPlaying);
         if (e.isPlaying) {
           // 已在播即熄灭加载遮罩（兜底 iOS readyToPlay 时序差异，对齐桌面端 onPlaying）
           unmute();
           setIsLoading(false);
         }
       }));
-      subs.push(p.addListener('sourceLoad', tryPlay));
+      subs.push(p.addListener('sourceLoad', () => {
+        appendPlayTrace('[trace] sourceLoad');
+        tryPlay();
+      }));
       subs.push(p.addListener('statusChange', (e: { status: string }) => {
+        appendPlayTrace('[trace] statusChange=', e.status);
         if (e.status === 'readyToPlay') {
           // 新源真正就绪才开始播放，此时熄灭加载遮罩（覆盖换线路/重试/投屏恢复/失败自动换源四条路径）
           setIsLoading(false);
@@ -1117,12 +1199,20 @@ export default function PlayScreen({ route, navigation }: Props) {
     // 配置加载后再启动；仅启动一次（运行时改 N 下次进入播放页生效，避免重复 startServer 抖动）
     if (!configLoaded || serverStartedRef.current) return;
     serverStartedRef.current = true;
+    appendPlayTrace('[trace] vcache startServer n=', prefetchConcurrency, 'configLoaded=', configLoaded);
     try {
       // 缓存上限固定 500MB，与 N 解耦；第 4 个参数为补丁后新增的并发上限
       VideoCache.startServer(9000, 500 * 1024 * 1024, false, prefetchConcurrency)
-        .then(() => setVideoCacheReady(true))
-        .catch(() => setVideoCacheReady(true));
-    } catch {
+        .then(() => {
+          appendPlayTrace('[trace] vcache startServer resolved → cacheReady=true');
+          setVideoCacheReady(true);
+        })
+        .catch((e: any) => {
+          appendPlayTrace('[trace] vcache startServer rejected', String(e));
+          setVideoCacheReady(true);
+        });
+    } catch (e) {
+      appendPlayTrace('[trace] vcache startServer syncThrow', String(e));
       setVideoCacheReady(true);
     }
   }, [configLoaded, prefetchConcurrency]);
@@ -1240,8 +1330,8 @@ export default function PlayScreen({ route, navigation }: Props) {
         playSources[activePlayIdx]?.id ?? null,
       );
     }
-    setDragProgress(null);
-  }, [mediaId, currentEpisodeId, selectedSourceId, playSources, activePlayIdx]);
+    finishScrub();
+  }, [mediaId, currentEpisodeId, selectedSourceId, playSources, activePlayIdx, finishScrub]);
 
   const progressPanResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
@@ -1249,29 +1339,38 @@ export default function PlayScreen({ route, navigation }: Props) {
     onPanResponderGrant: (e) => {
       const w = progressTrackWidthRef.current;
       const x = e.nativeEvent.locationX;
-      if (w > 0) setDragProgress(Math.max(0, Math.min(1, x / w)));
+      if (w > 0) {
+        const ratio = Math.max(0, Math.min(1, x / w));
+        setDragProgress(ratio);
+        scrubPreviewFnRef.current(ratio);
+        Animated.timing(scrubAnim, { toValue: 1, duration: 120, useNativeDriver: true }).start();
+      }
     },
     onPanResponderMove: (e, g) => {
       const w = progressTrackWidthRef.current;
       const x = e.nativeEvent.locationX;
       if (w > 0) {
         const ratio = Math.max(0, Math.min(1, x / w));
-        if (g.dx !== 0 || g.dy !== 0) setDragProgress(ratio);
+        if (g.dx !== 0 || g.dy !== 0) {
+          setDragProgress(ratio);
+          scrubPreviewFnRef.current(ratio);
+        }
       }
     },
     onPanResponderRelease: (e) => {
       const w = progressTrackWidthRef.current;
       const x = e.nativeEvent.locationX;
       if (w > 0) commitDragSeek(Math.max(0, Math.min(1, x / w)));
-      else setDragProgress(null);
+      else finishScrub();
     },
-    onPanResponderTerminate: () => setDragProgress(null),
-  }), [commitDragSeek]);
+    onPanResponderTerminate: () => finishScrub(),
+  }), [commitDragSeek, finishScrub]);
 
   const handlePlaySourceChange = async (idx: number) => {
     pressActionsRef.current.resetLocked();
     const src = playSourcesRef.current[idx];
     if (!src) return;
+    appendPlayTrace('[trace] sourceChange idx=', idx, 'url=', src.url);
     // 切换前把当前线路的真实进度落库（返回该线路时从此处恢复）
     const p = playerRef.current;
     if (mediaId && currentEpisodeId && p && (p.duration || 0) > 0) {
@@ -1287,6 +1386,12 @@ export default function PlayScreen({ route, navigation }: Props) {
     pendingSeekRef.current = 0;
     setActivePlayIdx(idx);
     setSelectedSourceId(src.sourceId ?? null);
+    // 同 URL 重试（autoRetry 回第 0 条 / 手动重选当前线路）：setVideoUrl 相同值被 React bail-out，
+    // replace effect 不会重跑 → 必须 bump nonce 强制重新加载，否则 isLoading 永真卡「加载中」。
+    if (src.url === videoUrlRef.current) {
+      appendPlayTrace('[trace] sourceChange sameUrl -> force replace nonce');
+      setReplaceNonce((n) => n + 1);
+    }
     setVideoUrl(src.url);
     setIsLoading(true);
     setError(null);
@@ -1308,7 +1413,10 @@ export default function PlayScreen({ route, navigation }: Props) {
 
   const handleRetry = () => {
     if (playSources.length > 0) {
+      appendPlayTrace('[trace] retry');
       setActivePlayIdx(0);
+      // 同 URL 重试时 setVideoUrl 相同值 React bail-out 不触发 replace，须 bump nonce 强制重载
+      if (playSources[0].url === videoUrlRef.current) setReplaceNonce((n) => n + 1);
       setVideoUrl(playSources[0].url);
       setIsLoading(true);
       setError(null);
@@ -1815,6 +1923,11 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
     if (!player) return;
     const sub = player.addListener('statusChange', (e: { status: string }) => {
       if (e.status !== 'error') return;
+      appendPlayTrace('[trace] statusChange=error');
+      // 空源阶段（播放器以空 URL 创建时 expo-video 立即报 error，此时主加载尚未填充 playSources）
+      // 不得排 autoRetry timer：否则遗留 timer 会在源填充后执行 change(targetIdx)，
+      // 同 URL 触发 setVideoUrl bail-out 导致 replace 不重跑，isLoading 永真（卡「加载中」）。
+      if (playSourcesRef.current.length === 0) return;
       if (pendingFailTimerRef.current) return;
       const { activePlayIdx: idx, change } = autoRetryRef.current;
       const srcCount = playSourcesRef.current.length;
@@ -2381,20 +2494,40 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
                 </View>
                 </View>
             </View>
-            {/* 红果式底部进度条（紧贴预读条上方，可拖动 seek，白点 thumb 标记当前进度） */}
-            {media && videoUrl && !error && (
-              <View style={styles.progressWrap} {...progressPanResponder.panHandlers}>
-                <View
-                  style={styles.progressTrack}
-                  onLayout={(e) => { progressTrackWidthRef.current = e.nativeEvent.layout.width; }}
-                >
-                  <View style={[styles.progressFill, { width: `${(dragProgress != null ? dragProgress : (playStat.dur > 0 ? Math.min(1, Math.max(0, playStat.cur / playStat.dur)) : 0)) * 100}%` }]} />
-                  <View
-                    style={[styles.progressThumb, { left: `${(dragProgress != null ? dragProgress : (playStat.dur > 0 ? Math.min(1, Math.max(0, playStat.cur / playStat.dur)) : 0)) * 100}%` }]}
-                  />
+            {/* 红果式底部进度条（紧贴预读条上方，可拖动 seek）；
+                橙色填充恒表示真实播放进度（拖动时不变），拖动中整条放大 + 白色竖条跟手 + 帧预览气泡 */}
+            {media && videoUrl && !error && (() => {
+              // 已播进度（真实播放位置）：橙色填充只表示当前播放进度，拖动时不变
+              const actualRatio = playStat.dur > 0 ? Math.min(1, Math.max(0, playStat.cur / playStat.dur)) : 0;
+              const fillPct = `${actualRatio * 100}%` as `${number}%`;
+              // 竖条（thumb）：拖动时跟手到拖动位置，松手回到真实播放位置
+              const thumbPct = `${(dragProgress != null ? dragProgress : actualRatio) * 100}%` as `${number}%`;
+              const bW = Math.min(screenW * 0.3, 260);
+              const bH = Math.min(bW / (effectiveRatio && effectiveRatio > 0 ? effectiveRatio : 16 / 9), screenH * 0.3);
+              const bLeft = dragProgress != null
+                ? Math.max(8, Math.min(14 + dragProgress * (screenW - 28) - bW / 2, screenW - bW - 8))
+                : 0;
+              return (
+                <>
+                {dragProgress != null && (
+                  <View pointerEvents="none" style={[styles.scrubPopover, { left: bLeft, width: bW }]}>
+                    {scrubPreviewTime != null && (
+                      <Text style={styles.scrubTimeText}>{formatTime(scrubPreviewTime)}/{formatTime(playStat.dur)}</Text>
+                    )}
+                  </View>
+                )}
+                <View style={styles.progressWrap} {...progressPanResponder.panHandlers}>
+                  <Animated.View
+                    style={[styles.progressTrack, { transform: [{ scaleY: scrubScaleY }] }]}
+                    onLayout={(e) => { progressTrackWidthRef.current = e.nativeEvent.layout.width; }}
+                  >
+                    <Animated.View style={[styles.progressFill, { width: fillPct }, dragProgress != null && { backgroundColor: '#FA7705' }]} />
+                    <Animated.View style={[styles.progressThumb, { left: thumbPct }, { transform: [{ scaleY: scrubThumbScaleY }] }]} />
+                  </Animated.View>
                 </View>
-              </View>
-            )}
+                </>
+              );
+            })()}
             {/* 底部选集横条（红果式：视频底部独立水平条，默认常显） */}
             <TouchableOpacity style={styles.episodeBar} activeOpacity={0.7} onPress={() => setEpisodesSheetVisible(true)}>
               <Text style={styles.episodeBarTitle}>选集</Text>
@@ -2590,6 +2723,8 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
                 onCastDeviceSelect={fsCastOnDeviceSelect}
                 onCastSearch={castManager.searchDevices}
                 onInteract={showFsControlsTemporarily}
+                playerRef={playerRef}
+                previewAspectRatio={(effectiveRatio && effectiveRatio > 0) ? effectiveRatio : 16 / 9}
               />
             </>
           )}
