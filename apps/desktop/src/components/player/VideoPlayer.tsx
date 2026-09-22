@@ -38,11 +38,14 @@ function CenterPlayButton() {
   const paused = useMediaState('paused');
   const waiting = useMediaState('waiting');
   const show = started && paused && !waiting;
+  const PlayIcon = defaultLayoutIcons.PlayButton.Play;
   return (
     <PlayButton
       className={`absolute left-1/2 top-1/2 z-30 ${show ? 'flex' : 'hidden'} h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white transition-colors hover:bg-black/75`}
       onPointerDown={(e: ReactPointerEvent) => e.stopPropagation()}
-    />
+    >
+      <PlayIcon />
+    </PlayButton>
   );
 }
 

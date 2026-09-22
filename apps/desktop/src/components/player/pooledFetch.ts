@@ -44,12 +44,15 @@ function parseRawFrame(buf: ArrayBuffer): VideoFetchRawResult {
  * 由调用方决定回退策略。
  *
  * `onProgress` 存在时，通过 IPC Channel 接收 Rust 侧逐块上报的下载进度。
+ * `cacheKey` 传入时启用 Rust 进程级分片缓存（跨 webview 共享，pip 可续用主窗口预读片）；
+ * 清单请求不传，保证 LIVE/刷新语义。
  */
 export async function invokeVideoFetch(
   url: string,
   headers?: Record<string, string>,
   range?: string,
   onProgress?: (p: VideoProgressPayload) => void,
+  cacheKey?: string,
 ): Promise<VideoFetchRawResult> {
   const { invoke, Channel } = await import('@tauri-apps/api/core');
   const progressChannel = new Channel<VideoProgressPayload>((payload) => {
@@ -60,6 +63,7 @@ export async function invokeVideoFetch(
     headers: headers ?? null,
     range: range ?? null,
     onProgress: progressChannel,
+    cache: cacheKey ?? null,
   });
   return parseRawFrame(normalizeBytes(raw));
 }

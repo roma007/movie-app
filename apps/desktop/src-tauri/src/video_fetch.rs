@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::OnceLock;
-use std::time::Duration;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use reqwest::Client;
 use serde::Serialize;
@@ -125,10 +125,112 @@ pub struct VideoProgress {
     total: Option<u64>,
 }
 
+/// 分片字节缓存预算与 TTL（与 JS 侧 PrefetchManager 对齐：256MB / 1h）。
+const SEG_CACHE_BYTE_BUDGET: usize = 256 * 1024 * 1024;
+const SEG_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
+
+struct SegCacheEntry {
+    status: u16,
+    headers: HashMap<String, String>,
+    body: Arc<Vec<u8>>,
+    at: Instant,
+}
+
+struct SegCache {
+    map: HashMap<String, SegCacheEntry>,
+    bytes: usize,
+}
+
+impl SegCache {
+    fn get(&mut self, key: &str) -> Option<(u16, HashMap<String, String>, Arc<Vec<u8>>)> {
+        let now = Instant::now();
+        let expired = matches!(self.map.get(key), Some(e) if now.duration_since(e.at) > SEG_CACHE_TTL);
+        if expired {
+            if let Some(e) = self.map.remove(key) {
+                self.bytes = self.bytes.saturating_sub(e.body.len());
+            }
+            return None;
+        }
+        let e = self.map.get_mut(key)?;
+        e.at = now;
+        Some((e.status, e.headers.clone(), e.body.clone()))
+    }
+
+    fn put(
+        &mut self,
+        key: String,
+        status: u16,
+        headers: HashMap<String, String>,
+        body: Arc<Vec<u8>>,
+    ) {
+        if body.len() > SEG_CACHE_BYTE_BUDGET {
+            return;
+        }
+        if let Some(old) = self.map.remove(&key) {
+            self.bytes = self.bytes.saturating_sub(old.body.len());
+        }
+        self.bytes += body.len();
+        self.map.insert(
+            key,
+            SegCacheEntry {
+                status,
+                headers,
+                body,
+                at: Instant::now(),
+            },
+        );
+        while self.bytes > SEG_CACHE_BYTE_BUDGET && !self.map.is_empty() {
+            let oldest = self
+                .map
+                .iter()
+                .min_by_key(|(_, e)| e.at)
+                .map(|(k, _)| k.clone());
+            match oldest {
+                Some(k) => {
+                    if let Some(e) = self.map.remove(&k) {
+                        self.bytes = self.bytes.saturating_sub(e.body.len());
+                    }
+                }
+                None => break,
+            }
+        }
+    }
+}
+
+/// 进程级分片缓存：主窗口预取与 pip 窗口共享（同一 Tauri 进程内所有 webview 共用），
+/// 使 pip 能直接续用主窗口已预读的分片，避免重复从源站下载。
+static SEG_CACHE: OnceLock<Mutex<SegCache>> = OnceLock::new();
+
+fn seg_cache() -> &'static Mutex<SegCache> {
+    SEG_CACHE.get_or_init(|| {
+        Mutex::new(SegCache {
+            map: HashMap::new(),
+            bytes: 0,
+        })
+    })
+}
+
+fn cache_lock() -> std::sync::MutexGuard<'static, SegCache> {
+    seg_cache().lock().unwrap_or_else(|p| p.into_inner())
+}
+
+fn build_frame(status: u16, headers: &HashMap<String, String>, body: &[u8]) -> Response {
+    let headers_json = json!(headers).to_string().into_bytes();
+    let mut frame = Vec::with_capacity(2 + 4 + headers_json.len() + body.len());
+    frame.extend_from_slice(&status.to_le_bytes());
+    frame.extend_from_slice(&(headers_json.len() as u32).to_le_bytes());
+    frame.extend_from_slice(&headers_json);
+    frame.extend_from_slice(body);
+    Response::new(InvokeResponseBody::Raw(frame))
+}
+
 /// 通过常驻连接池发起视频资源请求。
 /// - `headers`: 附加请求头（如 Referer 反盗链头）。
 /// - `range`: 字节区间（`bytes=a-b`），用于 mp4 / BYTERANGE 分片。
 /// - `on_progress`: 进度通道，body 逐块读取时推送 `{ loaded, total }`。
+/// - `cache`: 可选缓存 key（分片传 `url#start-end`，清单传 None）。
+///   传了才读写进程级分片缓存：命中直接回帧（跨 webview 共享，pip 续用主窗口预读片）；
+///   仅 2xx 响应入缓存；清单不缓存以保证 LIVE/刷新语义。
 ///
 /// 返回原始字节帧（经 IPC 以二进制传输，避免大 base64 字符串在 JSON 序列化中丢字段）：
 ///   [status: u16 LE][headers_json_len: u32 LE][headers_json][body 原始字节]
@@ -139,9 +241,30 @@ pub async fn video_fetch(
     headers: Option<HashMap<String, String>>,
     range: Option<String>,
     on_progress: Channel<VideoProgress>,
+    cache: Option<String>,
 ) -> Result<Response, String> {
     init_log_path(&app);
     ensure_http_url(&url)?;
+
+    let cache_full_key = cache
+        .as_ref()
+        .map(|k| format!("{}\n{}", k, range.clone().unwrap_or_default()));
+
+    if let Some(key) = &cache_full_key {
+        let hit = cache_lock().get(key);
+        if let Some((status, resp_headers, body)) = hit {
+            log_line_raw(&format!(
+                "[video_fetch] cache-hit {} ({} bytes)",
+                redact_url(&url),
+                body.len()
+            ));
+            let _ = on_progress.send(VideoProgress {
+                loaded: body.len() as u64,
+                total: Some(body.len() as u64),
+            });
+            return Ok(build_frame(status, &resp_headers, &body));
+        }
+    }
 
     let mut req = http_client().get(&url).timeout(Duration::from_secs(60));
 
@@ -202,14 +325,14 @@ pub async fn video_fetch(
         bytes.len()
     ));
 
-    let headers_json = json!(resp_headers).to_string().into_bytes();
-    let mut frame = Vec::with_capacity(2 + 4 + headers_json.len() + bytes.len());
-    frame.extend_from_slice(&status.to_le_bytes());
-    frame.extend_from_slice(&(headers_json.len() as u32).to_le_bytes());
-    frame.extend_from_slice(&headers_json);
-    frame.extend_from_slice(&bytes);
+    let body = Arc::new(bytes);
+    if let Some(key) = &cache_full_key {
+        if (200..300).contains(&status) {
+            cache_lock().put(key.clone(), status, resp_headers.clone(), body.clone());
+        }
+    }
 
-    Ok(Response::new(InvokeResponseBody::Raw(frame)))
+    Ok(build_frame(status, &resp_headers, &body))
 }
 
 /// 预热源域名连接：向该 URL 发起一个 Range 小请求，使连接池提前建立到其 host

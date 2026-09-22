@@ -4,15 +4,21 @@ import type { MediaPlayerInstance } from '@vidstack/react';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
+import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi';
 import { ExternalLink, Maximize2, X } from 'lucide-react';
 import type { PlaySource } from '@movie-app/core';
 import { VideoPlayer } from '../components/player/VideoPlayer';
 import { PlayerOverlays } from '../components/player/PlayerOverlays';
 import { ThemeProvider } from '../themes/ThemeProvider';
 import { FontSizeProvider } from '../themes/FontSizeProvider';
+import type { PipAnim } from '../stores/playerStore';
+import { readPipPayload } from './pipWindowManager';
 
 const HEADER_H = 36;
 const TIME_EMIT_MS = 5000;
+const BOOT_FRAME_KEY = 'movie-app-pip-boot-frame';
+const APPEAR_ANIM_MS = 350;
+const IS_MAC = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac');
 
 interface PipNextEpisode {
   id: string;
@@ -32,19 +38,66 @@ export interface PipPayload {
   nextEpisode: PipNextEpisode | null;
   outroThresholdMinutes: number;
   showNextEpisodeOverlay: boolean;
+  anim?: PipAnim;
+  openSeq?: number;
 }
 
-type ResizeDir = 'North' | 'South' | 'East' | 'West' | 'NorthEast' | 'NorthWest' | 'SouthEast' | 'SouthWest';
-
-function parsePayload(): PipPayload | null {
+/** 读取主窗口写入的弹出过渡帧（读后即删，避免残留）。 */
+function readBootFrame(): string | null {
   try {
-    const raw = new URLSearchParams(window.location.search).get('d');
-    if (!raw) return null;
-    return JSON.parse(raw) as PipPayload;
+    const v = localStorage.getItem(BOOT_FRAME_KEY);
+    if (v) localStorage.removeItem(BOOT_FRAME_KEY);
+    return v;
   } catch {
     return null;
   }
 }
+
+/** 主屏幕逻辑高度（macOS 左上→左下坐标换算用）。 */
+async function primaryScreenHeight(): Promise<number> {
+  try {
+    const { availableMonitors } = await import('@tauri-apps/api/window');
+    const mons = await availableMonitors();
+    const primary = mons.find((m) => m.position.x === 0 && m.position.y === 0) ?? mons[0];
+    if (primary) return primary.size.height / primary.scaleFactor;
+  } catch {}
+  return window.screen.availHeight || 900;
+}
+
+const easeOutCubic = (p: number) => 1 - Math.pow(1 - p, 3);
+
+/** pip 弹出动画统一入口：mac 走原生 NSAnimationContext，Windows 走 rAF 逐帧插值。 */
+async function runPipAppearAnimation(
+  win: ReturnType<typeof getCurrentWebviewWindow>,
+  from: PipAnim['from'],
+  to: PipAnim['to'],
+): Promise<void> {
+  if (IS_MAC) {
+    const screenH = await primaryScreenHeight();
+    await invoke('animate_pip_appear', {
+      from: [from.x, from.y, from.w, from.h],
+      to: [to.x, to.y, to.w, to.h],
+      screenH,
+      durationMs: APPEAR_ANIM_MS,
+    });
+    return;
+  }
+  const start = performance.now();
+  for (;;) {
+    const t = Math.min(1, (performance.now() - start) / APPEAR_ANIM_MS);
+    const e = easeOutCubic(t);
+    void win.setPosition(
+      new LogicalPosition(from.x + (to.x - from.x) * e, from.y + (to.y - from.y) * e),
+    );
+    void win.setSize(new LogicalSize(from.w + (to.w - from.w) * e, from.h + (to.h - from.h) * e));
+    if (t >= 1) break;
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
+  }
+  await win.setPosition(new LogicalPosition(to.x, to.y));
+  await win.setSize(new LogicalSize(to.w, to.h));
+}
+
+type ResizeDir = 'North' | 'South' | 'East' | 'West' | 'NorthEast' | 'NorthWest' | 'SouthEast' | 'SouthWest';
 
 export function PipWindow() {
   return (
@@ -58,13 +111,20 @@ export function PipWindow() {
 
 function PipRoot() {
   const win = useMemo(() => getCurrentWebviewWindow(), []);
-  const initialData = useMemo(parsePayload, []);
+  const initialData = useMemo(() => readPipPayload<PipPayload>(), []);
   const [data, setData] = useState<PipPayload | null>(initialData);
   const [playSourceId, setPlaySourceId] = useState<string | null>(initialData?.playSourceId ?? null);
   const playerRef = useRef<MediaPlayerInstance>(null);
   const lastTimeEmitRef = useRef(0);
   const lastNextEmitRef = useRef<{ id: string; at: number }>({ id: '', at: 0 });
   const lastCloseEmitRef = useRef(0);
+
+  // 弹出过渡帧：动画期间盖住正在加载的播放器，就绪后淡出
+  const [bootFrame, setBootFrame] = useState<string | null>(() => readBootFrame());
+  const [frameFading, setFrameFading] = useState(false);
+  const hideFrameRef = useRef(false);
+  const animStartedRef = useRef(false);
+  const lastSeqRef = useRef(0);
 
   const [overlayVisible, setOverlayVisible] = useState(false);
   const overlayDismissedRef = useRef(false);
@@ -81,13 +141,158 @@ function PipRoot() {
     });
   }, []);
 
+  const hideBootFrame = useCallback(() => {
+    if (hideFrameRef.current || !bootFrame) return;
+    hideFrameRef.current = true;
+    setFrameFading(true);
+    window.setTimeout(() => setBootFrame(null), 350);
+  }, [bootFrame]);
+
+  // 弹出动画：帧图加载/解码完成后飞（mac 原生 NSAnimationContext / win rAF），失败跳位兜底。
+  useEffect(() => {
+    const anim = data?.anim;
+    if (!anim || !bootFrame || animStartedRef.current) return;
+    let hard: ReturnType<typeof setTimeout> | null = null;
+    const start = () => {
+      if (animStartedRef.current) return;
+      animStartedRef.current = true;
+      if (hard) window.clearTimeout(hard);
+      void (async () => {
+        try {
+          await runPipAppearAnimation(win, anim.from, anim.to);
+        } catch (err) {
+          console.error('[PipWindow] 弹出动画失败，直接跳到目标位置:', err);
+          try {
+            await win.setPosition(new LogicalPosition(anim.to.x, anim.to.y));
+            await win.setSize(new LogicalSize(anim.to.w, anim.to.h));
+          } catch {}
+        }
+      })();
+    };
+    const img = new Image();
+    img.onload = start;
+    img.onerror = start;
+    img.src = bootFrame;
+    hard = window.setTimeout(start, 800);
+    return () => {
+      img.onload = null;
+      img.onerror = null;
+      if (hard) window.clearTimeout(hard);
+    };
+  }, [win, data?.anim, bootFrame]);
+
+  // 过渡帧淡出：播放器就绪且已到目标时间附近即撤帧；12s 硬兜底防卡住。
+  useEffect(() => {
+    if (!bootFrame) return;
+    const want = data?.currentTime ?? 0;
+    const iv = window.setInterval(() => {
+      if (hideFrameRef.current) return;
+      const video = playerRef.current?.el?.querySelector('video');
+      if (video && video.readyState >= 2 && video.currentTime >= want - 0.5) hideBootFrame();
+    }, 250);
+    const hard = window.setTimeout(() => hideBootFrame(), 12000);
+    return () => {
+      window.clearInterval(iv);
+      window.clearTimeout(hard);
+    };
+  }, [bootFrame, data?.currentTime, hideBootFrame]);
+
+  // 应用一次「打开画中画」：重置开场状态 → 读新过渡帧 → 显示窗口 → 由动画 effect 驱动飞出。
+  const applyOpen = useCallback(
+    (payload: PipPayload) => {
+      console.error('[VideoPlayer][PIP] applyOpen seq=', payload.openSeq, 'anim=', !!payload.anim, 'data=', !!data);
+      if (payload.openSeq !== undefined && lastSeqRef.current === payload.openSeq) return;
+      if (payload.openSeq !== undefined) lastSeqRef.current = payload.openSeq;
+      hideFrameRef.current = false;
+      animStartedRef.current = false;
+      setFrameFading(false);
+      setPlaySourceId(payload.playSourceId ?? null);
+      skipEligibleRef.current = (payload.currentTime ?? 0) < 2 * 60;
+      lastTimeRef.current = payload.currentTime ?? 0;
+      const frame = readBootFrame();
+      setBootFrame(frame);
+      const a = payload.anim;
+      if (!frame && a) {
+        void win.setPosition(new LogicalPosition(a.to.x, a.to.y));
+        void win.setSize(new LogicalSize(a.to.w, a.to.h));
+      }
+      setData(payload);
+      console.error('[VideoPlayer][PIP] applyOpen -> show');
+      win
+        .show()
+        .then(() => {
+          console.error('[VideoPlayer][PIP] show resolved');
+          void win.isVisible().then((v) => console.error('[VideoPlayer][PIP] visible after show =', v));
+        })
+        .catch((err) => {
+          console.error('[VideoPlayer][PIP] show FAILED:', err instanceof Error ? err.message : String(err));
+        });
+      void win.setFocus().catch(() => {});
+      window.setTimeout(() => {
+        void win
+          .isVisible()
+          .then((v) => {
+            console.error('[VideoPlayer][PIP] visible t+700ms =', v);
+            if (!v) {
+              console.error('[VideoPlayer][PIP] JS show 未生效 -> invoke show_pip');
+              void invoke('show_pip').catch((e) =>
+                console.error('[VideoPlayer][PIP] show_pip failed:', String(e)),
+              );
+            }
+          })
+          .catch(() => {});
+      }, 700);
+      window.setTimeout(() => {
+        void win.isVisible().then((v) => console.error('[VideoPlayer][PIP] visible t+1s =', v));
+      }, 1000);
+    },
+    [win],
+  );
+
+  // 关闭画中画：卸载播放器停流 + 隐藏常驻窗口（不销毁，供下次复用）。
+  const hidePip = useCallback(() => {
+    console.error('[VideoPlayer][PIP] hidePip called');
+    hideFrameRef.current = false;
+    animStartedRef.current = false;
+    setFrameFading(false);
+    setBootFrame(null);
+    setPlaySourceId(null);
+    setData(null);
+    void win
+      .hide()
+      .then(() => console.error('[VideoPlayer][PIP] hide resolved'))
+      .catch((e) => console.error('[VideoPlayer][PIP] hide FAILED:', String(e)));
+  }, [win]);
+
+  // 常驻窗口挂载即读到的兜底 payload（仅当监听未就绪时主窗口才依赖此路径）。
+  useEffect(() => {
+    console.error('[VideoPlayer][PIP] mount, initialData=', !!initialData);
+    if (initialData) applyOpen(initialData);
+  }, [initialData, applyOpen]);
+
   useEffect(() => {
     let un: (() => void) | undefined;
+    listen<PipPayload>('pip://open', (e) => {
+      console.error('[VideoPlayer][PIP] got pip://open seq=', e.payload.openSeq);
+      applyOpen(e.payload);
+    }).then((f) => (un = f));
     listen<PipPayload>('pip://episode', (e) => {
       setData(e.payload);
       setPlaySourceId(e.payload.playSourceId ?? null);
-    }).then((f) => (un = f));
-    listen('pip://close', () => void win.close()).then((f) => {
+    }).then((f) => {
+      const prev = un;
+      un = () => {
+        f();
+        prev?.();
+      };
+    });
+    listen('pip://close', () => {
+      const video = playerRef.current?.el?.querySelector('video');
+      const { t, d } = video ? { t: video.currentTime, d: video.duration || 0 } : { t: 0, d: 0 };
+      lastCloseEmitRef.current = Date.now();
+      void emit('pip://closing', { t, d });
+      hidePip();
+    }).then((f) => {
       const prev = un;
       un = () => {
         f();
@@ -95,7 +300,7 @@ function PipRoot() {
       };
     });
     return () => un?.();
-  }, [win]);
+  }, [win, applyOpen, hidePip]);
 
   useEffect(() => {
     setOverlayVisible(false);
@@ -217,45 +422,29 @@ function PipRoot() {
             const { t, d } = readVideoTime();
             await emit('pip://closing', { t, d });
           }
-          await win.destroy();
+          hidePip();
         });
       } catch {}
     })();
     return () => un?.();
-  }, [win, readVideoTime]);
+  }, [win, readVideoTime, hidePip]);
 
-  const closePip = useCallback(async () => {
+  const closePip = useCallback(() => {
     lastCloseEmitRef.current = Date.now();
     const { t, d } = readVideoTime();
-    await emit('pip://closing', { t, d });
-    win.close();
-  }, [readVideoTime, win]);
+    void emit('pip://closing', { t, d });
+    hidePip();
+  }, [readVideoTime, hidePip]);
 
-  const handleBack = useCallback(async () => {
+  const handleBack = useCallback(() => {
     lastCloseEmitRef.current = Date.now();
     const { t, d } = readVideoTime();
-    console.log('[pip] back: start');
-    const dbg = (msg: string, extra?: unknown) => {
-      console.warn('[PIPDEBUG]', msg, extra ?? '');
-      void emit('pip://debug', { where: 'pip-back', msg, extra: extra ?? null });
-    };
-    // 先发 back 通知主窗口续播；不给 emit 无限 await（避免 emit 挂起导致窗口不销毁）
     const emitP = emit('pip://back', { t, d }).then(
-      () => dbg('pip://back emit ok'),
-      (err) => dbg('pip://back emit err', String(err)),
+      () => {},
+      (err) => console.error('[PipWindow] back emit err:', err),
     );
-    try {
-      await Promise.race([emitP, new Promise((r) => setTimeout(r, 800))]);
-    } catch { /* 忽略，无论如何都继续销毁 */ }
-    dbg('destroy 前，label=' + win.label);
-    try {
-      await win.destroy();
-      dbg('destroy ok');
-    } catch (err) {
-      dbg('destroy 抛错', String(err));
-    }
-    dbg('destroy 后（若还能执行到这，说明通道仍在）');
-  }, [readVideoTime, win]);
+    void Promise.race([emitP, new Promise((r) => setTimeout(r, 800))]).finally(() => hidePip());
+  }, [readVideoTime, hidePip]);
 
   const handleNext = useCallback(() => {
     if (!data?.nextEpisode) return;
@@ -305,11 +494,7 @@ function PipRoot() {
   );
 
   if (!data) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center bg-black text-white/60">
-        参数缺失，请从主窗口重新打开画中画
-      </div>
-    );
+    return <div className="h-screen w-screen bg-black" />;
   }
 
   const nextEpisodeTitle = data.nextEpisode
@@ -320,7 +505,17 @@ function PipRoot() {
     'flex items-center gap-1 bg-black/90 text-white/90 text-xs px-2 cursor-move touch-none';
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-black select-none">
+    <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-black select-none">
+      {bootFrame && (
+        <img
+          src={bootFrame}
+          alt=""
+          draggable={false}
+          className={`pointer-events-none absolute inset-0 z-50 h-full w-full object-contain bg-black transition-opacity duration-300 ${
+            frameFading ? 'opacity-0' : 'opacity-100'
+          }`}
+        />
+      )}
       <div
         className={headerCls}
         style={{ height: HEADER_H }}

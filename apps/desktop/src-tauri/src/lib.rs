@@ -33,7 +33,9 @@ pub fn run() {
             video_fetch::log_line,
             window_state::get_window_state,
             window_state::set_window_remember,
-            pip_window::style_pip_window
+            pip_window::style_pip_window,
+            pip_window::animate_pip_appear,
+            pip_window::show_pip
         ]);
 
     #[cfg(desktop)]

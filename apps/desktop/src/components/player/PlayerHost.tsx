@@ -6,15 +6,18 @@ import { register as registerGlobalShortcut, unregister as unregisterGlobalShort
 import { getCurrentWebviewWindow, WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { currentMonitor } from '@tauri-apps/api/window';
 import { emit, listen } from '@tauri-apps/api/event';
+import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi';
 import { Loader2 } from 'lucide-react';
 import { SystemConfigService, AdFloatScheduler, BUILTIN_AD_FLOAT_CONFIG, type AdFloatItem } from '@movie-app/core';
 import { VideoPlayer } from './VideoPlayer';
 import { PlayerOverlays } from './PlayerOverlays';
 import { AdFloatOverlay } from './AdFloatOverlay';
 import { usePlayerStore, buildPipPayload, isPipSwitching } from '../../stores/playerStore';
+import { ensurePipWindow, nextOpenSeq, writePipPayload } from '../../pip/pipWindowManager';
 import { getProvider } from '../../init';
 
 const PIP_GEO_KEY = 'movie_app_pip_geo';
+const PIP_BOOT_FRAME_KEY = 'movie-app-pip-boot-frame';
 
 interface PipGeometry {
   x?: number;
@@ -38,6 +41,25 @@ function readPipGeometry(): PipGeometry {
     }
   } catch {}
   return geo;
+}
+
+/** 抓当前 video 帧为 JPEG dataURL（pip 弹出过渡帧）。MSE blob 同源，canvas 不污染。 */
+function captureVideoFrameDataUrl(video: HTMLVideoElement): string | null {
+  try {
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    if (!w || !h) return null;
+    const scale = Math.min(1, 1280 / w);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(w * scale));
+    canvas.height = Math.max(1, Math.round(h * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.85);
+  } catch {
+    return null;
+  }
 }
 
 export function PlayerHost() {
@@ -94,11 +116,7 @@ export function PlayerHost() {
         await document.exitPictureInPicture();
       }
     } catch {}
-    try {
-      const pipWin = await WebviewWindow.getByLabel('pip');
-      if (pipWin) await pipWin.close();
-      void emit('pip://close', null);
-    } catch {}
+    void emit('pip://close', null);
     const video = playerRef.current?.el?.querySelector('video');
     if (video) {
       video.pause();
@@ -190,7 +208,7 @@ export function PlayerHost() {
         const pEp = prev.session?.episodeId;
         const episodeChanged = !!sEp && !!pEp && sEp !== pEp;
         if (!isPipSwitching() && prev.pipActive && episodeChanged) {
-          void WebviewWindow.getByLabel('pip').then((w) => w?.close().catch(() => {}));
+          void emit('pip://close');
         }
       }),
     );
@@ -201,17 +219,6 @@ export function PlayerHost() {
       st.applyPipTime(t, d);
       st.setPipActive(false, { resumePlay: true });
       void st.flushProgress();
-      // 兜底强制销毁画中画窗口：destroy 不触发 onCloseRequested 拦截，杜绝 pip 残留双流播放
-      WebviewWindow.getByLabel('pip')
-        .then((w) => {
-          console.warn('[PIPDEBUG] main: getByLabel pip →', w ? 'found' : 'null');
-          if (!w) return;
-          return w.destroy().then(
-            () => console.warn('[PIPDEBUG] main: getByLabel destroy ok'),
-            (err) => console.warn('[PIPDEBUG] main: getByLabel destroy err', String(err)),
-          );
-        })
-        .catch((err) => console.warn('[PIPDEBUG] main: getByLabel 查询失败', String(err)));
       if (st.session?.episodeId) navigate(`/play/${st.session.episodeId}`);
     });
     on<{ where: string; msg: string; extra: unknown }>('pip://debug', ({ where, msg, extra }) => {
@@ -248,7 +255,7 @@ export function PlayerHost() {
           event.preventDefault();
           try {
             const pipWin = await WebviewWindow.getByLabel('pip');
-            if (pipWin) await pipWin.close();
+            if (pipWin) await pipWin.destroy();
             await usePlayerStore.getState().flushProgress();
           } catch (err) {
             console.error('[PlayerHost] 关闭前保存进度失败:', err);
@@ -308,53 +315,121 @@ export function PlayerHost() {
     : { position: 'fixed', left: 0, top: 0, width: 1, height: 1, opacity: 0, pointerEvents: 'none', zIndex: 40 };
 
   const openNativePipWindow = async () => {
+    console.error('[TauriLoader][PIP] ① open click, session=', !!session, 'pipActive=', pipActive);
     if (!session || pipActive) return;
-    const existing = await WebviewWindow.getByLabel('pip');
-    if (existing) {
-      existing.setFocus().catch(() => {});
-      return;
-    }
     const video = playerRef.current?.el?.querySelector('video');
     const currentTime = video ? video.currentTime : session.currentTime;
     if (video && !video.paused) video.pause();
 
+    // 抓当前视频帧作为 pip 弹出过渡帧（失败则降级为无动画现状）
+    try {
+      localStorage.removeItem(PIP_BOOT_FRAME_KEY);
+    } catch {}
+    const frame = video ? captureVideoFrameDataUrl(video) : null;
+    let frameStored = false;
+    if (frame) {
+      try {
+        localStorage.setItem(PIP_BOOT_FRAME_KEY, frame);
+        frameStored = true;
+      } catch {
+        try {
+          localStorage.removeItem(PIP_BOOT_FRAME_KEY);
+        } catch {}
+      }
+    }
+
     let maxWidth: number | undefined;
     let maxHeight: number | undefined;
+    let monitor: Awaited<ReturnType<typeof currentMonitor>> = null;
     try {
-      const mon = await currentMonitor();
-      if (mon) {
+      monitor = await currentMonitor();
+      if (monitor) {
         const dpr = window.devicePixelRatio || 1;
-        maxWidth = Math.round(mon.size.width / dpr);
-        maxHeight = Math.round(mon.size.height / dpr);
+        maxWidth = Math.round(monitor.size.width / dpr);
+        maxHeight = Math.round(monitor.size.height / dpr);
       }
     } catch {}
     const geo = readPipGeometry();
     if (maxWidth) geo.w = Math.min(geo.w, maxWidth);
     if (maxHeight) geo.h = Math.min(geo.h, maxHeight);
 
+    // 播放器当前屏幕矩形（逻辑点、左上原点）= 动画起点
+    let from: { x: number; y: number; w: number; h: number } | undefined;
+    if (frameStored) {
+      try {
+        const el = containerRef.current;
+        const mainWin = getCurrentWebviewWindow();
+        const [pos, sf] = await Promise.all([mainWin.innerPosition(), mainWin.scaleFactor()]);
+        if (el) {
+          const r = el.getBoundingClientRect();
+          if (r.width >= 64 && r.height >= 64) {
+            from = {
+              x: Math.round(pos.x / sf + r.left),
+              y: Math.round(pos.y / sf + r.top),
+              w: Math.round(r.width),
+              h: Math.round(r.height),
+            };
+            if (maxWidth) from.w = Math.min(from.w, maxWidth);
+            if (maxHeight) from.h = Math.min(from.h, maxHeight);
+          }
+        }
+      } catch {}
+    }
+
+    // 动画终点 = 记忆 geo；无记忆位置时用当前显示器右下角兜底
+    let toX = geo.x;
+    let toY = geo.y;
+    if (monitor && (toX === undefined || toY === undefined)) {
+      try {
+        const dpr2 = monitor.scaleFactor;
+        const mx = monitor.position.x / dpr2;
+        const my = monitor.position.y / dpr2;
+        const mw = monitor.size.width / dpr2;
+        const mh = monitor.size.height / dpr2;
+        toX = Math.round(mx + mw - geo.w - 24);
+        toY = Math.round(my + mh - geo.h - 24);
+      } catch {}
+    }
+    const anim =
+      from && toX !== undefined && toY !== undefined
+        ? { from, to: { x: toX, y: toY, w: geo.w, h: geo.h } }
+        : undefined;
+    if (!anim) {
+      try {
+        localStorage.removeItem(PIP_BOOT_FRAME_KEY);
+      } catch {}
+    }
+
     setPipActive(true);
-    const win = new WebviewWindow('pip', {
-      url: `/?view=pip&d=${encodeURIComponent(JSON.stringify(buildPipPayload(session, currentTime)))}`,
-      title: '画中画',
-      decorations: false,
-      transparent: true,
-      alwaysOnTop: true,
-      resizable: true,
-      maximizable: false,
-      minimizable: false,
-      skipTaskbar: true,
-      hiddenTitle: true,
-      width: geo.w,
-      height: geo.h,
-      minWidth: 200,
-      minHeight: 150,
-      ...(maxWidth ? { maxWidth, maxHeight } : {}),
-      ...(geo.x !== undefined && geo.y !== undefined ? { x: geo.x, y: geo.y } : {}),
-    });
-    win.once('tauri://error', (e) => {
-      console.error('[PlayerHost] 打开画中画窗口失败:', e);
+    const payload: Record<string, unknown> = {
+      ...buildPipPayload(session, currentTime, anim),
+      openSeq: nextOpenSeq(),
+    };
+    writePipPayload(payload);
+    console.error('[TauriLoader][PIP] ② payload written, anim=', !!anim, 'seq=', payload.openSeq);
+    try {
+      const pipWin = await ensurePipWindow();
+      console.error('[TauriLoader][PIP] ③ ensured window label=', pipWin.label);
+      try {
+        if (anim) {
+          await pipWin.setPosition(new LogicalPosition(anim.from.x, anim.from.y));
+          await pipWin.setSize(new LogicalSize(anim.from.w, anim.from.h));
+        } else if (geo.x !== undefined && geo.y !== undefined) {
+          await pipWin.setPosition(new LogicalPosition(geo.x, geo.y));
+          await pipWin.setSize(new LogicalSize(geo.w, geo.h));
+        } else {
+          await pipWin.setSize(new LogicalSize(geo.w, geo.h));
+        }
+      } catch {}
+      await emit('pip://open', payload);
+      console.error('[TauriLoader][PIP] ④ emitted pip://open');
+    } catch (err) {
+      console.error('[TauriLoader][PIP] ❺ open fail:', err instanceof Error ? err.message : String(err));
+      try {
+        localStorage.removeItem(PIP_BOOT_FRAME_KEY);
+      } catch {}
       setPipActive(false);
-    });
+    }
   };
 
   const handleNextEpisode = () => {

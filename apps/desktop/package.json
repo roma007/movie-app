@@ -1,6 +1,6 @@
 {
   "name": "@movie-app/desktop",
-  "version": "1.0.149",
+  "version": "1.0.150",
   "private": true,
   "type": "module",
   "scripts": {

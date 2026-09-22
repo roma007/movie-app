@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Switch, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Switch, Animated, Easing } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAppStore, getProvider } from '../useAppStore';
@@ -21,6 +21,12 @@ import { radius } from '../themes/radiusTokens';
 import { openMediaPlay } from '../utils/openMediaPlay';
 import { Sparkles, Film, Tv, Clock, Heart, X } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const HINT_SHOW_KEY = 'home_delete_hint_shown_count_v4';
+const HINT_MAX_SHOWS = 3;
+const HINT_STAY_MS = 5000;
+const HINT_FADE_MS = 600;
 
 function TvPosterCard({ media, epLabel, progressPct, editing, onPress, onLongPress, onDelete }: {
   media: Media;
@@ -160,6 +166,62 @@ function TvPosterCard({ media, epLabel, progressPct, editing, onPress, onLongPre
   );
 }
 
+function DeleteHintBubble({ onDone }: { onDone: () => void }) {
+  const colors = useThemeColors();
+  const s = useScaledFontSize();
+  const opacity = useRef(new Animated.Value(0)).current;
+  const doneRef = useRef(false);
+  const timersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+
+  const bubbleStyle = useMemo(() => ({
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    backgroundColor: hexToRgba(colors.mutedForeground, 0.12),
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginLeft: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: hexToRgba(colors.mutedForeground, 0.35),
+  }), [colors.mutedForeground]);
+
+  useEffect(() => {
+    const t0 = setTimeout(() => {
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: HINT_FADE_MS,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }).start(() => {
+        const t1 = setTimeout(() => {
+          Animated.timing(opacity, {
+            toValue: 0,
+            duration: HINT_FADE_MS,
+            easing: Easing.in(Easing.quad),
+            useNativeDriver: true,
+          }).start(() => {
+            if (doneRef.current) return;
+            doneRef.current = true;
+            onDone();
+          });
+        }, HINT_STAY_MS);
+        timersRef.current.push(t1);
+      });
+    }, 16);
+    timersRef.current.push(t0);
+    return () => {
+      timersRef.current.forEach(clearTimeout);
+      opacity.stopAnimation();
+    };
+  }, [opacity, onDone]);
+
+  return (
+    <Animated.View style={[bubbleStyle, { opacity }]} pointerEvents="none">
+      <Text style={{ fontSize: s(10), color: colors.mutedForeground, fontWeight: '500' }} numberOfLines={1}>长按卡片可删除</Text>
+    </Animated.View>
+  );
+}
+
 export default function HomeScreen() {
   const navigation = useNavigation<any>();
   const provider = getProvider();
@@ -177,6 +239,7 @@ export default function HomeScreen() {
     collectLatest, isCollecting: storeLoading,
     videoSources, loadVideoSources,
   } = useAppStore();
+  const splashPhase = getSplashStore()((s) => s.phase);
 
   const [editMode, setEditMode] = useState(false);
 
@@ -191,6 +254,24 @@ export default function HomeScreen() {
   const [relaxYear, setRelaxYear] = useState(false);
 
   const [sourcesChecked, setSourcesChecked] = useState(false);
+
+  const [hintVisible, setHintVisible] = useState(false);
+  const hintLockRef = useRef(false);
+
+  const handleHintDone = useCallback(() => {
+    setHintVisible(false);
+    if (hintLockRef.current) return;
+    hintLockRef.current = true;
+    AsyncStorage.getItem(HINT_SHOW_KEY)
+      .then((raw) => {
+        const count = raw ? parseInt(raw, 10) || 0 : 0;
+        return AsyncStorage.setItem(HINT_SHOW_KEY, String(count + 1));
+      })
+      .catch(() => {})
+      .finally(() => {
+        hintLockRef.current = false;
+      });
+  }, []);
 
   // 首页四大板块数据加载完成标记（决定欢迎页全屏广告消失时机）
   const homeReadyLatestRef = useRef(false);
@@ -336,6 +417,31 @@ export default function HomeScreen() {
     }
   }, [collectLatest, provider, userUsageTypes]);
 
+  const maybeShowDeleteHint = useCallback(async () => {
+    if (hintVisible) return;
+    try {
+      const raw = await AsyncStorage.getItem(HINT_SHOW_KEY);
+      const count = raw ? parseInt(raw, 10) || 0 : 0;
+      if (count >= HINT_MAX_SHOWS) return;
+      setHintVisible(true);
+    } catch {
+      // 忽略读取失败
+    }
+  }, [hintVisible]);
+
+  const splashAdGone = useMemo(() => getSplashStore().getState().phase === 'done', [splashPhase]);
+
+  useEffect(() => {
+    if (splashAdGone && watchHistory.length > 0) maybeShowDeleteHint();
+    else setHintVisible(false);
+  }, [splashAdGone, watchHistory.length, maybeShowDeleteHint]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (splashAdGone && watchHistory.length > 0) maybeShowDeleteHint();
+    }, [splashAdGone, watchHistory.length, maybeShowDeleteHint]),
+  );
+
   const renderSearchFirstCard = () => (
     <View style={[styles.usageCard, styles.searchFirstCard]}>
       <View style={styles.titleRow}>
@@ -408,6 +514,9 @@ export default function HomeScreen() {
           <View style={styles.titleRow}>
             <Tv size={18} color={colors.text} />
             <Text style={styles.usageCardTitle}>我的追剧</Text>
+            {hintVisible && (
+              <DeleteHintBubble onDone={handleHintDone} />
+            )}
           </View>
           <Button variant="secondary" size="sm" onPress={handleMobileCollectLatest} loading={storeLoading} disabled={storeLoading}>
             {storeLoading ? '采集中' : '增量采集'}
@@ -463,6 +572,9 @@ export default function HomeScreen() {
         <View style={styles.titleRow}>
           <Clock size={18} color={colors.text} />
           <Text style={styles.usageCardTitle}>观看历史 ({watchHistoryCount})</Text>
+          {hintVisible && (
+            <DeleteHintBubble onDone={handleHintDone} />
+          )}
         </View>
       </View>
       {watchHistory.length === 0 ? (
@@ -544,6 +656,27 @@ export default function HomeScreen() {
       fontSize: s(12),
       color: colors.mutedForeground,
       marginBottom: 10,
+    },
+    cardHint: {
+      fontSize: s(11),
+      color: colors.mutedForeground,
+      marginBottom: 8,
+    },
+    hintBubble: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: hexToRgba(colors.mutedForeground, 0.12),
+      borderRadius: radius.full,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      marginLeft: 4,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: hexToRgba(colors.mutedForeground, 0.35),
+    },
+    hintBubbleText: {
+      fontSize: s(10),
+      color: colors.mutedForeground,
+      fontWeight: '500',
     },
     cardHeader: {
       flexDirection: 'row',

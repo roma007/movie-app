@@ -154,6 +154,7 @@ class PrefetchManager {
     headers: Record<string, string>,
     range?: string,
     onProgress?: (p: VideoProgressPayload) => void,
+    cacheKey?: string,
   ): Promise<FetchResult> {
     if (!isTauriRuntime()) {
       const resp = await fetch(url, {
@@ -188,7 +189,7 @@ class PrefetchManager {
       }
       return { ok: resp.ok, status: resp.status, statusText: resp.statusText, data };
     }
-    const res = await invokeVideoFetch(url, headers, range, onProgress);
+    const res = await invokeVideoFetch(url, headers, range, onProgress, cacheKey);
     return {
       ok: res.status >= 200 && res.status < 300,
       status: res.status,
@@ -197,7 +198,7 @@ class PrefetchManager {
     };
   }
 
-  /** 清单请求：始终走连接池拉最新，不走缓存（LIVE 需要刷新） */
+  /** 清单请求：始终走连接池拉最新，不走缓存（LIVE 需要刷新），也不进 Rust 分片缓存 */
   fetchPlaylist(url: string): Promise<FetchResult> {
     return this.networkFetch(url, defaultHeaders(url));
   }
@@ -236,7 +237,7 @@ class PrefetchManager {
     if (existing) return existing;
 
     const range = start || end ? `bytes=${start}-${end ? end - 1 : ''}` : undefined;
-    const p = this.networkFetch(url, defaultHeaders(url), range, (progress) => this.onSegProgress(url, progress))
+    const p = this.networkFetch(url, defaultHeaders(url), range, (progress) => this.onSegProgress(url, progress), key)
       .then((res) => {
         if (res.ok) {
           this.store(key, res.data);

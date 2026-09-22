@@ -15,19 +15,35 @@ function logToConsole(message: string): void {
 }
 
 // 主窗口刷新后 store 重置会让 pipActive/session 丢失。若 PIP 独立窗口（label `pip`）
-// 仍存活，此处在启动阶段（UI 渲染前、无 openPlayback 并发）预置 pipActive=true，
+// 仍**可见**，此处在启动阶段（UI 渲染前、无 openPlayback 并发）预置 pipActive=true，
 // 让主窗口保持暂停并显示 PIP 占位遮罩，消除「播放页与 PIP 双流」竞态。
+// 自方案 C 起 pip 窗口常驻隐藏、不再销毁，故必须按可见性判定存活。
 async function probePipAlive(): Promise<boolean> {
   try {
     const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
     const pipWin = await WebviewWindow.getByLabel('pip');
     if (!pipWin) return false;
+    const visible = await pipWin.isVisible();
+    if (!visible) return false;
     const { usePlayerStore } = await import('./stores/playerStore');
     usePlayerStore.getState().setPipActive(true);
     logToConsole('检测到 PIP 窗口仍存活，主窗口保持暂停（恢复 PIP 模式）');
     return true;
   } catch {
     return false;
+  }
+}
+
+// 方案 C：主窗口启动即预创建隐藏 pip 窗口并完成冷启动（loading 完整 bundle），
+// 用户首次点画中画时窗口已就绪，消除「滑出至少 1 秒停顿」的 webview 冷启动问题。
+async function precreatePipWindow(): Promise<void> {
+  try {
+    const { clearPipPayload, ensurePipWindow } = await import('./pip/pipWindowManager');
+    clearPipPayload();
+    await ensurePipWindow();
+    logToConsole('预创建隐藏画中画窗口完成');
+  } catch (err) {
+    logToConsole(`预创建画中画窗口失败（首次使用将按需创建）: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -195,6 +211,10 @@ export async function initApp(onProgress?: (step: string) => void): Promise<void
       report('Step 4a: 探测 PIP 窗口存活（刷新恢复场景）...');
       await probePipAlive();
       report('Step 4a: PIP 存活探测完成');
+
+      report('Step 4a2: 预创建隐藏画中画窗口（常驻复用）...');
+      await precreatePipWindow();
+      report('Step 4a2: 画中画窗口预创建完成');
 
       report('Step 4b: 清理僵尸采集任务...');
       const staleCount = await _store.getState().resetStaleTasks();

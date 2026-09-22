@@ -1,6 +1,6 @@
 [package]
 name = "movie-app-desktop"
-version = "1.0.149"
+version = "1.0.150"
 description = "Movie App Desktop (Tauri)"
 authors = ["movie-app"]
 edition = "2021"
@@ -22,8 +22,10 @@ reqwest = { version = "0.12", default-features = false, features = ["gzip", "htt
 base64 = "0.22"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView"] }
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSAnimationContext", "NSScreen"] }
 objc2 = "0.6"
+objc2-quartz-core = { version = "0.3", features = ["CAMediaTimingFunction"] }
+objc2-foundation = "0.3"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"

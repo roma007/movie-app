@@ -70,6 +70,7 @@ export function isPipSwitching(): boolean {
 export function buildPipPayload(
   session: NonNullable<ReturnType<typeof usePlayerStore.getState>['session']>,
   currentTime: number,
+  anim?: PipAnim,
 ): Record<string, unknown> {
   return {
     episodeId: session.episodeId,
@@ -83,7 +84,20 @@ export function buildPipPayload(
     nextEpisode: session.nextEpisode,
     outroThresholdMinutes: session.outroThresholdMinutes,
     showNextEpisodeOverlay: session.showNextEpisodeOverlay,
+    ...(anim ? { anim } : {}),
   };
+}
+
+export interface PipAnimRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface PipAnim {
+  from: PipAnimRect;
+  to: PipAnimRect;
 }
 
 async function finalSave(session: PlaybackSession | null): Promise<void> {
