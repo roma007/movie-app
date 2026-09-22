@@ -876,6 +876,46 @@ function patchIOSPictureInPicture() {
   console.log('[patch] iOS expo-video PiP 已打补丁（主线程调度 startPictureInPicture）');
 }
 
+// ---------- iOS: 功能18 代理 stopServer 修复 ----------
+// 根因：ExpoVideoCacheModule 未暴露 stopServer（JS 卸载时 typeof 保护静默跳过 → 代理从不真正关闭），
+// 且 startServer 幂等短路在 App 被 iOS 挂起后 listener 失效但 isRunning 残留 → 9000 端口 unbound → AVPlayer -1004 卡加载中。
+function patchIOStopServer() {
+  const pkgDir = resolvePkg('expo-video-cache');
+  if (!pkgDir) {
+    console.log('[patch] expo-video-cache 未安装，跳过功能18 stopServer 补丁');
+    return;
+  }
+  const mod = join(pkgDir, 'ios', 'ExpoVideoCacheModule.swift');
+  if (!existsSync(mod)) {
+    console.log('[patch] ExpoVideoCacheModule.swift 缺失，跳过功能18 stopServer 补丁');
+    return;
+  }
+  let mContent = readFileSync(mod, 'utf8');
+
+  // 功能18 标记内联（幂等：已含标记则跳过）
+  if (!mContent.includes('功能18')) {
+    // 1) startServer 幂等短路加端口连通性校验：失效则重建
+    mContent = mContent.replace(
+      'if let currentServer = self.proxyServer, currentServer.isRunning {\n                if self.activePort == targetPort { return }\n                throw NSError(domain: "ExpoVideoCache", code: 409, userInfo: [NSLocalizedDescriptionKey: "Server active on \\(self.activePort). Reload required."])\n            }',
+      '// 功能18: 幂等短路前先核实代理端口真实可连（App 被 iOS 挂起后 NWListener 网络栈可能失效，\n            // 但 isRunning 标志残留 → 直接 return 导致 9000 端口实际 unbound → AVPlayer -1004 卡加载中）。\n            if let currentServer = self.proxyServer, currentServer.isRunning {\n                if self.activePort != targetPort {\n                    throw NSError(domain: "ExpoVideoCache", code: 409, userInfo: [NSLocalizedDescriptionKey: "Server active on \\(self.activePort). Reload required."])\n                }\n                // 功能18: 探测端口连通性：失效则重建 listener\n                if !self.isPortReachable(port: targetPort) {\n                    currentServer.stop()\n                    self.proxyServer = nil\n                } else {\n                    return\n                }\n            }'
+    );
+
+    // 2) 追加 stopServer AsyncFunction 与 isPortReachable 辅助
+    if (!mContent.includes('AsyncFunction("stopServer")')) {
+      mContent = mContent.replace(
+        'AsyncFunction("clearCache") {',
+        '/// 功能18: 停止本地代理服务器，释放 TCP 端口，使下次 startServer 能重建 listener。\n        AsyncFunction("stopServer") {\n            if let server = self.proxyServer {\n                server.stop()\n                self.proxyServer = nil\n                self.activePort = -1\n            }\n        }\n\n        AsyncFunction("clearCache") {'
+      );
+      mContent = mContent.replace(
+        '\n}\n',
+        '\n\n    // 功能18: 端口连通性探测（判断代理 listener 是否实际可连，避免 isRunning 残留误判）\n    private func isPortReachable(port: Int) -> Bool {\n        let s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)\n        guard s >= 0 else { return false }\n        defer { close(s) }\n        var addr = sockaddr_in()\n        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)\n        addr.sin_family = sa_family_t(AF_INET)\n        addr.sin_port = in_port_t(port).bigEndian\n        addr.sin_addr.s_addr = inet_addr("127.0.0.1")\n        let connectResult = withUnsafePointer(to: &addr) {\n            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {\n                Darwin.connect(s, $0, socklen_t(MemoryLayout<sockaddr_in>.size))\n            }\n        }\n        if connectResult == 0 {\n            return true\n        }\n        if errno == EINPROGRESS {\n            return true\n        }\n        return false\n    }\n}'
+      );
+    }
+  }
+  writeFileSync(mod, mContent);
+  console.log('[patch] iOS expo-video-cache 已打功能18 stopServer 补丁');
+}
+
 try {
   patchAndroid();
   patchAndroidSegmentProgress();
@@ -883,6 +923,7 @@ try {
   patchIOS();
   patchIOSPictureInPicture();
   patchIOSTrace();
+  patchIOStopServer();
 } catch (e) {
   console.log('[patch] 原生补丁脚本异常（已忽略，不阻断安装）: ' + (e && e.message));
 }

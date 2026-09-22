@@ -63,6 +63,10 @@ const ZONE_RIGHT_R = 0.68; // 右侧快进条：> 屏宽 68%
 const LOCK_GESTURE_DY = 24; // 上滑锁定 / 下滑退出位移阈值
 const DOUBLE_TAP_MS = 280; // 双击判定窗口：两次轻点间隔 ≤ 280ms 视为双击（收藏切换）
 
+const TRACK_H_MARGIN = 14; // 进度条可视条左右水平边距（与 progressTrack 样式 marginHorizontal 同源）
+// 拖动换算的触点偏移：多轮触感补偿迭代 14→28→56（用户确认），触点 x 减该偏移后对条宽取比例
+const TRACK_SCRUB_OFFSET = 56;
+
 function formatTime(seconds: number): string {
   if (!seconds || !isFinite(seconds)) return '00:00';
   const h = Math.floor(seconds / 3600);
@@ -70,6 +74,22 @@ function formatTime(seconds: number): string {
   const s = Math.floor(seconds % 60);
   if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function formatSignedTime(seconds: number): string {
+  if (!isFinite(seconds)) return '00:00';
+  const rounded = Math.round(seconds);
+  if (rounded === 0) return '00:00';
+  const sign = rounded > 0 ? '+' : '-';
+  const abs = Math.abs(rounded);
+  const h = Math.floor(abs / 3600);
+  const m = Math.floor((abs % 3600) / 60);
+  const s = abs % 60;
+  const body =
+    h > 0
+      ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+      : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${sign}${body}`;
 }
 
 export default function PlayScreen({ route, navigation }: Props) {
@@ -116,6 +136,8 @@ export default function PlayScreen({ route, navigation }: Props) {
   // 进度条拖动 seek：null 表示未拖动；拖动中存 0~1 比例，松开后 seek 并复位
   const [dragProgress, setDragProgress] = useState<number | null>(null);
   const progressTrackWidthRef = useRef(0);
+  // 开始拖动那一瞬的播放位置（秒），用于拖动时计算相对时间差
+  const dragStartCurRef = useRef(0);
   const [selectedHideGenres, setSelectedHideGenres] = useState<string[]>([]);
   const [hiding, setHiding] = useState(false);
   const [activePlayIdx, setActivePlayIdx] = useState(0);
@@ -468,7 +490,7 @@ export default function PlayScreen({ route, navigation }: Props) {
       height: 2,
       borderRadius: 1,
       backgroundColor: 'rgba(255,255,255,0.12)',
-      marginHorizontal: 14,
+      marginHorizontal: TRACK_H_MARGIN,
     },
     progressFill: { height: 2, borderRadius: 1, backgroundColor: 'rgba(255,255,255,0.92)' },
     progressThumb: {
@@ -487,7 +509,7 @@ export default function PlayScreen({ route, navigation }: Props) {
     // 拖动帧预览浮层：气泡（黑底不透明 + 圆角）+ 其正下方居中的时间（cur/total），随拖动点水平移动
     scrubPopover: {
       position: 'absolute' as const,
-      bottom: 116,
+      bottom: 122,
       zIndex: 27,
       alignItems: 'center' as const,
     },
@@ -496,7 +518,8 @@ export default function PlayScreen({ route, navigation }: Props) {
     scrubTimeText: {
       marginTop: 6,
       color: '#fff',
-      fontSize: sf(13),
+      fontSize: sf(16),
+      fontWeight: '700',
       fontVariant: ['tabular-nums'] as const,
       // 拍板 A：半透明黑底片 chip（任何亮卡/信息卡上白字都清晰不混色）
       backgroundColor: 'rgba(0,0,0,0.55)',
@@ -580,6 +603,8 @@ export default function PlayScreen({ route, navigation }: Props) {
     languageLabel: { fontSize: sf(14), color: colors.mutedForeground },
     languageChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.sm, minWidth: 48 },
     episodesSheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    // 简介/导演演员弹窗：透明背景（去全屏半透明遮罩），保留点击空白关闭，仅面板上滑
+    sheetOverlayPlain: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
     episodesSheet: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: 18, maxHeight: '75%' },
     episodesSheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
     seasonTabRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
@@ -1062,9 +1087,10 @@ export default function PlayScreen({ route, navigation }: Props) {
       }
       try { p?.pause(); } catch {}
       playerRef.current = null;
-      if (Platform.OS !== 'ios') {
-        try { p?.release(); } catch {}
-      }
+      // 双端统一 release：此前 iOS 跳过 release 导致每次进出播放页泄漏一个 AVPlayer，
+      // 多实例共存 → 音频在多个播放器间摇摆 → 声音断续（vc_trace 采样同时出现 3 组 t）。
+      // releasePlayer 本身带 didRelease 守卫 + runOnMainThread，安全；卸载已先置空引用防后续访问。
+      try { p?.release(); } catch {}
     };
   }, []);
 
@@ -1229,9 +1255,10 @@ export default function PlayScreen({ route, navigation }: Props) {
   }, [prefetchConcurrency]);
 
   // iOS: 离开播放页时停掉本地代理，释放 9000 端口，下次进入以最新 N 重启
+  // 功能18: native 已补 stopServer 实现（此前 undefined → 静默失败 → 代理永不关闭）
   useEffect(() => {
     return () => {
-      if (Platform.OS === 'ios' && VideoCache && typeof VideoCache.stopServer === 'function') {
+      if (Platform.OS === 'ios' && VideoCache) {
         try { VideoCache.stopServer(); } catch {}
       }
     };
@@ -1347,8 +1374,10 @@ export default function PlayScreen({ route, navigation }: Props) {
     onPanResponderGrant: (e) => {
       const w = progressTrackWidthRef.current;
       const x = e.nativeEvent.locationX;
+      dragStartCurRef.current = playerRef.current?.currentTime || 0;
       if (w > 0) {
-        const ratio = Math.max(0, Math.min(1, x / w));
+        // locationX 相对外层全宽容器，减去触点偏移对齐 progressTrack 左端并触感补偿
+        const ratio = Math.max(0, Math.min(1, (x - TRACK_SCRUB_OFFSET) / w));
         setDragProgress(ratio);
         scrubPreviewFnRef.current(ratio);
         Animated.timing(scrubAnim, { toValue: 1, duration: 120, useNativeDriver: true }).start();
@@ -1358,7 +1387,7 @@ export default function PlayScreen({ route, navigation }: Props) {
       const w = progressTrackWidthRef.current;
       const x = e.nativeEvent.locationX;
       if (w > 0) {
-        const ratio = Math.max(0, Math.min(1, x / w));
+        const ratio = Math.max(0, Math.min(1, (x - TRACK_SCRUB_OFFSET) / w));
         if (g.dx !== 0 || g.dy !== 0) {
           setDragProgress(ratio);
           scrubPreviewFnRef.current(ratio);
@@ -1368,7 +1397,7 @@ export default function PlayScreen({ route, navigation }: Props) {
     onPanResponderRelease: (e) => {
       const w = progressTrackWidthRef.current;
       const x = e.nativeEvent.locationX;
-      if (w > 0) commitDragSeek(Math.max(0, Math.min(1, x / w)));
+      if (w > 0) commitDragSeek(Math.max(0, Math.min(1, (x - TRACK_SCRUB_OFFSET) / w)));
       else finishScrub();
     },
     onPanResponderTerminate: () => finishScrub(),
@@ -2541,7 +2570,7 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
                 {dragProgress != null && (
                   <View pointerEvents="none" style={[styles.scrubPopover, { left: bLeft, width: bW }]}>
                     {scrubPreviewTime != null && (
-                      <Text style={styles.scrubTimeText}>{formatTime(scrubPreviewTime)}/{formatTime(playStat.dur)}</Text>
+                      <Text style={styles.scrubTimeText}>{formatSignedTime(scrubPreviewTime - dragStartCurRef.current)}/{formatTime(scrubPreviewTime)}</Text>
                     )}
                   </View>
                 )}
@@ -2967,7 +2996,7 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
       onRequestClose={() => setIntroSheetVisible(false)}
     >
       <TouchableOpacity
-        style={styles.episodesSheetOverlay}
+        style={styles.sheetOverlayPlain}
         activeOpacity={1}
         onPress={() => setIntroSheetVisible(false)}
       >
@@ -2995,7 +3024,7 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
       onRequestClose={() => setCastSheetVisible(false)}
     >
       <TouchableOpacity
-        style={styles.episodesSheetOverlay}
+        style={styles.sheetOverlayPlain}
         activeOpacity={1}
         onPress={() => setCastSheetVisible(false)}
       >
