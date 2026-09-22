@@ -10,7 +10,7 @@ import { appendPlayTrace } from '../services/playTrace';
 const VideoCache: any = (() => { try { return require('expo-video-cache'); } catch { return null; } })();
 import { getProvider } from '../init';
 import { useAppStore, getStore } from '../useAppStore';
-import { ArrowLeft, EyeOff, Heart, ThumbsDown, Star, Settings, PictureInPicture2, Maximize, ChevronRight, X } from 'lucide-react-native';
+import { ArrowLeft, EyeOff, Heart, ThumbsDown, Star, Settings, PictureInPicture2, Maximize, ChevronRight, X, Play } from 'lucide-react-native';
 import { SystemConfigService, UNCATEGORIZED_GENRE, VideoDurationService, resolveDefaultPlayTarget, AdFloatScheduler, BUILTIN_AD_FLOAT_CONFIG, type AdFloatItem } from '@movie-app/core';
 import { clearCategoryFilterCache } from '../categoryFilterCache';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -130,6 +130,9 @@ export default function PlayScreen({ route, navigation }: Props) {
   const [isLoading, setIsLoading] = useState(true);
   // 高频真实播放态（playingChange 驱动）：渲染层强不变量「在播即不显示转圈」，兜底 isLoading 残留
   const [isActuallyPlaying, setIsActuallyPlaying] = useState(false);
+  // 「用户主动暂停」意图标记：仅在显式 pause 入口置 true，play/恢复在播置 false。
+  // 据此显示播放器中央播放按钮；缓冲（我们未显式 pause）永不置 true，卡顿不显示按钮。
+  const [userPaused, setUserPaused] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [initialCurrentTime, setInitialCurrentTime] = useState(0);
   // 沉浸信息卡「播放线路」展开/收起
@@ -600,6 +603,8 @@ export default function PlayScreen({ route, navigation }: Props) {
     episodeBtnText: { color: colors.textSecondary, fontSize: sf(13), fontWeight: '500', textAlign: 'center' },
     episodeBtnTextActive: { color: colors.cardDim },
     episodeDuration: { color: colors.disabledForeground, fontSize: sf(11), marginTop: 4 },
+    centerPlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', zIndex: 55 },
+    centerPlayBtn: { width: 76, height: 76, borderRadius: 38, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' },
     });
   }, [colors, accentBg, dimBg, sf, insets, screenH, screenW, isImmersive, canPlay]);
 
@@ -1091,6 +1096,7 @@ export default function PlayScreen({ route, navigation }: Props) {
           // 已在播即熄灭加载遮罩（兜底 iOS readyToPlay 时序差异，对齐桌面端 onPlaying）
           unmute();
           setIsLoading(false);
+          setUserPaused(false);
         }
       }));
       subs.push(p.addListener('sourceLoad', () => {
@@ -1302,9 +1308,11 @@ export default function PlayScreen({ route, navigation }: Props) {
     if (!p) return;
     if (p.playing) {
       p.pause();
+      setUserPaused(true);
       setPlayStat((s) => ({ ...s, playing: false }));
     } else {
       p.play();
+      setUserPaused(false);
       setPlayStat((s) => ({ ...s, playing: true }));
     }
   };
@@ -2158,6 +2166,8 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
     fullscreenCastWrap: { position: 'absolute', left: 0, right: 0, bottom: 150, alignItems: 'center', zIndex: 40 },
     msg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', zIndex: 25 },
     msgText: { color: '#fff', fontSize: sf(14), marginTop: 8 },
+    centerPlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', zIndex: 45 },
+    centerPlayBtn: { width: 84, height: 84, borderRadius: 42, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' },
   }), [sf]);
 
   // 功能13: 显示预读分片进度开关（持久化到 playbackConfig.showSegmentProgress）
@@ -2320,6 +2330,7 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
             allowsPictureInPicture={isPictureInPictureSupported()}
             startsPictureInPictureAutomatically={isActuallyPlaying && !appFullscreen}
             fullscreenOptions={{ enable: false }}
+            nativeControls={false}
           />
         )}
         {canPlay && !appFullscreen && (
@@ -2330,6 +2341,24 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
               onPress={togglePlayPause}
               accessibilityLabel="播放/暂停"
             />
+          </View>
+        )}
+
+        {/* 用户主动暂停时播放器中央显示播放按钮（点击继续播放）；缓冲/加载中不显示 */}
+        {canPlay && videoUrl && !appFullscreen && !isActuallyPlaying && userPaused && !isLoading && (
+          <View style={styles.centerPlay} pointerEvents="box-none">
+            <TouchableOpacity
+              style={styles.centerPlayBtn}
+              activeOpacity={0.8}
+              onPress={() => {
+                const p = playerRef.current;
+                try { p?.play(); } catch {}
+                setUserPaused(false);
+              }}
+              accessibilityLabel="继续播放"
+            >
+              <Play size={40} color="#fff" fill="#fff" />
+            </TouchableOpacity>
           </View>
         )}
 
@@ -2649,7 +2678,7 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
       const fsTogglePlayPause = () => {
         const p = playerRef.current;
         if (!p) return;
-        try { if (p.playing) p.pause(); else p.play(); } catch {}
+        try { if (p.playing) { p.pause(); setUserPaused(true); } else { p.play(); setUserPaused(false); } } catch {}
       };
       const fsCastOnDeviceSelect = (device: { id: string; name: string; protocol: string }) => {
         handleCastDeviceSelect(device);
@@ -2674,6 +2703,23 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
             }}
           />
           <TouchableOpacity style={fsStyles.tapLayer} activeOpacity={1} onPress={toggleFsControls} />
+          {/* 用户主动暂停时全屏播放器中央显示播放按钮（点击继续播放） */}
+          {!fsPlaying && userPaused && !isLoading && !isCasting && (
+            <View style={fsStyles.centerPlay} pointerEvents="box-none">
+              <TouchableOpacity
+                style={fsStyles.centerPlayBtn}
+                activeOpacity={0.8}
+                onPress={() => {
+                  const p = playerRef.current;
+                  try { p?.play(); } catch {}
+                  setUserPaused(false);
+                }}
+                accessibilityLabel="继续播放"
+              >
+                <Play size={50} color="#fff" fill="#fff" />
+              </TouchableOpacity>
+            </View>
+          )}
           {/* 红果式长按：全屏态 2x 锁定角标 */}
           {locked2x && (
             <TouchableOpacity

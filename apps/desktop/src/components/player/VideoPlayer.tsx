@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState, useCallback, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react';
 import { Loader2 } from 'lucide-react';
 import {
   MediaPlayer,
   MediaProvider,
+  PlayButton,
+  useMediaState,
   isHLSProvider,
   type MediaPlayerInstance,
   type MediaProviderAdapter,
@@ -29,6 +31,20 @@ const SKIP_SECONDS = 30;
 /** 「已跳过」提示展示时长（ms）。 */
 const SKIP_NOTICE_MS = 4000;
 /** 所有平台统一使用原生子窗口方案（Tauri WebviewWindow）实现画中画，隐藏引擎自带画中画入口。 */
+
+/** 播放器中央播放按钮：仅在「已开始播放且当前暂停、非缓冲等待」时显示（用户主动暂停态），点击继续播放。 */
+function CenterPlayButton() {
+  const started = useMediaState('started');
+  const paused = useMediaState('paused');
+  const waiting = useMediaState('waiting');
+  const show = started && paused && !waiting;
+  return (
+    <PlayButton
+      className={`absolute left-1/2 top-1/2 z-30 ${show ? 'flex' : 'hidden'} h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white transition-colors hover:bg-black/75`}
+      onPointerDown={(e: ReactPointerEvent) => e.stopPropagation()}
+    />
+  );
+}
 
 /** 键盘快捷键：与引擎默认一致，但播放/暂停仅保留 k，空格由 PlayerHost 统一接管。 */
 const KEY_SHORTCUTS = {
@@ -647,6 +663,8 @@ export function VideoPlayer({
         />
         {overlays}
         <SegmentProgress open={segmentProgressOn} onClose={() => setSegmentProgressOn(false)} />
+        {/* 播放器中央播放按钮：仅用户主动暂停时显示，点击继续播放 */}
+        <CenterPlayButton />
       </MediaPlayer>
       {loading && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black text-muted-foreground">
