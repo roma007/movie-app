@@ -206,17 +206,6 @@ export const SCHEMA_SQL = `
     updated_at TEXT
   );
 
-  CREATE TABLE IF NOT EXISTS collection_log (
-    id TEXT PRIMARY KEY,
-    timestamp TEXT NOT NULL,
-    level TEXT NOT NULL,
-    message TEXT NOT NULL,
-    task_id TEXT,
-    source_code TEXT,
-    source_name TEXT,
-    details TEXT
-  );
-
   CREATE TABLE IF NOT EXISTS hidden_genre (
     sub_type TEXT PRIMARY KEY,
     created_at TEXT
@@ -267,9 +256,6 @@ export const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_user_interest_tag_strength ON user_interest_tag(strength);
   CREATE INDEX IF NOT EXISTS idx_recommend_snapshot_position ON recommend_snapshot(position);
   CREATE INDEX IF NOT EXISTS idx_recommend_candidates_position ON recommend_candidates(position);
-
-  CREATE INDEX IF NOT EXISTS idx_collection_log_ts ON collection_log(timestamp);
-  CREATE INDEX IF NOT EXISTS idx_collection_log_task ON collection_log(task_id);
 
   CREATE INDEX IF NOT EXISTS idx_episode_media_season_source ON episode(media_id, season_number, source_id);
   -- 视频源统计聚合查询（getMediaCountBySourceIdMap）的覆盖索引：

@@ -31,7 +31,6 @@ import type {
   PaginatedResponse,
   ListParams,
   CollectTask,
-  CollectionLog,
 } from '@movie-app/core';
 
 /**
@@ -332,6 +331,14 @@ export class TauriSqlProvider implements DatabaseProvider {
       } catch (e) {
         console.warn('Drop sync remnant failed:', stmt, e);
       }
+    }
+
+    // 清理已废弃采集日志表 collection_log（幂等，仅对曾建过该表的历史库生效；
+    // SCHEMA_SQL 已不再创建，此处确保升级用户同步删除）
+    try {
+      await this.db!.execute('DROP TABLE IF EXISTS collection_log');
+    } catch (e) {
+      console.warn('Drop collection_log failed:', e);
     }
 
     // 增量迁移：为已有 media 表补齐 series_group / series_season 列
@@ -2109,10 +2116,6 @@ async clearWatchHistory(): Promise<void> {
 
   async resetStaleTasks(): Promise<number> {
     const now = new Date().toISOString();
-    // 先查出将要被重置的任务
-    const staleTasks = await this.db!.select<any[]>(
-      "SELECT task_id, source_code, created_at FROM collect_task WHERE status IN ('PENDING', 'RUNNING')"
-    );
     const result = await this.db!.execute(
       `UPDATE collect_task SET
          status = 'FAILED',
@@ -2123,23 +2126,6 @@ async clearWatchHistory(): Promise<void> {
       [now]
     );
     const affected = result?.rowsAffected ?? 0;
-    // 记录重置日志
-    if (affected > 0) {
-      for (const task of staleTasks) {
-        await this.db!.execute(
-          'INSERT INTO collection_log (id, timestamp, level, message, task_id, source_code, details) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [
-            `log_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-            now,
-            'warn',
-            `重置残留任务: task=${task.task_id}, source=${task.source_code}, created_at=${task.created_at}`,
-            task.task_id,
-            task.source_code,
-            JSON.stringify({ action: 'resetStaleTasks', taskId: task.task_id, sourceCode: task.source_code, createdAt: task.created_at, resetAt: now }),
-          ]
-        );
-      }
-    }
     return affected;
   }
 
@@ -2205,39 +2191,6 @@ async clearWatchHistory(): Promise<void> {
     return rowToCollectTask(rows[0]);
   }
 
-  async addCollectionLog(log: CollectionLog): Promise<void> {
-    await this.db!.execute(
-      'INSERT INTO collection_log (id, timestamp, level, message, task_id, source_code, source_name, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [log.id, log.timestamp, log.level, log.message, log.taskId || null, log.sourceCode || null, log.sourceName || null, log.details || null]
-    );
-  }
-
-  async getCollectionLogs(filter?: { taskId?: string; sourceCode?: string; level?: string; limit?: number; offset?: number }): Promise<CollectionLog[]> {
-    let sql = 'SELECT * FROM collection_log WHERE 1=1';
-    const params: any[] = [];
-
-    if (filter?.taskId) { sql += ' AND task_id = ?'; params.push(filter.taskId); }
-    if (filter?.sourceCode) { sql += ' AND source_code = ?'; params.push(filter.sourceCode); }
-    if (filter?.level) { sql += ' AND level = ?'; params.push(filter.level); }
-
-    sql += ' ORDER BY timestamp DESC';
-
-    if (filter?.limit) { sql += ' LIMIT ?'; params.push(filter.limit); }
-    if (filter?.offset) { sql += ' OFFSET ?'; params.push(filter.offset); }
-
-    const rows = await this.db!.select<any[]>(sql, params);
-    return rows.map((row: any) => ({
-      id: row.id,
-      timestamp: row.timestamp,
-      level: row.level,
-      message: row.message,
-      taskId: row.task_id || undefined,
-      sourceCode: row.source_code || undefined,
-      sourceName: row.source_name || undefined,
-      details: row.details || undefined,
-    }));
-  }
-
   async select<T>(sql: string, params?: any[]): Promise<T[]> {
     return this.db!.select<T[]>(sql, params);
   }
@@ -2249,5 +2202,166 @@ async clearWatchHistory(): Promise<void> {
 
   async execute(sql: string, params?: any[]): Promise<void> {
     await this.db!.execute(sql, params);
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // 数据库查看工具（只读）
+  // 全部走现有 db 读锁与重试，不抢写锁；写语句/多语句一律拦截。
+  // ────────────────────────────────────────────────────────────────
+
+  private static readonly INSPECTOR_QUERY_PREFIXES = ['SELECT', 'WITH', 'EXPLAIN'];
+  private static readonly INSPECTOR_READONLY_PRAGMAS = new Set([
+    'table_info', 'index_list', 'index_info', 'foreign_key_list', 'table_list',
+    'database_list', 'page_count', 'page_size', 'journal_mode', 'freelist_count',
+    'schema_version', 'user_version', 'compile_options', 'collation_list', 'function_list',
+  ]);
+  /** 表名/列名标识符白名单：仅允许普通 SQL 标识符，防注入 */
+  private static readonly IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+  /**
+   * 只读 SQL 查询入口：仅允许 SELECT / WITH / EXPLAIN / 白名单 PRAGMA。
+   * 返回 { columns, rows }，边界结果列名取首行 key。
+   */
+  async runInspectorQuery(sql: string, params?: any[]): Promise<{ columns: string[]; rows: any[][] }> {
+    const trimmed = sql.trim().replace(/\s*;+\s*$/, '').trim();
+    if (!trimmed) return { columns: [], rows: [] };
+    if (trimmed.includes(';')) {
+      throw new Error('仅支持单条查询：禁止分号与多语句');
+    }
+    const upper = trimmed.toUpperCase().replace(/\s+/g, ' ').trim();
+    if (upper.startsWith('PRAGMA ')) {
+      const m = upper.match(/^PRAGMA\s+([A-Za-z_][A-Za-z0-9_]*)/);
+      if (!m || !TauriSqlProvider.INSPECTOR_READONLY_PRAGMAS.has(m[1].toLowerCase())) {
+        throw new Error(`PRAGMA "${m?.[1] ?? ''}" 不在只读白名单内`);
+      }
+    } else if (!TauriSqlProvider.INSPECTOR_QUERY_PREFIXES.some((p) => upper.startsWith(p + ' '))) {
+      throw new Error('只读工具：仅允许 SELECT / WITH / EXPLAIN / 白名单 PRAGMA');
+    }
+    const start = Date.now();
+    const rows = await this.db!.select<any[]>(trimmed, params);
+    const columns = rows[0] ? Object.keys(rows[0]) : [];
+    return { columns, rows: rows.map((r) => columns.map((c) => r[c])) };
+  }
+
+  /**
+   * 库概览：全部表（含 FTS 虚拟表/辅助表/视图）+ 行数 + 主库 page 信息与大小。
+   */
+  async getInspectorOverview(): Promise<{
+    tables: { name: string; kind: 'table' | 'view' | 'fts' | 'shadow'; rowCount: number }[];
+    pageSize: number;
+    pageCount: number;
+    dbSizeBytes: number;
+    journalMode: string;
+  }> {
+    const objs = await this.db!.select<{ name: string; type: string; sql: string | null }[]>(
+      "SELECT name, type, sql FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name"
+    );
+    const tables = objs.map((o) => {
+      let kind: 'table' | 'view' | 'fts' | 'shadow' = 'table';
+      if (o.type === 'view') kind = 'view';
+      else if (o.sql === null) kind = 'shadow';
+      else if (o.sql.toUpperCase().includes('CREATE VIRTUAL TABLE')) kind = 'fts';
+      return { name: o.name, kind, rowCount: 0 };
+    });
+    // 并行统计行数（读锁并发 6 限流，安全仅读）。
+    // FTS5 辅助表跳过计数（内部 xCount 不可靠），虚拟表/大表沿用超时兜底，避免拖垮整个概览。
+    await Promise.all(
+      tables.map(async (t) => {
+        if (t.kind === 'shadow') { t.rowCount = -1; return; }
+        const countSql = `SELECT COUNT(*) AS c FROM "${t.name}"`;
+        const timeout = new Promise<{ c: number }[]>((resolve) =>
+          setTimeout(() => resolve([{ c: -1 }]), 15000)
+        );
+        try {
+          const rows = await Promise.race<{ c: number }[]>([
+            this.db!.select<{ c: number }[]>(countSql).catch(() => [{ c: -1 }] as { c: number }[]),
+            timeout,
+          ]);
+          t.rowCount = rows[0]?.c ?? -1;
+        } catch {
+          t.rowCount = -1;
+        }
+      })
+    );
+    const [pageSize, pageCount, journalMode] = await Promise.all([
+      this.db!.select<{ page_size: number }[]>('SELECT * FROM pragma_page_size').then((r) => r[0]?.page_size ?? 4096).catch(() => 4096),
+      this.db!.select<{ page_count: number }[]>('SELECT * FROM pragma_page_count').then((r) => r[0]?.page_count ?? 0).catch(() => 0),
+      this.db!.select<{ journal_mode: string }[]>('PRAGMA journal_mode').then((r) => r[0]?.journal_mode ?? 'unknown').catch(() => 'unknown'),
+    ]);
+    return { tables, pageSize, pageCount, dbSizeBytes: pageSize * pageCount, journalMode };
+  }
+
+  /**
+   * 单表详情：列（PRAGMA table_info）+ 索引（含索引列）+ 外键 + 触发器。
+   * 表名必须通过合法标识符校验，否则抛错（防注入）。
+   */
+  async getInspectorTableDetail(tableName: string): Promise<{
+    columns: { cid: number; name: string; type: string; notnull: number; dflt_value: any; pk: number }[];
+    indexes: { seq: number; name: string; unique: number; origin: string; partial: number; cols: string[] }[];
+    foreignKeys: { id: number; seq: number; table: string; from: string; to: string | null; on_update: string; on_delete: string; match: string }[];
+    triggers: { name: string; sql: string | null }[];
+  }> {
+    if (!TauriSqlProvider.IDENTIFIER_RE.test(tableName)) {
+      throw new Error('非法表名');
+    }
+    const columns = await this.db!.select<any[]>(`PRAGMA table_info('${tableName}')`);
+    const indexesRaw = await this.db!.select<any[]>(`PRAGMA index_list('${tableName}')`);
+    const indexes = await Promise.all(
+      indexesRaw.map(async (idx) => {
+        const info = await this.db!.select<any[]>(`PRAGMA index_info('${idx.name}')`);
+        return {
+          seq: idx.seq, name: idx.name, unique: idx.unique, origin: idx.origin,
+          partial: idx.partial, cols: info.map((r) => r.name),
+        };
+      })
+    );
+    const foreignKeys = await this.db!.select<any[]>(`PRAGMA foreign_key_list('${tableName}')`);
+    const triggers = await this.db!.select<{ name: string; sql: string | null }[]>(
+      "SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name = ? ORDER BY name",
+      [tableName]
+    );
+    return { columns, indexes, foreignKeys, triggers };
+  }
+
+  /**
+   * 单表数据分页浏览：默认按 rowid 稳定排序，避免深页无确定性。
+   * 表名/排序列均需通过标识符白名单校验。
+   */
+  async getInspectorTableData(
+    tableName: string,
+    page: number,
+    pageSize: number,
+    orderCol?: string
+  ): Promise<{ columns: string[]; rows: any[][]; rowCount: number; page: number; pageSize: number; totalPages: number }> {
+    if (!TauriSqlProvider.IDENTIFIER_RE.test(tableName)) {
+      throw new Error('非法表名');
+    }
+    if (orderCol && !TauriSqlProvider.IDENTIFIER_RE.test(orderCol)) {
+      throw new Error('非法排序列');
+    }
+    const offset = (page - 1) * pageSize;
+    const orderBy = orderCol ? `"${orderCol}"` : 'rowid';
+    const [countRows, dataRows] = await Promise.all([
+      this.db!.select<{ c: number }[]>(`SELECT COUNT(*) AS c FROM "${tableName}"`).catch(() => [{ c: -1 } as any]),
+      this.db!.select<any[]>(
+        `SELECT * FROM "${tableName}" ORDER BY ${orderBy} ASC LIMIT ? OFFSET ?`,
+        [pageSize, offset]
+      ),
+    ]);
+    const rowCount = countRows[0]?.c ?? -1;
+    // 空结果时以表结构列兜底（避免首行无列名可显示）
+    let columns: string[] = dataRows[0] ? Object.keys(dataRows[0]) : [];
+    if (columns.length === 0) {
+      const cols = await this.db!.select<any[]>(`PRAGMA table_info('${tableName}')`);
+      columns = cols.map((c) => c.name);
+    }
+    return {
+      columns,
+      rows: dataRows.map((r) => columns.map((c) => r[c])),
+      rowCount,
+      page,
+      pageSize,
+      totalPages: rowCount <= 0 ? 1 : Math.ceil(rowCount / pageSize),
+    };
   }
 }

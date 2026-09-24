@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { DatabaseProvider } from '../db/provider';
-import type { Media, VideoSource, ImportSourceItem, ParsedImportSource, Favorite, WatchHistory, PaginatedMeta, CollectTask, CollectionLog, CollectPreviewItem, SavePreviewResult, UserUsageType } from '../types';
+import type { Media, VideoSource, ImportSourceItem, ParsedImportSource, Favorite, WatchHistory, PaginatedMeta, CollectTask, CollectPreviewItem, SavePreviewResult, UserUsageType } from '../types';
 import type { CollectConfig, ShortDramaConfig } from '../services/systemConfigService';
 import { RatingService } from '../services/ratingService';
 
@@ -264,11 +264,6 @@ hasShortDrama: (type?: string) => Promise<boolean>;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
 
-  collectionLogs: CollectionLog[];
-  addCollectionLog: (log: CollectionLog) => void;
-  clearCollectionLogs: () => void;
-  loadPersistedCollectionLogs: (filter?: { taskId?: string; sourceCode?: string; limit?: number }) => Promise<void>;
-
   previewResults: CollectPreviewItem[];
   previewLoading: boolean;
   searchKeywordPreview: (keyword: string, overrides?: { unlimitedYear?: boolean }) => Promise<void>;
@@ -329,7 +324,6 @@ export function createAppStore(db: DatabaseProvider) {
     collectTrigger: null,
     videoManageDeleteType: '',
     videoManageHideType: '',
-    collectionLogs: [],
     previewResults: [],
     previewLoading: false,
     userUsageTypes: ['SEARCH_FIRST'],
@@ -1269,21 +1263,6 @@ export function createAppStore(db: DatabaseProvider) {
     setLoading: (loading: boolean) => set({ isLoading: loading }),
     setError: (error: string | null) => set({ error }),
 
-    addCollectionLog: (log: CollectionLog) => {
-      set((state) => ({
-        collectionLogs: [...state.collectionLogs.slice(-499), log],
-      }));
-    },
-    clearCollectionLogs: () => set({ collectionLogs: [] }),
-    loadPersistedCollectionLogs: async (filter?: { taskId?: string; sourceCode?: string; limit?: number }) => {
-      try {
-        const logs = await db.getCollectionLogs(filter);
-        set({ collectionLogs: logs });
-      } catch (err: any) {
-        console.error('[Store] 加载采集日志失败:', err);
-      }
-    },
-
     searchKeywordPreview: async (keyword: string, overrides?) => {
       set({ previewLoading: true, previewResults: [] });
       try {
@@ -1348,11 +1327,6 @@ export function createAppStore(db: DatabaseProvider) {
       }
     },
   }));
-
-  // 设置 CollectorService 的日志回调，将日志推送到 store
-  collectorService.setOnLogCallback((log) => {
-    store.getState().addCollectionLog(log);
-  });
 
   (store as any)[STORE_API_STAMP_KEY] = fingerprintSource(createAppStore.toString());
   return store;

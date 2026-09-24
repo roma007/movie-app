@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 
 export interface FuncRow {
@@ -77,8 +76,6 @@ export function useActivityMonitor(routeRef: { current: string }): LocalMetrics 
   }));
 
   useEffect(() => {
-    if (Platform.OS !== 'ios') return;
-
     const s = busyRef.current;
     const emit = () => {
       const now = Date.now();
@@ -152,7 +149,6 @@ export function useActivityMonitor(routeRef: { current: string }): LocalMetrics 
 
   // 存储占用：沙盒遍历较贵，启动算一次 + 每 30s 重算
   useEffect(() => {
-    if (Platform.OS !== 'ios') return;
     let alive = true;
     let inFlight = false;
     const refresh = () => {

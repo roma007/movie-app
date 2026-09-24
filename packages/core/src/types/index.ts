@@ -229,17 +229,6 @@ export interface SavePreviewResult {
   hiddenItems: HiddenCollectItem[];
 }
 
-export interface CollectionLog {
-  id: string;
-  timestamp: string;
-  level: 'info' | 'error' | 'warn';
-  message: string;
-  taskId?: string;
-  sourceCode?: string;
-  sourceName?: string;
-  details?: string;
-}
-
 export interface ImportSourceItem {
   name: string;
   code: string;

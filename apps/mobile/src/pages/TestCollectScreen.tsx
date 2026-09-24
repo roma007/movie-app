@@ -2,7 +2,6 @@ import { useMemo, useState, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { ArrowLeft } from 'lucide-react-native';
 import { getCollector } from '../useAppStore';
-import type { CollectionLog } from '@movie-app/core';
 import { useThemeColors } from '../themes/useThemeColors';
 import { useThemeStore } from '../themes/store';
 import { useScaledFontSize } from '../themes/useScaledFontSize';
@@ -10,6 +9,13 @@ import { hexToRgba } from '../themes/colorUtils';
 import { radius } from '../themes/radiusTokens';
 import BlurredBackground from '../components/BlurredBackground';
 import { Button } from '../components/ui/Button';
+
+interface LogEntry {
+  id: string;
+  timestamp: string;
+  level: 'info' | 'error' | 'warn';
+  message: string;
+}
 
 interface Props {
   navigation: any;
@@ -22,11 +28,11 @@ export default function TestCollectScreen({ navigation }: Props) {
   const surfaceElevatedBg = hexToRgba(colors.surfaceElevated, cardOpacity / 100);
   const surfaceBg = hexToRgba(colors.surface, cardOpacity / 100);
   const s = useScaledFontSize();
-  const [logs, setLogs] = useState<CollectionLog[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
   const [running, setRunning] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
-  const addLog = (level: CollectionLog['level'], message: string) => {
+  const addLog = (level: LogEntry['level'], message: string) => {
     setLogs(prev => [...prev, {
       id: `log_${Date.now()}_${Math.random()}`,
       timestamp: new Date().toISOString(),

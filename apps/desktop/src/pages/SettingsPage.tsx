@@ -82,6 +82,16 @@ export default function SettingsPage() {
           </div>
           <ChevronRight className="size-4 text-muted-foreground" />
         </button>
+        <button
+          className="flex items-center justify-between py-3 w-[calc(100%+2rem)] text-left hover:bg-secondary/50 transition-colors -mx-4 px-4"
+          onClick={() => navigate('/db-tool')}
+        >
+          <div className="flex items-center gap-3">
+            <Database className="size-4 text-muted-foreground" />
+            <span>数据库工具</span>
+          </div>
+          <ChevronRight className="size-4 text-muted-foreground" />
+        </button>
       </Card>
     </div>
   );

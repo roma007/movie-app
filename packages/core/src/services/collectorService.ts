@@ -7,7 +7,7 @@ import { isKnownDeadPosterUrl, isUsablePosterUrl } from '../utils/posterHost';
 import { isChildSafe } from '../utils/kidSafe';
 import type { DatabaseProvider } from '../db/provider';
 import { UNCATEGORIZED_GENRE } from '../db/provider';
-import type { CMSMediaItem, CMSListResponse, Media, Episode, PlaySource, VideoSource, CollectTask, TaskStatus, TaskErrorType, CollectionLog, CollectPreviewItem, HiddenCollectItem, SavePreviewResult, FailedItem, MediaType } from '../types';
+import type { CMSMediaItem, CMSListResponse, Media, Episode, PlaySource, VideoSource, CollectTask, TaskStatus, TaskErrorType, CollectPreviewItem, HiddenCollectItem, SavePreviewResult, FailedItem, MediaType } from '../types';
 import { SystemConfigService } from './systemConfigService';
 import type { ShortDramaConfig } from './systemConfigService';
 import { VideoDurationService } from './videoDurationService';
@@ -136,34 +136,12 @@ function parsePlayInfo(
 const MAX_FAILED_ITEMS = 300;
 export class CollectorService {
   private activeAbortControllers = new Map<string, AbortController>();
-  private onLogCallback?: (log: CollectionLog) => void;
   private recommendationService: RecommendationService;
   /** 存量同名合并节流：60s 窗口内只真正执行一次，避免每个采集入口都触发全表扫描 */
   private lastVersionMergeAt = 0;
 
   constructor(private db: DatabaseProvider) {
     this.recommendationService = new RecommendationService(db);
-  }
-
-  setOnLogCallback(callback: (log: CollectionLog) => void): void {
-    this.onLogCallback = callback;
-  }
-
-  private emitLog(level: 'info' | 'error' | 'warn', message: string, sourceCode?: string, sourceName?: string, taskId?: string, details?: string): void {
-    const log: CollectionLog = {
-      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-      timestamp: new Date().toISOString(),
-      level,
-      message,
-      sourceCode,
-      sourceName,
-      taskId,
-      details,
-    };
-    this.onLogCallback?.(log);
-    if (level === 'error' || level === 'warn') {
-      this.db.addCollectionLog(log).catch(err => console.error('[Collector] 保存采集日志失败:', err));
-    }
   }
 
   cancelTask(taskId: string): void {
@@ -615,10 +593,9 @@ sourceUpdatedAt,
 
       const durationService = new VideoDurationService();
       for (let i = 0; i < probeCount; i++) {
-        const probeLog = (msg: string) => this.logToDb(`[M3U8探测详情] "${title}" ${msg}`);
         const duration = meter
-          ? await meter.trace('probe.m3u8', () => durationService.getDurationFromM3U8(firstPlayableGroup[i].url, probeLog))
-          : await durationService.getDurationFromM3U8(firstPlayableGroup[i].url, probeLog);
+          ? await meter.trace('probe.m3u8', () => durationService.getDurationFromM3U8(firstPlayableGroup[i].url))
+          : await durationService.getDurationFromM3U8(firstPlayableGroup[i].url);
         if (duration !== null) {
           const durationMin = duration / 60;
           console.log(`[长短剧判断] 第2级(探测)命中: 第${i + 1}集成功, ${durationMin.toFixed(1)}分钟 → ${normalizer.isShortDramaByDuration(durationMin, config.durationThresholdMinutes) ? '短剧' : '长剧'}`);
@@ -680,14 +657,7 @@ sourceUpdatedAt,
       const errorMsg = `[Collector] getList failed: ${errInstance.message}`;
       const errorType = classifyError(err);
       console.error(`[Collector] getList 失败 (${errorType}):`, errorMsg);
-      await this.logToDb(`getList失败: ${errInstance.message}`, 'error', {
-        errorType,
-        sourceId,
-        page,
-        url: baseUrl,
-        stack: errInstance.stack,
-      });
-      
+
       let detailedError = errInstance.message;
       if (errInstance.message.includes('CORS') || errInstance.message.includes('opaque')) {
         detailedError = 'CORS错误 - 无法访问外部API。Tauri HTTP插件可能未正确加载。';
@@ -696,8 +666,6 @@ sourceUpdatedAt,
       } else if (errInstance.message.includes('timeout') || errInstance.message.includes('abort')) {
         detailedError = '请求超时 - 服务器响应时间过长。';
       }
-
-      this.emitLog('error', detailedError, undefined, undefined, undefined, JSON.stringify({ errorType, url: baseUrl, page }));
 
       this.logPerf('PAGE', { src: sourceId, page, totalMs: Date.now() - pageStart, collected: 0, failed: 0, status: 'getList-failed' }, pageMeter);
       if (sourceMeter) sourceMeter.merge(pageMeter);
@@ -765,7 +733,6 @@ sourceUpdatedAt,
           const errorMsg = `[Collector] 处理视频 ${listItem.vod_name} 失败: ${err instanceof Error ? err.message : String(err)}`;
           console.error(errorMsg);
           
-          await this.logToDb(errorMsg, 'error');
           failedCount++;
           allFailedItems.push({ vodId: String(listItem.vod_id), title: listItem.vod_name, error: err instanceof Error ? err.message : String(err) });
         }
@@ -842,7 +809,6 @@ sourceUpdatedAt,
           await this.db.incrementSourceFailCount(sourceId);
           const errorMsg = `[Collector] 处理视频 ${listItem.vod_name} 失败: ${err instanceof Error ? err.message : String(err)}`;
           console.error(errorMsg);
-          await this.logToDb(errorMsg, 'error');
           failedCount++;
           preparedErrors[currentIndex] = err instanceof Error ? err.message : String(err);
         }
@@ -881,7 +847,6 @@ sourceUpdatedAt,
         await this.db.incrementSourceFailCount(sourceId);
         const errorMsg = `[Collector] 提交 ${items[i].vod_name} 失败: ${err instanceof Error ? err.message : String(err)}`;
         console.error(errorMsg);
-        await this.logToDb(errorMsg, 'error');
         failedCount++;
         failedItems.push({ vodId: String(items[i].vod_id), title: items[i].vod_name, error: err instanceof Error ? err.message : String(err) });
       }
@@ -1070,24 +1035,6 @@ sourceUpdatedAt,
       items.splice(0, items.length - MAX_FAILED_ITEMS);
     }
     return items;
-  }
-
-  private async logToDb(message: string, level: 'info' | 'error' = 'info', details?: Record<string, unknown>): Promise<void> {
-    try {
-      const log: CollectionLog = {
-        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-        timestamp: new Date().toISOString(),
-        level,
-        message,
-        sourceCode: details?.sourceCode as string | undefined,
-        sourceName: details?.sourceName as string | undefined,
-        taskId: details?.taskId as string | undefined,
-        details: details ? JSON.stringify(details) : undefined,
-      };
-      await this.db.addCollectionLog(log);
-    } catch (err) {
-      console.error('[Collector] logToDb 失败:', err);
-    }
   }
 
   async collectByKeyword(keyword: string): Promise<Media[]> {
@@ -1307,15 +1254,12 @@ const title = await normalizer.normalizeTitle(item.vod_name);
 
         if (movieId && movieId !== row.id) {
           // 双胞胎：并入已有电影记录
-          const movieTitle = (await this.db.selectOne<{ title: string }>(`SELECT title FROM media WHERE id = ?`, [movieId]))?.title || movieId;
           await this.mergeTvIntoMovie(row.id, movieId);
           repaired++;
-          await this.logToDb(`类型纠错：合并误判剧集记录 → 电影 «${movieTitle}»，删除 ${row.id.slice(0, 8)}…`, 'info', { sourceId: `tv:${match[1]}` });
         } else if (movieId !== row.id) {
           // 无同名电影：原地转正为电影
           await this.convertTvToMovieSelf(row.id, movieFp);
           repaired++;
-          await this.logToDb(`类型纠错：误判剧集原地转正为电影 «${match[1]}»(${match[2]})，删除 ${row.id.slice(0, 8)}…`, 'info', { sourceId: `tv:${match[1]}` });
         }
       } catch (err) {
         console.error(`[Collector] 类型纠错失败 (${row.id}):`, err);
@@ -1521,9 +1465,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
       }
     }
     console.log(`[Collector] 存量同名合并: 完成，合并 ${merged} 条（自建主 ${selfPromoted} 组），耗时 ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
-    if (merged > 0) {
-      await this.logToDb(`存量同名多版本合并：${merged} 条并入主条目${selfPromoted > 0 ? `（含 ${selfPromoted} 组自建主）` : ''}`, 'info', { sourceCode: 'merge_versions' });
-    }
     return merged;
   }
 
@@ -1733,15 +1674,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
 
         await this.db.updateSourceLastIncrementalCollectedAt(source.id, new Date().toISOString());
 
-        await this.logToDb(`批采 ${source.name} 完成: ${collected}条, ${failed}次失败`, 'info', {
-          sourceCode: source.code,
-          sourceName: source.name,
-          taskId,
-          collected,
-          failed,
-          pages: currentPage - 1,
-        });
-
         this.logPerf('SOURCE', { src: source.name, taskId, pages: currentPage - 1, collected, failed, status: 'done' }, sourceMeter);
         batchMeter.merge(sourceMeter);
 
@@ -1758,14 +1690,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
         const errType = classifyError(err);
         const errorMsg = errInstance.message;
         console.error(`采集源 ${source.name} 失败:`, errorMsg);
-        await this.logToDb(`批采 ${source.name} 失败: ${errorMsg}`, 'error', {
-          errorType: errType,
-          sourceCode: source.code,
-          taskId,
-          url: source.baseUrl,
-          stack: errInstance.stack,
-        });
-        this.emitLog('error', `批采失败 [${source.name}]: ${errorMsg}`, source.code, source.name, taskId, JSON.stringify({ errorType: errType, url: source.baseUrl }));
         await this.db.updateCollectTask(taskId, {
           status: 'FAILED' as TaskStatus,
           errorMessage: getFriendlyErrorMessage(errType),
@@ -1809,7 +1733,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
       const { healthy } = await this.checkSource(source.id);
       if (!healthy) {
         console.warn(`[Collector] 跳过不可达视频源: ${source.name}`);
-        this.emitLog('warn', `跳过不可达视频源 [${source.name}]，已取消全量采集`, source.code, source.name);
         continue;
       }
       let page = 1;
@@ -1972,9 +1895,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
       const lastCollected = new Date(lastIncremental).getTime();
       const hoursSinceLast = Math.ceil((Date.now() - lastCollected) / 3600000) + 2;
       hours = Math.min(hoursSinceLast, config.maxIncrementalHours);
-      this.emitLog('info', `断点续采模式: 上次采集${Math.round(hoursSinceLast - 2)}小时前，追溯${hours}小时`, sourceCode, source.name, taskId);
-    } else {
-      this.emitLog('info', `定额采集模式: 无采集记录，最多${config.incrementalMaxPages}页`, sourceCode, source.name, taskId);
     }
 
     try {
@@ -1985,7 +1905,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
         ...(resumeTaskId ? { errorMessage: null, errorType: null, completedAt: null, lastErrorPage: null } : {}),
       });
       await this.assertSourceReachable(source);
-      this.emitLog('info', resumeTaskId ? `开始续采 [${source.name}]: 从第${startPage}页继续` : `开始增量采集 [${source.name}]`, sourceCode, source.name, taskId);
 
       const maxPages = hours ? Number.MAX_SAFE_INTEGER : config.incrementalMaxPages;
       let prefetchPromise: Promise<CMSListResponse | null> | null = null;
@@ -2042,11 +1961,8 @@ const title = await normalizer.normalizeTitle(item.vod_name);
             failedItems: JSON.stringify(currentFailedItems),
           });
 
-          this.emitLog('info', `第${page}页完成: 新增${media.length}条${failedCount > 0 ? `，失败${failedCount}条` : ''}`, sourceCode, source.name, taskId);
-
           if (page >= pagecount) break;
           if (hours && page >= config.incrementalMaxPages) {
-            this.emitLog('warn', `已达安全上限 ${config.incrementalMaxPages} 页，停止采集`, sourceCode, source.name, taskId);
             break;
           }
           totalRuntimeMs += Date.now() - iterationStart;
@@ -2057,15 +1973,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
           const errType = classifyError(err);
           const errMsg = errInstance.message;
           console.error(`[Collector] 增量采集第${page}页失败: ${errMsg}`);
-          await this.logToDb(`增量采集第${page}页失败: ${errMsg}`, 'error', {
-            errorType: errType,
-            sourceCode,
-            taskId,
-            page,
-            url: source.baseUrl,
-            stack: errInstance.stack,
-          });
-          this.emitLog('error', `第${page}页失败: ${errMsg}`, sourceCode, source.name, taskId, JSON.stringify({ errorType: errType, page, url: source.baseUrl }));
           lastErrorMsg = errMsg;
           lastErrorType = errType;
           failed++;
@@ -2090,15 +1997,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
           completedAt: new Date().toISOString(),
         });
         await this.db.updateSourceLastIncrementalCollectedAt(source.id, new Date().toISOString());
-        await this.logToDb(`增量采集完成: ${collected}条, ${failed}次失败`, 'info', {
-          sourceCode,
-          sourceName: source.name,
-          taskId,
-          collected,
-          failed,
-          pages: page - 1,
-        });
-        this.emitLog('info', `增量采集完成 [${source.name}]: 共采集${collected}条，失败${failed}条`, sourceCode, source.name, taskId);
         this.logPerf('SOURCE', { src: source.name, taskId, pages: page - 1, collected, failed, status: 'done' }, sourceMeter);
       }
 
@@ -2109,14 +2007,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
       const errInstance = err instanceof Error ? err : new Error(String(err));
       const errType = (err as any).errorType || classifyError(err);
       const finalErrMsg = errInstance.message;
-      await this.logToDb(`增量采集整体失败: ${finalErrMsg}`, 'error', {
-        errorType: errType,
-        sourceCode,
-        taskId,
-        page,
-        url: source.baseUrl,
-        stack: errInstance.stack,
-      });
       await this.db.updateCollectTask(taskId, {
         status: 'FAILED' as TaskStatus,
         currentPage: page,
@@ -2125,7 +2015,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
         lastErrorPage: page,
         completedAt: new Date().toISOString(),
       });
-      this.emitLog('error', `增量采集失败 [${source.name}]: ${finalErrMsg}`, sourceCode, source.name, taskId, JSON.stringify({ errorType: errType, page, url: source.baseUrl }));
       this.logPerf('SOURCE', { src: source.name, taskId, pages: page, collected, failed, status: 'failed', error: finalErrMsg }, sourceMeter);
       throw err;
     }
@@ -2206,7 +2095,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
       this.logTaskStep('runningSet', sourceCode, taskId, perfStart);
       await this.assertSourceReachable(source);
       this.logTaskStep('reachableOk', sourceCode, taskId, perfStart);
-      this.emitLog('info', resumeTaskId ? `开始续采 [${source.name}]: 从第${startPage}页继续全量采集` : `开始全量采集 [${source.name}]，最多${config.maxPages}页`, sourceCode, source.name, taskId);
 
       let prefetchPromise: Promise<CMSListResponse | null> | null = null;
       let knownPagecount = 0;
@@ -2265,8 +2153,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
             failedItems: JSON.stringify(currentFailedItems),
           });
 
-          this.emitLog('info', `第${page}页完成: 新增${media.length}条${failedCount > 0 ? `，失败${failedCount}条` : ''}`, sourceCode, source.name, taskId);
-
           if (page >= pagecount) break;
           totalRuntimeMs += Date.now() - iterationStart;
           page++;
@@ -2276,15 +2162,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
           const errType = classifyError(err);
           const errMsg = errInstance.message;
           console.error(`[Collector] 全量采集第${page}页失败: ${errMsg}`);
-          await this.logToDb(`全量采集第${page}页失败: ${errMsg}`, 'error', {
-            errorType: errType,
-            sourceCode,
-            taskId,
-            page,
-            url: source.baseUrl,
-            stack: errInstance.stack,
-          });
-          this.emitLog('error', `第${page}页失败: ${errMsg}`, sourceCode, source.name, taskId, JSON.stringify({ errorType: errType, page, url: source.baseUrl }));
           lastErrorMsg = errMsg;
           lastErrorType = errType;
           failed++;
@@ -2310,15 +2187,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
           completedAt: new Date().toISOString(),
         });
         await this.db.updateSourceLastCollectedAt(source.id, new Date().toISOString());
-        await this.logToDb(`全量采集完成: ${collected}条, ${failed}次失败`, 'info', {
-          sourceCode,
-          sourceName: source.name,
-          taskId,
-          collected,
-          failed,
-          pages: page - 1,
-        });
-        this.emitLog('info', `全量采集完成 [${source.name}]: 共采集${collected}条，失败${failed}条`, sourceCode, source.name, taskId);
         this.logPerf('SOURCE', { src: source.name, taskId, pages: page - 1, collected, failed, status: 'done' }, sourceMeter);
       }
 
@@ -2329,14 +2197,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
       const errInstance = err instanceof Error ? err : new Error(String(err));
       const errType = (err as any).errorType || classifyError(err);
       const finalErrMsg = errInstance.message;
-      await this.logToDb(`全量采集整体失败: ${finalErrMsg}`, 'error', {
-        errorType: errType,
-        sourceCode,
-        taskId,
-        page,
-        url: source.baseUrl,
-        stack: errInstance.stack,
-      });
       await this.db.updateCollectTask(taskId, {
         status: 'FAILED' as TaskStatus,
         currentPage: page,
@@ -2345,7 +2205,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
         lastErrorPage: page,
         completedAt: new Date().toISOString(),
       });
-      this.emitLog('error', `全量采集失败 [${source.name}]: ${finalErrMsg}`, sourceCode, source.name, taskId, JSON.stringify({ errorType: errType, page, url: source.baseUrl }));
       this.logPerf('SOURCE', { src: source.name, taskId, pages: page, collected, failed, status: 'failed', error: finalErrMsg }, sourceMeter);
       throw err;
     }
@@ -2430,7 +2289,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
         errorType: null,
         lastErrorPage: null,
       });
-      this.emitLog('info', `开始重试失败条目 [${source.name}]: 共${total}条`, task.sourceCode, task.sourceName, taskId);
 
       const adapter = new CMSAdapter(source.baseUrl);
 
@@ -2476,7 +2334,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
           const media = await this.processItem(detailItem, source.id, '', minYear);
           if (media) {
             successCount++;
-            this.emitLog('info', `重试成功: ${item.title}`, task.sourceCode, task.sourceName, taskId);
           } else {
             remaining.push({ vodId: item.vodId, title: item.title, error: '入库时被过滤（可能年份过旧或已隐藏）' });
             failedDuringRetry++;
@@ -2484,7 +2341,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
         } catch (err) {
           await this.db.incrementSourceFailCount(source.id);
           const errMsg = err instanceof Error ? err.message : String(err);
-          this.emitLog('error', `重试失败: ${item.title}: ${errMsg}`, task.sourceCode, task.sourceName, taskId);
           remaining.push({ vodId: item.vodId, title: item.title, error: errMsg });
           failedDuringRetry++;
         }
@@ -2505,15 +2361,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
           failedItems: JSON.stringify(remaining),
           failedCount: remaining.length,
         });
-        await this.logToDb(`重试失败项完成: 共${total}条，成功${successCount}条，仍失败${remaining.length}条`, 'info', {
-          sourceCode: task.sourceCode,
-          sourceName: task.sourceName,
-          taskId,
-          retried: total,
-          success: successCount,
-          failed: remaining.length,
-        });
-        this.emitLog('info', `重试失败项完成 [${source.name}]: 成功${successCount}条，仍失败${remaining.length}条`, task.sourceCode, task.sourceName, taskId);
         onProgress?.({
           total,
           processed,
@@ -2680,7 +2527,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
     const durationService = new VideoDurationService();
 
     console.log(`[批量重新探测] 开始批量重新探测，共 ${total} 部媒体`);
-    await this.logToDb(`[M3U8探测详情] 开始批量重新探测，共 ${total} 部媒体`);
 
     for (const media of mediaList) {
       console.log(`[批量重新探测] 处理: ${media.title}, episode_duration=${media.episode_duration}`);
@@ -2730,7 +2576,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
         console.log(`[批量重新探测] "${media.title}" 查到 ${episodes.length} 集`);
         if (episodes.length === 0) {
           console.log(`[批量重新探测] "${media.title}" 无剧集数据，跳过`);
-          await this.logToDb(`[M3U8探测详情] "${media.title}" 无剧集数据，跳过`);
           failedItems.push({ id: media.id, title: media.title });
           failed++;
           processed++;
@@ -2753,21 +2598,15 @@ const title = await normalizer.normalizeTitle(item.vod_name);
           console.log(`[批量重新探测] "${media.title}" 第 ${i + 1} 集有 ${sources.length} 个播放源`);
           if (sources.length === 0) {
             console.log(`[批量重新探测] "${media.title}" 第${i + 1}集 无播放源`);
-            await this.logToDb(`[M3U8探测详情] "${media.title}" 第${i + 1}集 无播放源`);
             continue;
           }
 
           console.log(`[批量重新探测] "${media.title}" 第${i + 1}集 共${sources.length}个播放源`);
-          await this.logToDb(`[M3U8探测详情] "${media.title}" 第${i + 1}集 共${sources.length}个播放源`);
 
           for (const source of sources) {
             totalSourcesTried++;
             console.log(`[批量重新探测] "${media.title}" 尝试探测源: ${source.url.substring(0, 50)}...`);
-            const probeLog = (msg: string) => {
-              console.log(`[批量重新探测] "${media.title}" 探测日志: ${msg}`);
-              return this.logToDb(`[M3U8探测详情] "${media.title}" ${msg}`);
-            };
-            const result = await durationService.getDurationFromM3U8(source.url, probeLog);
+            const result = await durationService.getDurationFromM3U8(source.url);
             console.log(`[批量重新探测] "${media.title}" 探测结果: ${result}`);
             if (result !== null) {
               successDuration = result;
@@ -2788,7 +2627,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
           const isShortDrama = normalizer.isShortDramaByDuration(durationMin, config.durationThresholdMinutes);
 
           await this.updateMediaDurationStatus(media.id, isShortDrama, 'PROBE', successDuration);
-          await this.logToDb(`[M3U8探测详情] "${media.title}" → ${isShortDrama ? '短剧' : '长剧'} (${durationMin.toFixed(1)}分钟, ${Date.now() - mediaStart}ms)`);
 
           if (isShortDrama) {
             shortDrama++;
@@ -2798,7 +2636,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
             console.log(`[批量重新探测] "${media.title}" → 长剧 (PROBE, ${durationMin.toFixed(1)}分钟, 尝试${totalSourcesTried}个源, ${Date.now() - mediaStart}ms)`);
           }
         } else {
-          await this.logToDb(`[M3U8探测详情] "${media.title}" 全部失败 (${probeEpisodeCount}集, ${totalSourcesTried}个源, ${Date.now() - mediaStart}ms)`, 'error');
           console.log(`[批量重新探测] "${media.title}" 探测失败 (${probeEpisodeCount}集全部失败, 尝试${totalSourcesTried}个源, ${Date.now() - mediaStart}ms)，保持原状态`);
           failedItems.push({ id: media.id, title: media.title });
           failed++;

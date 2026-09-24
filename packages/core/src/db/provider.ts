@@ -9,7 +9,6 @@ import type {
   ListParams,
   CollectTask,
   TaskStatus,
-  CollectionLog,
 } from '../types';
 
 /**
@@ -264,10 +263,6 @@ export interface DatabaseProvider {
     status?: TaskStatus;
   }): Promise<void>;
   getRunningReprobeTask(): Promise<CollectTask | null>;
-
-  // —— CollectionLog DAO ——
-  addCollectionLog(log: CollectionLog): Promise<void>;
-  getCollectionLogs(filter?: { taskId?: string; sourceCode?: string; level?: string; limit?: number; offset?: number }): Promise<CollectionLog[]>;
 
   // —— 儿童锁 ——
   /** 儿童模式是否激活（读 system_config + 内存缓存，启动时初始化）。 */

@@ -1,17 +1,16 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Dimensions, LayoutChangeEvent, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Dimensions, LayoutChangeEvent, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useActivityMonitor } from './ActivityMonitor';
 
-// 安卓模拟器资源监控悬浮层（诊断用）：
-// - 每 1s 从宿主 monitor.py（10.0.2.2:8756）拉取 /monitor.json 显示处理器/内存/帧率
-// - 路由变化时 POST /page 上报当前页面，供 CSV 打页面标签
+// App 内自包含资源监控悬浮层（真机/模拟器通用，不依赖外部服务）：
+// - 数据来自 ActivityMonitor：250ms 调度滞后探针归因忙%、rAF 帧率、沙盒存储占用
 // - 按住面板任意位置拖动（松手记忆位置，下次启动恢复）；右上角 x 隐藏（仅本次启动）
-// - 点击面板内容弹出「功能资源占用」明细：各页面/功能的处理器/内存均值（GET /funcs，5s 刷新）
-const HOST_PORT = 8756;
-const MONITOR_ROOT = `http://10.0.2.2:${HOST_PORT}`;
+// - 点击面板内容弹出「功能资源占用」明细：各页面/功能的忙%贡献与停留时长
 const POS_KEY = 'resource-overlay-pos';
 const DEFAULT_POS = { top: 42, left: 10 };
+
+const fmtStg = (mb: number) => (mb >= 1024 ? `${(mb / 1024).toFixed(1)}G` : `${mb.toFixed(0)}M`);
 
 const PAGE_NAMES: Record<string, string> = {
   Home: '首页',
@@ -45,40 +44,12 @@ interface Props {
   routeRef: { current: string };
 }
 
-interface Snapshot {
-  cpu_pct?: number;
-  rss_mb?: number;
-  fps?: number;
-  busy_pct?: number | null;
-  storage_mb?: number | null;
-  pss_mb?: number;
-  heap_alloc_mb?: number;
-  nheap_mb?: number;
-  net_rx_kb?: number;
-  net_tx_kb?: number;
-  app_alive?: boolean;
-  pid?: number | string | null;
-  page?: string;
-}
-
-interface FuncRow {
-  page: string;
-  busy_pct: number | null;
-  seconds: number;
-}
-
 export function ResourceOverlay({ routeRef }: Props) {
-  const isIOS = Platform.OS === 'ios';
-  // iOS：App 内自包含本地聚合（忙%+帧率）；Android：host monitor.py 采样
+  // App 内自包含本地聚合（忙%/帧率/存储），不依赖外部 monitor 服务，真机/模拟器通用
   const local = useActivityMonitor(routeRef);
-  const [data, setData] = useState<Snapshot | null>(null);
-  const [lastOk, setLastOk] = useState(0);
   const [hidden, setHidden] = useState(false);
   const [pos, setPos] = useState(DEFAULT_POS);
   const [showDetail, setShowDetail] = useState(false);
-  const [funcs, setFuncs] = useState<FuncRow[] | null>(null);
-  const [since, setSince] = useState('');
-  const lastRoute = useRef('');
   const posRef = useRef(DEFAULT_POS);
   const startPos = useRef(DEFAULT_POS);
   const boxSize = useRef({ width: 0, height: 0 });
@@ -113,16 +84,6 @@ export function ResourceOverlay({ routeRef }: Props) {
     }),
   ).current;
 
-  const loadFuncs = useCallback(() => {
-    fetch(`${MONITOR_ROOT}/funcs`)
-      .then((resp) => resp.json())
-      .then((j) => {
-        setFuncs(Array.isArray(j?.funcs) ? j.funcs : []);
-        setSince(j?.since || '');
-      })
-      .catch(() => setFuncs(null));
-  }, []);
-
   useEffect(() => {
     AsyncStorage.getItem(POS_KEY)
       .then((v) => {
@@ -141,88 +102,12 @@ export function ResourceOverlay({ routeRef }: Props) {
     boxSize.current = { width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height };
   };
 
-  useEffect(() => {
-    const postRoute = (r: string) => {
-      fetch(`${MONITOR_ROOT}/page`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ route: r }),
-      }).catch(() => {});
-    };
-    // 心跳上报：每秒无条件上报当前路由，避免 monitor 重启/首帧丢失后页面标签停滞
-    const timer = setInterval(() => {
-      const r = routeRef.current || 'Home';
-      if (r && r !== lastRoute.current) {
-        lastRoute.current = r;
-      }
-      postRoute(r);
-      fetch(`${MONITOR_ROOT}/monitor.json`)
-        .then((resp) => resp.json())
-        .then((j: Snapshot) => {
-          setData(j);
-          setLastOk(Date.now());
-        })
-        .catch(() => {
-          setLastOk((v) => v);
-        });
-    }, 1000);
-    postRoute(routeRef.current || 'Home');
-    return () => clearInterval(timer);
-  }, [routeRef]);
-
-  // 明细面板打开时轮询 /funcs
-  useEffect(() => {
-    if (!showDetail) return;
-    loadFuncs();
-    const t = setInterval(loadFuncs, 5000);
-    return () => clearInterval(t);
-  }, [showDetail, loadFuncs]);
-
-  // JS 侧细粒度探针（功能级）：250ms 调度滞后累积 = 主线程被长任务占用的额外时间，按页面归因 -> 忙%
-  const busyRef = useRef({ busyMs: 0, started: Date.now(), lastEmit: Date.now() });
-  useEffect(() => {
-    const s = busyRef.current;
-    s.busyMs = 0;
-    s.started = Date.now();
-    s.lastEmit = Date.now();
-    let expected = Date.now();
-    const emit = () => {
-      const r = routeRef.current || 'Home';
-      const now = Date.now();
-      const win = Math.max(1, now - s.started);
-      fetch(`${MONITOR_ROOT}/probe`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          page: r,
-          busy_ms: Math.round(s.busyMs),
-          window_ms: Math.round(win),
-        }),
-      }).catch(() => {});
-      s.busyMs = 0;
-      s.started = now;
-      s.lastEmit = now;
-    };
-    const timer = setInterval(() => {
-      const now = Date.now();
-      const lag = now - expected;
-      expected = now + 250;
-      if (lag > 260) s.busyMs += lag - 250;
-      if (now - s.lastEmit >= 5000) emit();
-    }, 250);
-    return () => clearInterval(timer);
-  }, [routeRef]);
-
   if (hidden) return null;
-  const stale = Date.now() - lastOk > 6000;
-  const cpu = isIOS ? 0 : (data?.cpu_pct ?? 0);
-  const rss = isIOS ? 0 : (data?.rss_mb ?? 0);
-  const fps = isIOS ? local.fps : (data?.fps ?? 0);
-  const busy = isIOS ? local.totalBusyPct : (data?.busy_pct ?? null);
-  const storage = isIOS ? local.storageMB : (data?.storage_mb ?? null);
-  const displayFuncs = isIOS ? local.funcs : funcs;
-  const displaySince = isIOS ? local.since : since;
-  const sinceLabel = displaySince ? displaySince.replace('T', ' ').slice(5, 16) : '';
+  const fps = local.fps;
+  const busy = local.totalBusyPct;
+  const storage = local.storageMB;
+  const displayFuncs = local.funcs;
+  const sinceLabel = local.since ? local.since.replace('T', ' ').slice(5, 16) : '';
 
   return (
     <>
@@ -234,45 +119,17 @@ export function ResourceOverlay({ routeRef }: Props) {
           <Text style={styles.title} numberOfLines={1}>
             实时监控
           </Text>
-          {isIOS ? (
-            <>
-              <Text style={styles.line}>
-                <Text style={styles.k}>主线程忙 </Text>
-                {busy != null ? `${busy.toFixed(1)}%` : '-'}
-                <Text style={styles.sep}>  </Text>
-                <Text style={styles.k}>帧率 </Text>
-                {fps.toFixed(1)}
-              </Text>
-              <Text style={styles.line}>
-                <Text style={styles.k}>存储 </Text>
-                {storage != null ? `${(storage / 1024).toFixed(1)}G` : '-'}
-              </Text>
-            </>
-          ) : (
-            <>
-              <Text style={styles.line}>
-                <Text style={styles.k}>处理器 </Text>
-                {cpu.toFixed(1)}%
-                <Text style={styles.sep}>  </Text>
-                <Text style={styles.k}>内存 </Text>
-                {rss.toFixed(0)}M
-              </Text>
-              <Text style={styles.line}>
-                <Text style={styles.k}>帧率 </Text>
-                {fps.toFixed(1)}
-                <Text style={styles.sep}>  </Text>
-                <Text style={styles.k}>主线程忙 </Text>
-                {busy != null ? `${busy.toFixed(1)}%` : '-'}
-              </Text>
-              {storage != null && (
-                <Text style={styles.line}>
-                  <Text style={styles.k}>存储 </Text>
-                  {(storage / 1024).toFixed(1)}G
-                </Text>
-              )}
-            </>
-          )}
-          {!isIOS && stale && <Text style={[styles.line, styles.warn]}>监控服务离线，请启动 monitor.py</Text>}
+          <Text style={styles.line}>
+            <Text style={styles.k}>主线程忙 </Text>
+            {busy != null ? `${busy.toFixed(1)}%` : '-'}
+            <Text style={styles.sep}>  </Text>
+            <Text style={styles.k}>帧率 </Text>
+            {fps.toFixed(1)}
+          </Text>
+          <Text style={styles.line}>
+            <Text style={styles.k}>存储 </Text>
+            {storage != null ? fmtStg(storage) : '-'}
+          </Text>
         </Pressable>
       </View>
 
@@ -288,15 +145,11 @@ export function ResourceOverlay({ routeRef }: Props) {
             </View>
             {sinceLabel ? (
               <Text style={styles.detailSince}>
-                {isIOS
-                  ? `统计自 ${sinceLabel} · 忙% = 该功能对总忙碌的贡献占比，之和恒 = 总主线程忙`
-                  : `统计自 ${sinceLabel} · 处理器/内存 = App 全进程占用（分不清功能，只留总浮窗）。各页忙% = 该功能对总忙碌的贡献占比，之和恒 = 总浮窗主线程忙`}
+                {`统计自 ${sinceLabel} · 忙% = 该功能对总忙碌的贡献占比，之和恒 = 总主线程忙`}
               </Text>
             ) : null}
             <ScrollView style={styles.detailScroll} nestedScrollEnabled>
-              {displayFuncs === null ? (
-                <Text style={styles.empty}>监控服务离线，无法获取明细</Text>
-              ) : displayFuncs.length === 0 ? (
+              {displayFuncs.length === 0 ? (
                 <Text style={styles.empty}>暂无数据，稍候自动刷新</Text>
               ) : (
                 displayFuncs.map((f) => (
@@ -351,10 +204,6 @@ const styles = StyleSheet.create({
   },
   sep: {
     color: '#444',
-  },
-  warn: {
-    color: '#ff9d5c',
-    fontSize: 9,
   },
   close: {
     position: 'absolute',

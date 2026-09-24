@@ -32,6 +32,7 @@ import KidLockPage from './pages/KidLockPage';
 import VideoManagementPage from './pages/VideoManagementPage';
 import TestCollectPage from './pages/TestCollectPage';
 import HelpCenterPage from './pages/HelpCenterPage';
+import DbToolPage from './pages/DbToolPage';
 
 export default function App() {
   const isPip =
@@ -114,6 +115,7 @@ function MainApp() {
                       <Route path="/settings/collect" element={<CollectConfigPage />} />
                       <Route path="/help/guide" element={<CollectGuidePage />} />
                       <Route path="/settings/video" element={<VideoManagementPage />} />
+                      <Route path="/db-tool" element={<DbToolPage />} />
                       <Route path="/test-collect" element={<TestCollectPage />} />
                       <Route path="/help" element={<HelpCenterPage />} />
                       <Route path="*" element={<Navigate to="/" replace />} />
