@@ -277,7 +277,8 @@ export const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_episode_source_id_media_id ON episode(source_id, media_id);
   CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source(episode_id);
   CREATE INDEX IF NOT EXISTS idx_play_source_source_id ON play_source(source_id);
-  CREATE INDEX IF NOT EXISTS idx_favorite_media_id ON favorite(media_id);
+  -- 收藏唯一索引：一个 media 至多一条收藏记录（根因修复前并发收藏可产生同 media 多行）
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_favorite_media_id ON favorite(media_id);
   CREATE INDEX IF NOT EXISTS idx_watch_history_media_id ON watch_history(media_id);
   CREATE INDEX IF NOT EXISTS idx_media_type ON media(type);
   CREATE INDEX IF NOT EXISTS idx_media_type_updated_at ON media(type, updated_at);
@@ -346,6 +347,27 @@ export const SCHEMA_SQL = `
  */
 export const INSERT_DEFAULT_SOURCE_SQL = `INSERT INTO video_source (id, code, name, base_url, type, is_enabled, created_at) VALUES (?, ?, ?, ?, 'CMS', 1, ?)`;
 export const COUNT_VIDEO_SOURCE_SQL = 'SELECT COUNT(*) as count FROM video_source';
+
+/**
+ * 根因修复「收藏重复」的已有库升级 SQL（幂等）：
+ * 1. 清理历史重复行：每个 media_id 至多保留一行（保留 created_at 最大、同 created_at 取 id 最大，
+ *    近似最近一次收藏）；无重复行时 DELETE 影响 0 行。
+ * 2. 删除历史普通索引 idx_favorite_media_id（SCHEMA_SQL 已改为 UNIQUE 索引 uq_favorite_media_id）。
+ * 3. 建立 UNIQUE 索引 uq_favorite_media_id（若已在库则跳过）。
+ * - 桌面端 initSchema() 每次启动执行；移动端以一次迁移执行。
+ * - 注意：删除重复必须发生在 CREATE UNIQUE 之前，否则已有重复行的库建索引会失败。
+ */
+export const FAVORITE_UNIQUE_MIGRATE_SQL = `
+  DELETE FROM favorite WHERE id NOT IN (
+    SELECT id FROM favorite f1 WHERE NOT EXISTS (
+      SELECT 1 FROM favorite f2
+      WHERE f2.media_id = f1.media_id
+        AND (f2.created_at > f1.created_at OR (f2.created_at = f1.created_at AND f2.id > f1.id))
+    )
+  );
+  DROP INDEX IF EXISTS idx_favorite_media_id;
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_favorite_media_id ON favorite(media_id);
+`;
 
 /**
  * 清理已废弃「多设备同步」功能在已升级设备库中残留的对象（表/触发器/索引）。

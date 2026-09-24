@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Appearance, AppState, useColorScheme } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -69,6 +69,7 @@ import AnimeScreen from './src/pages/AnimeScreen';
 import DocumentaryScreen from './src/pages/DocumentaryScreen';
 import Sidebar from './src/components/Sidebar';
 import CollectProgressDialog from './src/components/CollectProgressDialog';
+import { ResourceOverlay } from './src/components/ResourceOverlay';
 
 const Stack = createNativeStackNavigator();
 
@@ -115,6 +116,7 @@ function RootNavigator() {
 
 export default function App() {
   const [ready, setReady] = useState(false);
+  const routeRef = useRef('Home');
   const initTheme = useThemeStore((s) => s.initTheme);
   const initColorMode = useThemeStore((s) => s.initColorMode);
   const setSystemColorScheme = useThemeStore((s) => s.setSystemColorScheme);
@@ -165,12 +167,20 @@ export default function App() {
   return (
     <SafeAreaProvider>
       {ready && (
-        <NavigationContainer theme={navTheme}>
+        <NavigationContainer
+          theme={navTheme}
+          onStateChange={(s) => {
+            const r = s?.routes?.[s?.index ?? 0];
+            if (r?.name) routeRef.current = r.name;
+          }}
+        >
           <RootNavigator />
         </NavigationContainer>
       )}
       {/* 欢迎页 + 全屏广告覆盖层（主应用渲染在其下层，首页数据后台加载） */}
       <SplashOverlay ready={ready} />
+      {/* 安卓模拟器资源监控悬浮层（诊断用，右上角 x 可关） */}
+      <ResourceOverlay routeRef={routeRef} />
     </SafeAreaProvider>
   );
 }

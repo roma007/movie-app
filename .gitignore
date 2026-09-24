@@ -25,6 +25,10 @@ apps/desktop/src-tauri/gen/
 # OS
 Thumbs.db
 
+# 安卓模拟器资源监控工具（脚本必要，虚拟环境不入库）
+scripts/emulator-monitor/.venv/
+scripts/emulator-monitor/__pycache__/
+
 # 工具文档（不入库）
 .trae/
 BUTTON_COLORS.md

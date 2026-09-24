@@ -200,7 +200,6 @@ function PipRoot() {
   // 应用一次「打开画中画」：重置开场状态 → 读新过渡帧 → 显示窗口 → 由动画 effect 驱动飞出。
   const applyOpen = useCallback(
     (payload: PipPayload) => {
-      console.error('[VideoPlayer][PIP] applyOpen seq=', payload.openSeq, 'anim=', !!payload.anim, 'data=', !!data);
       if (payload.openSeq !== undefined && lastSeqRef.current === payload.openSeq) return;
       if (payload.openSeq !== undefined) lastSeqRef.current = payload.openSeq;
       hideFrameRef.current = false;
@@ -217,65 +216,39 @@ function PipRoot() {
         void win.setSize(new LogicalSize(a.to.w, a.to.h));
       }
       setData(payload);
-      console.error('[VideoPlayer][PIP] applyOpen -> show');
-      win
-        .show()
-        .then(() => {
-          console.error('[VideoPlayer][PIP] show resolved');
-          void win.isVisible().then((v) => console.error('[VideoPlayer][PIP] visible after show =', v));
-        })
-        .catch((err) => {
-          console.error('[VideoPlayer][PIP] show FAILED:', err instanceof Error ? err.message : String(err));
-        });
+      void win.show().catch(() => {});
       void win.setFocus().catch(() => {});
       window.setTimeout(() => {
         void win
           .isVisible()
           .then((v) => {
-            console.error('[VideoPlayer][PIP] visible t+700ms =', v);
-            if (!v) {
-              console.error('[VideoPlayer][PIP] JS show 未生效 -> invoke show_pip');
-              void invoke('show_pip').catch((e) =>
-                console.error('[VideoPlayer][PIP] show_pip failed:', String(e)),
-              );
-            }
+            if (!v) void invoke('show_pip').catch(() => {});
           })
           .catch(() => {});
       }, 700);
-      window.setTimeout(() => {
-        void win.isVisible().then((v) => console.error('[VideoPlayer][PIP] visible t+1s =', v));
-      }, 1000);
     },
     [win],
   );
 
   // 关闭画中画：卸载播放器停流 + 隐藏常驻窗口（不销毁，供下次复用）。
   const hidePip = useCallback(() => {
-    console.error('[VideoPlayer][PIP] hidePip called');
     hideFrameRef.current = false;
     animStartedRef.current = false;
     setFrameFading(false);
     setBootFrame(null);
     setPlaySourceId(null);
     setData(null);
-    void win
-      .hide()
-      .then(() => console.error('[VideoPlayer][PIP] hide resolved'))
-      .catch((e) => console.error('[VideoPlayer][PIP] hide FAILED:', String(e)));
+    void win.hide().catch(() => {});
   }, [win]);
 
   // 常驻窗口挂载即读到的兜底 payload（仅当监听未就绪时主窗口才依赖此路径）。
   useEffect(() => {
-    console.error('[VideoPlayer][PIP] mount, initialData=', !!initialData);
     if (initialData) applyOpen(initialData);
   }, [initialData, applyOpen]);
 
   useEffect(() => {
     let un: (() => void) | undefined;
-    listen<PipPayload>('pip://open', (e) => {
-      console.error('[VideoPlayer][PIP] got pip://open seq=', e.payload.openSeq);
-      applyOpen(e.payload);
-    }).then((f) => (un = f));
+    listen<PipPayload>('pip://open', (e) => applyOpen(e.payload)).then((f) => (un = f));
     listen<PipPayload>('pip://episode', (e) => {
       setData(e.payload);
       setPlaySourceId(e.payload.playSourceId ?? null);

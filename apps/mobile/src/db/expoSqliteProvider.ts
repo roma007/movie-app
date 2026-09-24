@@ -4,6 +4,7 @@ import {
   PRAGMA_SQL,
   SCHEMA_SQL,
   DROP_SYNC_REMNANTS_SQL,
+  FAVORITE_UNIQUE_MIGRATE_SQL,
   INSERT_DEFAULT_SOURCE_SQL,
   COUNT_VIDEO_SOURCE_SQL,
   defaultSources,
@@ -516,6 +517,16 @@ const MIGRATIONS: Migration[] = [
     sql: `CREATE INDEX IF NOT EXISTS idx_media_updated_at_visible ON media(updated_at)
           WHERE (hidden IS NULL OR hidden = 0);`,
   },
+  {
+    version: 57,
+    description: 'deduplicate_favorite_rows_and_make_media_unique',
+    sql: FAVORITE_UNIQUE_MIGRATE_SQL,
+  },
+  {
+    version: 58,
+    description: 'drop_reanimated_plain_favorite_index',
+    sql: `DROP INDEX IF EXISTS idx_favorite_media_id;`,
+  },
 ];
 
 /**
@@ -646,7 +657,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
       const tIdx = Date.now();
       await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_episode_source_id_media_id ON episode(source_id, media_id);');
       await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source(episode_id);');
-      await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_favorite_media_id ON favorite(media_id);');
+      // favorite 不再建普通索引 idx_favorite_media_id（v57 起改由 UNIQUE 索引 uq_favorite_media_id 承担）
       await this.db!.execAsync('CREATE INDEX IF NOT EXISTS idx_watch_history_media_id ON watch_history(media_id);');
       timing.post_indexes = Date.now() - tIdx;
 
@@ -1796,7 +1807,8 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   async addFavorite(mediaId: string): Promise<void> {
     const now = new Date().toISOString();
     const id = `fav_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-    await this.db!.runAsync('INSERT INTO favorite (id, media_id, created_at) VALUES (?, ?, ?)', [id, mediaId, now]);
+    // INSERT OR IGNORE + uq_favorite_media_id UNIQUE 索引兜底：同一 media 重复收藏静默忽略
+    await this.db!.runAsync('INSERT OR IGNORE INTO favorite (id, media_id, created_at) VALUES (?, ?, ?)', [id, mediaId, now]);
   }
 
   async removeFavorite(mediaId: string): Promise<void> {

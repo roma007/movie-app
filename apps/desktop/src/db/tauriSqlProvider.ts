@@ -2,6 +2,7 @@ import Database from '@tauri-apps/plugin-sql';
 import {
   SCHEMA_SQL,
   DROP_SYNC_REMNANTS_SQL,
+  FAVORITE_UNIQUE_MIGRATE_SQL,
   INSERT_DEFAULT_SOURCE_SQL,
   COUNT_VIDEO_SOURCE_SQL,
   defaultSources,
@@ -444,6 +445,15 @@ export class TauriSqlProvider implements DatabaseProvider {
       "SELECT value FROM system_config WHERE key = 'parental.kidMode'"
     );
     this.kidModeActive = kidModeRows.length > 0 && kidModeRows[0].value === '1';
+
+    // 收藏根因修复：清理历史重复收藏行 + 建立 media_id UNIQUE 索引（幂等，每次启动重跑无害）
+    for (const stmt of splitSqlStatements(FAVORITE_UNIQUE_MIGRATE_SQL)) {
+      try {
+        await this.db!.execute(stmt);
+      } catch (e) {
+        console.warn('Favorite unique migration failed:', stmt, e);
+      }
+    }
 
     await this.fixGenreData();
     await this.backfillHiddenGenres();
@@ -1691,7 +1701,8 @@ export class TauriSqlProvider implements DatabaseProvider {
   async addFavorite(mediaId: string): Promise<void> {
     const now = new Date().toISOString();
     const id = `fav_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-    await this.db!.execute('INSERT INTO favorite (id, media_id, created_at) VALUES (?, ?, ?)', [id, mediaId, now]);
+    // INSERT OR IGNORE + uq_favorite_media_id UNIQUE 索引兜底：同一 media 重复收藏静默忽略
+    await this.db!.execute('INSERT OR IGNORE INTO favorite (id, media_id, created_at) VALUES (?, ?, ?)', [id, mediaId, now]);
   }
 
   async removeFavorite(mediaId: string): Promise<void> {

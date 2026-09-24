@@ -315,7 +315,6 @@ export function PlayerHost() {
     : { position: 'fixed', left: 0, top: 0, width: 1, height: 1, opacity: 0, pointerEvents: 'none', zIndex: 40 };
 
   const openNativePipWindow = async () => {
-    console.error('[TauriLoader][PIP] ① open click, session=', !!session, 'pipActive=', pipActive);
     if (!session || pipActive) return;
     const video = playerRef.current?.el?.querySelector('video');
     const currentTime = video ? video.currentTime : session.currentTime;
@@ -406,10 +405,8 @@ export function PlayerHost() {
       openSeq: nextOpenSeq(),
     };
     writePipPayload(payload);
-    console.error('[TauriLoader][PIP] ② payload written, anim=', !!anim, 'seq=', payload.openSeq);
     try {
       const pipWin = await ensurePipWindow();
-      console.error('[TauriLoader][PIP] ③ ensured window label=', pipWin.label);
       try {
         if (anim) {
           await pipWin.setPosition(new LogicalPosition(anim.from.x, anim.from.y));
@@ -422,9 +419,8 @@ export function PlayerHost() {
         }
       } catch {}
       await emit('pip://open', payload);
-      console.error('[TauriLoader][PIP] ④ emitted pip://open');
     } catch (err) {
-      console.error('[TauriLoader][PIP] ❺ open fail:', err instanceof Error ? err.message : String(err));
+      console.error('[PlayerHost] 打开画中画窗口失败:', err instanceof Error ? err.message : String(err));
       try {
         localStorage.removeItem(PIP_BOOT_FRAME_KEY);
       } catch {}
