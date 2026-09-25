@@ -3,7 +3,7 @@ export type MediaType = 'MOVIE' | 'TV' | 'VARIETY' | 'ANIME' | 'DOCUMENTARY';
 export type UserUsageType = 'SEARCH_FIRST' | 'NEW_MOVIES' | 'TV_SERIES';
 
 export interface Media {
-  id: string;
+  id: number;
   title: string;
   originalTitle?: string | null;
   alias?: string | null;
@@ -42,8 +42,8 @@ export interface Media {
 }
 
 export interface Episode {
-  id: string;
-  mediaId: string;
+  id: number;
+  mediaId: number;
   seasonNumber: number;
   episodeNumber: number;
   title?: string | null;
@@ -52,8 +52,8 @@ export interface Episode {
 }
 
 export interface PlaySource {
-  id: string;
-  episodeId: string;
+  id: number;
+  episodeId: number;
   sourceId: string;
   sourceName?: string | null;
   url: string;
@@ -85,18 +85,20 @@ export interface VideoSource {
 
 export interface Favorite {
   id: string;
-  mediaId: string;
+  mediaId: number;
   createdAt: string;
 }
 
 export interface WatchHistory {
   id: string;
-  mediaId: string;
-  episodeId?: string | null;
+  mediaId: number;
+  /** 剧集整数 id；电影（哨兵约定）恒为 0（原 'movie' 字符串哨兵）。 */
+  episodeId?: number | null;
   progress: number;
   duration: number;
   sourceId?: string | null;
-  playSourceId?: string | null;
+  /** 播放线路整数 id；看电影时为实际线路 id，与 episodeId=0 哨兵同时使用。 */
+  playSourceId?: number | null;
   updatedAt: string;
 }
 
@@ -151,7 +153,7 @@ export interface ListParams {
   /** 调用方已持有的总命中数（翻页时复用，跳过 COUNT 全表扫）；筛选条件变化时必须置空重计。 */
   knownTotal?: number;
   /** 随机排序时排除的媒体 ID（当前正在播放的媒体）。 */
-  excludeId?: string;
+  excludeId?: number;
 }
 
 /** 列表页 → 详情页跳转携带的来源状态（用于返回还原同一列表状态）。 */

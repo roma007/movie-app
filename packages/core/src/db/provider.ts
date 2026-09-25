@@ -54,25 +54,25 @@ export function mediaMatchesFilters(
  */
 export interface DatabaseProvider {
   // —— Media DAO ——
-  getMediaById(id: string): Promise<Media | null>;
+  getMediaById(id: number): Promise<Media | null>;
   getMediaBySeriesGroup(groupKey: string): Promise<Media[]>;
   getMediaByFingerprint(fingerprint: string): Promise<Media | null>;
   listMedia(params?: ListParams): Promise<PaginatedResponse<Media>>;
   upsertMedia(media: Media): Promise<void>;
   updateMediaStatusAndEpisodes(
-    mediaId: string,
+    mediaId: number,
     status: string,
     currentEpisodes: number | null,
     totalEpisodes: number | null,
     updatedAt: string
   ): Promise<void>;
   /** 更新该片的源侧更新时间（vod_time ISO）与源侧 vod_id，供采集「未变更跳过」对照；仅当值非空时调用。 */
-  updateSourceSync(mediaId: string, sourceUpdatedAt: string | null, vodId: string | null): Promise<void>;
+  updateSourceSync(mediaId: number, sourceUpdatedAt: string | null, vodId: string | null): Promise<void>;
   /** 按源侧 vod_id 精确查片（采集跳过判定用，避开 list 精简响应无指纹输入的问题）。 */
   getMediaByVodId(vodId: string): Promise<Media | null>;
-  updateMediaPoster(mediaId: string, posterUrl: string | null, updatedAt: string): Promise<void>;
+  updateMediaPoster(mediaId: number, posterUrl: string | null, updatedAt: string): Promise<void>;
   updateMediaRating(
-    mediaId: string,
+    mediaId: number,
     data: {
       rating: number | null;
       ratingCount: number | null;
@@ -80,7 +80,7 @@ export interface DatabaseProvider {
       updatedAt: string;
     }
   ): Promise<void>;
-  incrementViewCount(id: string): Promise<void>;
+  incrementViewCount(id: number): Promise<void>;
   searchMedia(
     keyword: string,
     params?: {
@@ -100,24 +100,26 @@ export interface DatabaseProvider {
   hasShortDrama(type?: string): Promise<boolean>;
 
   // —— Episode DAO ——
-  getEpisodesByMediaId(mediaId: string, season?: number, sourceId?: string): Promise<Episode[]>;
-  getEpisodeSourcesByMediaId(mediaId: string, season?: number): Promise<VideoSource[]>;
-  getEpisodeById(id: string): Promise<Episode | null>;
-  upsertEpisode(episode: Episode): Promise<void>;
-  /** 批量 upsert 剧集：单条 multi-row INSERT ... ON CONFLICT，按 chunk 分块执行，用于采集热路径避免逐集 autocommit。语义与逐条 upsertEpisode 等价（同 id 同列）。 */
-  upsertEpisodesBatch(episodes: Episode[]): Promise<void>;
+  getEpisodesByMediaId(mediaId: number, season?: number, sourceId?: string): Promise<Episode[]>;
+  getEpisodeSourcesByMediaId(mediaId: number, season?: number): Promise<VideoSource[]>;
+  getEpisodeById(id: number): Promise<Episode | null>;
+  /** 单条 upsert（业务唯一键 media_id+season+ep+source 冲突合并）；返回该集实际入库的整数 id（新插入或已存在）。 */
+  upsertEpisode(episode: Episode): Promise<number>;
+  /** 批量 upsert 剧集（业务唯一键冲突合并）。返回按业务键的 id 映射，key 为 `${seasonNumber}:${episodeNumber}:${sourceId || ''}`，
+   *  供调用方把 play_source.episode_id 指向入库后的整数 id（原字符串 id 生成已移除，id 改由 DB 分配）。 */
+  upsertEpisodesBatch(episodes: Episode[]): Promise<Map<string, number>>;
   /** 写入单集已探测到的视频时长（秒），供播放页剧集列表复用，避免重复探测。 */
-  updateEpisodeDuration(episodeId: string, duration: number | null): Promise<void>;
-  deleteEpisodesByMediaIdAndSourceId(mediaId: string, sourceId: string): Promise<void>;
+  updateEpisodeDuration(episodeId: number, duration: number | null): Promise<void>;
+  deleteEpisodesByMediaIdAndSourceId(mediaId: number, sourceId: string): Promise<void>;
   /** 判断指定媒体+源下是否存在「版本合并痕迹」（play_source.language 非空），用于 commitItem 保护：存在时跳过先删后写，防止覆盖已追加的其他语言线路。 */
-  hasVersionEpisodes(mediaId: string, sourceId: string): Promise<boolean>;
-  getSeasonsByMediaId(mediaId: string): Promise<number[]>;
+  hasVersionEpisodes(mediaId: number, sourceId: string): Promise<boolean>;
+  getSeasonsByMediaId(mediaId: number): Promise<number[]>;
 
   // —— Media 批量操作 ——
   deleteAllMedia(): Promise<void>;
   deletePlaySourcesBySourceId(sourceId: string): Promise<void>;
   getMediaCountBySourceIdMap(): Promise<Map<string, number>>;
-  deleteMediaCompletely(mediaId: string): Promise<void>;
+  deleteMediaCompletely(mediaId: number): Promise<void>;
   deleteMediaWithoutPlaySource(): Promise<number>;
   deleteNonMediaPlaySources(): Promise<number>;
   hideMediaByGenres(genres: string[]): Promise<{ hidden: number }>;
@@ -129,14 +131,14 @@ export interface DatabaseProvider {
   getUncategorizedCount(type?: string, includeHidden?: boolean): Promise<number>;
 
   // —— PlaySource DAO ——
-  getPlaySourcesByEpisodeId(episodeId: string): Promise<PlaySource[]>;
+  getPlaySourcesByEpisodeId(episodeId: number): Promise<PlaySource[]>;
   /** 合并保护：返回指定媒体+源下已入库的全部线路 URL，用于判定是否存在「非本轮写入」的外部线路（追加自其他版本条目）。 */
-  getPlaySourceUrlsByMediaAndSource(mediaId: string, sourceId: string): Promise<string[]>;
+  getPlaySourceUrlsByMediaAndSource(mediaId: number, sourceId: string): Promise<string[]>;
   upsertPlaySource(playSource: PlaySource): Promise<void>;
-  /** 批量 upsert 播放源：单条 multi-row INSERT ... ON CONFLICT 分块，语义与逐条 upsertPlaySource 等价。 */
+  /** 批量 upsert 播放源（业务唯一键 episode_id+url 冲突合并）。 */
   upsertPlaySourcesBatch(playSources: PlaySource[]): Promise<void>;
   /** 播放页语言层：返回指定 media 下全部「语言 ↔ 剧集 ↔ 片源」去重映射，一次查询构建语言集合与语言→源→剧集过滤关系。 */
-  getPlaySourceLanguagesByMedia(mediaId: string): Promise<{ language: string; episodeId: string; sourceId: string }[]>;
+  getPlaySourceLanguagesByMedia(mediaId: number): Promise<{ language: string; episodeId: number; sourceId: string }[]>;
 
   // —— VideoSource DAO ——
   getAllVideoSources(): Promise<VideoSource[]>;
@@ -160,39 +162,39 @@ export interface DatabaseProvider {
 
   // —— Favorite DAO ——
   getAllFavorites(): Promise<Favorite[]>;
-  isFavorite(mediaId: string): Promise<boolean>;
-  addFavorite(mediaId: string): Promise<void>;
-  removeFavorite(mediaId: string): Promise<void>;
-  toggleFavorite(mediaId: string): Promise<boolean>;
+  isFavorite(mediaId: number): Promise<boolean>;
+  addFavorite(mediaId: number): Promise<void>;
+  removeFavorite(mediaId: number): Promise<void>;
+  toggleFavorite(mediaId: number): Promise<boolean>;
 
   // —— WatchHistory DAO ——
   getAllWatchHistory(page?: number, pageSize?: number): Promise<WatchHistory[]>;
   getWatchHistoryCount(): Promise<number>;
-  getAllWatchHistoryByMediaId(mediaId: string): Promise<WatchHistory[]>;
-  getWatchHistoryByEpisodeId(mediaId: string, episodeId: string): Promise<WatchHistory | null>;
+  getAllWatchHistoryByMediaId(mediaId: number): Promise<WatchHistory[]>;
+  getWatchHistoryByEpisodeId(mediaId: number, episodeId: number): Promise<WatchHistory | null>;
   upsertWatchHistory(
-    mediaId: string,
-    episodeId: string | null,
+    mediaId: number,
+    episodeId: number | null,
     progress: number,
     duration: number,
     sourceId?: string | null,
-    playSourceId?: string | null,
+    playSourceId?: number | null,
   ): Promise<void>;
   clearWatchHistory(): Promise<void>;
-  deleteWatchHistory(mediaId: string): Promise<void>;
+  deleteWatchHistory(mediaId: number): Promise<void>;
 
   // —— WatchLineProgress DAO（按「媒体+剧集+线路」独立记忆的播放进度） ——
   /** 读取指定线路在该集的历史进度；无记录返回 null。 */
   getWatchLineProgressByPlaySource(
-    mediaId: string,
-    episodeId: string,
-    playSourceId: string
+    mediaId: number,
+    episodeId: number,
+    playSourceId: number
   ): Promise<WatchHistory | null>;
   /** 写入/更新指定线路在该集的进度（复合主键 upsert）。 */
   upsertWatchLineProgress(
-    mediaId: string,
-    episodeId: string,
-    playSourceId: string,
+    mediaId: number,
+    episodeId: number,
+    playSourceId: number,
     progress: number,
     duration: number,
     sourceId?: string | null,
@@ -207,7 +209,7 @@ export interface DatabaseProvider {
 
   // —— Recommendation DAO ——
   /** 批量记录列表展示（跨会话累计 shown_count，UPSERT 合并）。返回到达惩罚边界（shown_count 3/6）的 mediaId 列表，供调度方触发重算。 */
-  recordImpressions(items: { mediaId: string; shownAt: string }[]): Promise<string[]>;
+  recordImpressions(items: { mediaId: number; shownAt: string }[]): Promise<number[]>;
   /** 重建用户兴趣标签表（先清空后批量插入）。 */
   replaceUserInterestTags(rows: {
     tag: string;
@@ -216,28 +218,21 @@ export interface DatabaseProvider {
     sampleCount: number;
     updatedAt: string;
   }[]): Promise<void>;
-  /** 重建推荐快照表（先清空后批量插入，分块写）。 */
-  replaceRecommendationSnapshot(rows: {
-    mediaId: string;
-    position: number;
-    score: number;
-    genreGroup: string;
-  }[]): Promise<void>;
   /** 重建推荐候选表（候选召回归一：推荐排序数据源，先清空后批量插入，分块写）。 */
   replaceRecommendationCandidates(rows: {
-    mediaId: string;
+    mediaId: number;
     position: number;
     score: number;
     genreGroup: string;
   }[]): Promise<void>;
-  /** 清空 impression、user_interest_tag、recommend_snapshot、recommend_candidates（「清空重学」数据部分）。 */
+  /** 清空 impression、user_interest_tag、recommend_candidates（「清空重学」数据部分）。 */
   resetRecommendationData(): Promise<void>;
 
   // —— Dislike DAO（不感兴趣） ——
   /** 不感兴趣列表详情（含影片标题，供设置页展示）。 */
-  getDislikedMediaDetail(): Promise<{ mediaId: string; title: string; createdAt: string }[]>;
-  addDislike(mediaId: string): Promise<void>;
-  removeDislike(mediaId: string): Promise<void>;
+  getDislikedMediaDetail(): Promise<{ mediaId: number; title: string; createdAt: string }[]>;
+  addDislike(mediaId: number): Promise<void>;
+  removeDislike(mediaId: number): Promise<void>;
 
   // —— InterestTagBlacklist DAO（兴趣标签黑名单） ——
   getInterestTagBlacklist(): Promise<{ tag: string; tagType: string; createdAt: string }[]>;

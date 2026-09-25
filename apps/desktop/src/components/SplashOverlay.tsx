@@ -9,6 +9,8 @@ function isLandscapeWindow(): boolean {
 interface SplashOverlayProps {
   /** initApp 是否已完成（主应用可渲染、数据库就绪）。 */
   ready: boolean;
+  /** 主键 INTEGER 数据库升级进行中：全屏占位（不透明背景 + 提示文案 + 转圈）。 */
+  migrating?: boolean;
 }
 
 const LOGO_MS = 1500;
@@ -23,7 +25,7 @@ const FADE_OUT_MS = 400;
  * - 自动消失：首页四大板块数据就绪（homeReady）后淡出；AD_TIMEOUT_MS 超时兜底；
  * - 主应用渲染在其下层，首页数据在广告展示期间后台加载。
  */
-export function SplashOverlay({ ready }: SplashOverlayProps) {
+export function SplashOverlay({ ready, migrating = false }: SplashOverlayProps) {
   const phase = getSplashStore()((s) => s.phase);
   const homeReady = getSplashStore()((s) => s.homeReady);
   const setPhase = getSplashStore()((s) => s.setPhase);
@@ -108,6 +110,21 @@ export function SplashOverlay({ ready }: SplashOverlayProps) {
 
   return (
     <div className="fixed inset-0 z-[999] select-none">
+      {/* 数据库升级占位层（主键 INTEGER 迁移期间）：不透明全屏，禁止误关闭 */}
+      {migrating && (
+        <div className="absolute inset-0 z-[1002] flex flex-col items-center justify-center bg-[#0b0f19]">
+          <img
+            src="/logo.png"
+            alt="logo"
+            draggable={false}
+            className="h-28 w-28 rounded-2xl object-cover shadow-2xl"
+          />
+          <div className="mt-4 text-lg font-bold tracking-wide text-white/90">MovieApp</div>
+          <div className="mt-6 text-sm text-white/80">正在升级数据库，请勿关闭应用，预计约 2 分钟</div>
+          <div className="mt-4 h-6 w-6 animate-spin rounded-full border-2 border-white/25 border-t-white/90" />
+        </div>
+      )}
+
       {/* 欢迎页（logo）layer */}
       <div
         className="absolute inset-0 flex flex-col items-center justify-center bg-[#0b0f19] transition-opacity duration-300"

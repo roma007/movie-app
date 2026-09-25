@@ -45,18 +45,19 @@ export default function App() {
 function MainApp() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 主键 INTEGER 升级进行中：全屏占位，且初始化超时窗口放宽（迁移可能数分钟）
+  const [migrating, setMigrating] = useState(false);
 
   useEffect(() => {
+    if (ready || error) return;
     const timeoutId = setTimeout(() => {
-      if (!ready) {
-        console.error('初始化超时');
-        setError('初始化超时');
-        setReady(true);
-      }
-    }, 120000);
+      console.error('初始化超时');
+      setError('初始化超时');
+      setReady(true);
+    }, migrating ? 30 * 60 * 1000 : 120000);
 
     // 静默初始化：不再显示「正在加载/数据库步骤」文字，由欢迎页覆盖层承接
-    initApp()
+    initApp(undefined, (running) => setMigrating(running))
       .then(() => {
         clearTimeout(timeoutId);
         console.log('初始化成功');
@@ -72,7 +73,7 @@ function MainApp() {
     return () => {
       clearTimeout(timeoutId);
     };
-  }, []);
+  }, [ready, error, migrating]);
 
   if (error) {
     return (
@@ -127,7 +128,7 @@ function MainApp() {
           </ThemeProvider>
         )}
       </div>
-      <SplashOverlay ready={ready} />
+      <SplashOverlay ready={ready} migrating={migrating} />
     </>
   );
 }

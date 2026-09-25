@@ -93,14 +93,23 @@ function formatSignedTime(seconds: number): string {
 }
 
 export default function PlayScreen({ route, navigation }: Props) {
-  const { episodeId, mediaId: paramMediaId, sourceId: paramSourceId, playSourceId: paramPlaySourceId, title: paramTitle, playContext: paramPlayContext } = route.params;
+  const {
+    episodeId: paramEpisodeId,
+    mediaId: paramMediaId,
+    sourceId: paramSourceId,
+    playSourceId: paramPlaySourceId,
+    title: paramTitle,
+    playContext: paramPlayContext,
+  } = route.params;
+  const episodeId = Number(paramEpisodeId);
+  const mediaIdParam = paramMediaId ? Number(paramMediaId) : null;
   const {
     saveWatchProgress, episodes, episodesLoading, seasons, episodeSources, seriesMedia,
     loadEpisodes, loadSeasons, loadEpisodeSources, loadSeriesMedia,
     currentMedia, isRatingLoading, toggleDislike, isDisliked: checkDisliked, hideMediaByGenres, fetchMediaRating, loadMediaDetail,
   } = useAppStore();
 
-  const [mediaId, setMediaId] = useState<string | null>(paramMediaId || null);
+  const [mediaId, setMediaId] = useState<number | null>(mediaIdParam);
   const [currentEpisodeId, setCurrentEpisodeId] = useState(episodeId);
   const [currentTitle, setCurrentTitle] = useState(paramTitle || '');
   // 播放来源上下文：决定上下滑切换行为（list/search/recommend 按序，null 视为 random 随机）
@@ -119,7 +128,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   // 避免闭包取到第一帧的陈旧值导致存错集/线路
   const currentEpisodeIdRef = useRef(currentEpisodeId);
   currentEpisodeIdRef.current = currentEpisodeId;
-  const currentMediaIdRef = useRef<string | null>(mediaId);
+  const currentMediaIdRef = useRef<number | null>(mediaId);
   currentMediaIdRef.current = mediaId;
   const selectedSourceIdRef = useRef<string | null>(selectedSourceId);
   selectedSourceIdRef.current = selectedSourceId;
@@ -143,7 +152,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   const [activePlayIdx, setActivePlayIdx] = useState(0);
   const activePlayIdxRef = useRef(activePlayIdx);
   const [selectedLang, setSelectedLang] = useState<string | null>(null);
-  const [tvLangInfo, setTvLangInfo] = useState<{ language: string; episodeId: string; sourceId: string }[]>([]);
+  const [tvLangInfo, setTvLangInfo] = useState<{ language: string; episodeId: number; sourceId: string }[]>([]);
   activePlayIdxRef.current = activePlayIdx;
   const [videoUrl, setVideoUrl] = useState('');
   // 同 URL 强制重载标记：setVideoUrl 相同值被 React bail-out 时不触发 replace effect，
@@ -232,7 +241,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   const appFullVideoRef = useRef<VideoView>(null);
 
   // 功能2: 已看剧集
-  const [watchedEpisodes, setWatchedEpisodes] = useState<Set<string>>(new Set());
+  const [watchedEpisodes, setWatchedEpisodes] = useState<Set<number>>(new Set());
 
   // 逐集真实时长探测
   const [episodeDurations, setEpisodeDurations] = useState<Record<string, number | null>>({});
@@ -713,7 +722,7 @@ export default function PlayScreen({ route, navigation }: Props) {
         writePrefetchFile(playbackConfig.prefetchConcurrency);
 
         // 已看剧集
-        const watched = new Set<string>();
+        const watched = new Set<number>();
         for (const h of allHistory) {
           if (h.episodeId && h.episodeId !== m?.id && (h.progress > 60 || (h.duration > 0 && h.progress / h.duration >= 0.1))) {
             watched.add(h.episodeId);
@@ -1473,7 +1482,7 @@ export default function PlayScreen({ route, navigation }: Props) {
   // ── 上下滑切换视频（类抖音） ─────────────────────────────────────────
   // 决策树：电视剧/综艺优先切集；有序列表（list/search/recommend）按序切换；
   // 集数到尽头 / 列表到边界 / 无列表上下文（random）→ 随机播放【当前类型】。
-  const switchToMediaById = async (targetMediaId: string, newIndex: number) => {
+  const switchToMediaById = async (targetMediaId: number, newIndex: number) => {
     pressActionsRef.current.resetLocked();
     try {
       const provider = getProvider();
@@ -2229,7 +2238,7 @@ if (st.phase === 'longpress' && (st.zone === 'left' || st.zone === 'right')) {
     };
   }, []);
 
-  const seasonToMediaMap = new Map<number, string>();
+  const seasonToMediaMap = new Map<number, number>();
   seriesMedia.forEach(m => {
     if (m.seriesSeason) seasonToMediaMap.set(m.seriesSeason, m.id);
   });

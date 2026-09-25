@@ -84,7 +84,7 @@ export interface ReprobePollState {
     longDrama: number;
     shortDrama: number;
     failed: number;
-    failedItems: { id: string; title: string }[];
+    failedItems: { id: number; title: string }[];
   } | null;
 }
 
@@ -119,7 +119,7 @@ export interface AppState {
   } | null;
   reprobePoll: ReprobePollState | null;
   reprobeMediaCount: number;
-  reprobeMediaList: { id: string; title: string }[];
+  reprobeMediaList: { id: number; title: string }[];
   runningReprobeTask: CollectTask | null;
 
   collectSourceProgress: Array<{
@@ -143,14 +143,14 @@ export interface AppState {
   getSubTypesByType: (type?: string, includeHidden?: boolean, firstOnly?: boolean) => Promise<string[]>;
   getYearsByType: (type?: string) => Promise<number[]>;
   getAreasByType: (type?: string) => Promise<string[]>;
-  loadMediaDetail: (id: string) => Promise<void>;
-  fetchMediaRating: (id: string) => Promise<void>;
-  loadEpisodes: (mediaId: string, season?: number, sourceId?: string) => Promise<void>;
-  loadSeasonEpisodes: (mediaId: string, season: number) => Promise<string | null>;
-  loadPlaySources: (episodeId: string) => Promise<void>;
-  loadSeasons: (mediaId: string) => Promise<void>;
-  loadSeriesMedia: (mediaId: string) => Promise<void>;
-  loadEpisodeSources: (mediaId: string, season?: number) => Promise<void>;
+  loadMediaDetail: (id: number) => Promise<void>;
+  fetchMediaRating: (id: number) => Promise<void>;
+  loadEpisodes: (mediaId: number, season?: number, sourceId?: string) => Promise<void>;
+  loadSeasonEpisodes: (mediaId: number, season: number) => Promise<string | null>;
+  loadPlaySources: (episodeId: number) => Promise<void>;
+  loadSeasons: (mediaId: number) => Promise<void>;
+  loadSeriesMedia: (mediaId: number) => Promise<void>;
+  loadEpisodeSources: (mediaId: number, season?: number) => Promise<void>;
   searchMedia: (keyword: string, params?: {
     page?: number;
     pageSize?: number;
@@ -159,7 +159,7 @@ export interface AppState {
     area?: string;
     genre?: string;
   }) => Promise<void>;
-  incrementView: (id: string) => Promise<void>;
+  incrementView: (id: number) => Promise<void>;
 
   loadVideoSources: () => Promise<void>;
   toggleSourceEnabled: (id: string, enabled: boolean) => Promise<void>;
@@ -169,20 +169,20 @@ export interface AppState {
   validateImportSources: (items: ImportSourceItem[]) => Promise<ParsedImportSource[]>;
 
   loadFavorites: () => Promise<void>;
-  checkFavorite: (mediaId: string) => Promise<boolean>;
-  toggleFav: (mediaId: string) => Promise<boolean>;
+  checkFavorite: (mediaId: number) => Promise<boolean>;
+  toggleFav: (mediaId: number) => Promise<boolean>;
 
   loadWatchHistory: (page?: number) => Promise<void>;
   saveWatchProgress: (
-    mediaId: string,
-    episodeId: string | null,
+    mediaId: number,
+    episodeId: number | null,
     progress: number,
     duration: number,
     sourceId?: string | null,
-    playSourceId?: string | null,
+    playSourceId?: number | null,
   ) => Promise<void>;
   clearHistory: () => Promise<void>;
-  removeHistoryItem: (mediaId: string) => Promise<void>;
+  removeHistoryItem: (mediaId: number) => Promise<void>;
 
   // —— 「越看越懂你」推荐 ——
   /** 事件触发：合并多次事件后执行一次全量重算（带节流，内部串行）。 */
@@ -195,9 +195,9 @@ export interface AppState {
   /** 获取设置页「推荐偏好」概览。 */
   getRecommendationOverview: () => Promise<RecommendationOverview>;
   /** 查询某 media 是否已标记不感兴趣。 */
-  isDisliked: (mediaId: string) => Promise<boolean>;
+  isDisliked: (mediaId: number) => Promise<boolean>;
   /** 切换不感兴趣（写库 + 触发重算），返回切换后的状态。 */
-  toggleDislike: (mediaId: string) => Promise<boolean>;
+  toggleDislike: (mediaId: number) => Promise<boolean>;
   /** 不感兴趣列表详情（设置页展示）。 */
   getDislikedMedia: () => Promise<DislikedMediaItem[]>;
   /** 兴趣标签黑名单列表。 */
@@ -243,7 +243,7 @@ hasShortDrama: (type?: string) => Promise<boolean>;
     longDrama: number;
     shortDrama: number;
     failed: number;
-    failedItems: { id: string; title: string }[];
+    failedItems: { id: number; title: string }[];
   }>;
   getFullReprobeMediaCount: () => Promise<number>;
   startReprobeTask: () => Promise<string>;
@@ -368,7 +368,7 @@ export function createAppStore(db: DatabaseProvider) {
       return withMediaFilterCache(`areas:${kid}:${type ?? ''}`, () => db.getAreasByType(type));
     },
 
-    loadMediaDetail: async (id: string) => {
+    loadMediaDetail: async (id: number) => {
       set({ isLoading: true, error: null });
       try {
         const media = await db.getMediaById(id);
@@ -380,7 +380,7 @@ export function createAppStore(db: DatabaseProvider) {
       }
     },
 
-    fetchMediaRating: async (id: string) => {
+    fetchMediaRating: async (id: number) => {
       try {
         const media = await db.getMediaById(id);
         if (!media) return;
@@ -397,7 +397,7 @@ export function createAppStore(db: DatabaseProvider) {
       }
     },
 
-    loadEpisodes: async (mediaId: string, season: number = 1, sourceId?: string) => {
+    loadEpisodes: async (mediaId: number, season: number = 1, sourceId?: string) => {
       set({ episodesLoading: true });
       try {
         const episodes = await db.getEpisodesByMediaId(mediaId, season, sourceId);
@@ -407,7 +407,7 @@ export function createAppStore(db: DatabaseProvider) {
       }
     },
 
-    loadSeasonEpisodes: async (mediaId: string, season: number) => {
+    loadSeasonEpisodes: async (mediaId: number, season: number) => {
       try {
         const sources = await db.getEpisodeSourcesByMediaId(mediaId, season);
         let episodes: any[] = [];
@@ -424,7 +424,7 @@ export function createAppStore(db: DatabaseProvider) {
       }
     },
 
-    loadEpisodeSources: async (mediaId: string, season?: number) => {
+    loadEpisodeSources: async (mediaId: number, season?: number) => {
       try {
         const sources = await db.getEpisodeSourcesByMediaId(mediaId, season);
         set({ episodeSources: sources });
@@ -433,7 +433,7 @@ export function createAppStore(db: DatabaseProvider) {
       }
     },
 
-    loadPlaySources: async (episodeId: string) => {
+    loadPlaySources: async (episodeId: number) => {
       try {
         const sources = await db.getPlaySourcesByEpisodeId(episodeId);
         set({ playSources: sources });
@@ -442,7 +442,7 @@ export function createAppStore(db: DatabaseProvider) {
       }
     },
 
-    loadSeasons: async (mediaId: string) => {
+    loadSeasons: async (mediaId: number) => {
       try {
         const seasons = await db.getSeasonsByMediaId(mediaId);
         set({ seasons });
@@ -451,7 +451,7 @@ export function createAppStore(db: DatabaseProvider) {
       }
     },
 
-    loadSeriesMedia: async (mediaId: string) => {
+    loadSeriesMedia: async (mediaId: number) => {
       try {
         const media = await db.getMediaById(mediaId);
         if (!media?.seriesGroup) {
@@ -477,7 +477,7 @@ export function createAppStore(db: DatabaseProvider) {
       }
     },
 
-    incrementView: async (id: string) => {
+    incrementView: async (id: number) => {
       try {
         await db.incrementViewCount(id);
       } catch (err) {
@@ -568,11 +568,11 @@ export function createAppStore(db: DatabaseProvider) {
       }
     },
 
-    checkFavorite: async (mediaId: string) => {
+    checkFavorite: async (mediaId: number) => {
       return await db.isFavorite(mediaId);
     },
 
-    toggleFav: async (mediaId: string) => {
+    toggleFav: async (mediaId: number) => {
       const result = await db.toggleFavorite(mediaId);
       await get().loadFavorites();
       return result;
@@ -599,19 +599,19 @@ export function createAppStore(db: DatabaseProvider) {
     },
 
     saveWatchProgress: async (
-      mediaId: string,
-      episodeId: string | null,
+      mediaId: number,
+      episodeId: number | null,
       progress: number,
       duration: number,
       sourceId?: string | null,
-      playSourceId?: string | null,
+      playSourceId?: number | null,
     ) => {
       try {
         await db.upsertWatchHistory(mediaId, episodeId, progress, duration, sourceId, playSourceId);
         if (playSourceId) {
           await db.upsertWatchLineProgress(
             mediaId,
-            episodeId || 'movie',
+            episodeId ?? 0,
             playSourceId,
             progress,
             duration,
@@ -621,7 +621,7 @@ export function createAppStore(db: DatabaseProvider) {
         const count = await db.getWatchHistoryCount();
         set((state) => {
           const now = new Date().toISOString();
-          const id = `wh_${mediaId}_${episodeId || 'movie'}`;
+          const id = `wh_${mediaId}_${episodeId ?? 0}`;
           const existingIndex = state.watchHistory.findIndex(h => h.mediaId === mediaId);
           const updatedItem = { id, mediaId, episodeId, progress, duration, sourceId, playSourceId, updatedAt: now };
           let newHistory;
@@ -648,7 +648,7 @@ export function createAppStore(db: DatabaseProvider) {
       }
     },
 
-    removeHistoryItem: async (mediaId: string) => {
+    removeHistoryItem: async (mediaId: number) => {
       try {
         await db.deleteWatchHistory(mediaId);
         await get().loadWatchHistory();
@@ -677,11 +677,11 @@ export function createAppStore(db: DatabaseProvider) {
       return recommendationService.getOverview();
     },
 
-    isDisliked: async (mediaId: string) => {
+    isDisliked: async (mediaId: number) => {
       return recommendationService.isDisliked(mediaId);
     },
 
-    toggleDislike: async (mediaId: string) => {
+    toggleDislike: async (mediaId: number) => {
       try {
         return await recommendationService.toggleDislike(mediaId);
       } finally {

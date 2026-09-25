@@ -2,9 +2,9 @@ import type { DatabaseProvider } from '../db/provider';
 import type { Media, WatchHistory } from '../types';
 
 export interface DefaultPlayTarget {
-  episodeId: string;
+  episodeId: number;
   sourceId: string;
-  playSourceId?: string | null;
+  playSourceId?: number | null;
 }
 
 /**
@@ -36,11 +36,11 @@ export async function resolveDefaultPlayTarget(
 
   let chosen: (typeof sorted)[number] | null = null;
   let preferredSourceId: string | null = null;
-  let preferredPlaySourceId: string | null = null;
+  let preferredPlaySourceId: number | null = null;
 
   try {
     const history = await provider.getAllWatchHistoryByMediaId(media.id);
-    const lastByEpisode = new Map<string, WatchHistory>();
+    const lastByEpisode = new Map<number, WatchHistory>();
     for (const h of history) {
       if (!h.episodeId || h.episodeId === media.id) continue;
       if (h.progress <= 0) continue;

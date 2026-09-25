@@ -88,7 +88,7 @@ export default function RecommendationSettingsScreen({ navigation }: Props) {
     }
   };
 
-  const handleRemoveDislike = async (mediaId: string) => {
+  const handleRemoveDislike = async (mediaId: number) => {
     try {
       await toggleDislike(mediaId);
       await loadLists();

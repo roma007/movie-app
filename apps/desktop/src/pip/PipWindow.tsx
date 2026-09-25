@@ -31,7 +31,7 @@ export interface PipPayload {
   title: string;
   episodeLabel: string;
   sources: PlaySource[];
-  playSourceId: string | null;
+  playSourceId: number | null;
   currentTime: number;
   volume: number;
   muted: boolean;
@@ -113,7 +113,7 @@ function PipRoot() {
   const win = useMemo(() => getCurrentWebviewWindow(), []);
   const initialData = useMemo(() => readPipPayload<PipPayload>(), []);
   const [data, setData] = useState<PipPayload | null>(initialData);
-  const [playSourceId, setPlaySourceId] = useState<string | null>(initialData?.playSourceId ?? null);
+  const [playSourceId, setPlaySourceId] = useState<number | null>(initialData?.playSourceId ?? null);
   const playerRef = useRef<MediaPlayerInstance>(null);
   const lastTimeEmitRef = useRef(0);
   const lastNextEmitRef = useRef<{ id: string; at: number }>({ id: '', at: 0 });
@@ -454,7 +454,7 @@ function PipRoot() {
     };
 
   const handleSourceSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const src = data?.sources.find((s) => s.id === e.target.value);
+    const src = data?.sources.find((s) => s.id === Number(e.target.value));
     if (!src || !data) return;
     void emit('pip://source', { id: src.id, sourceId: src.sourceId });
   };

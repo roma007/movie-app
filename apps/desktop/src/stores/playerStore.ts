@@ -4,18 +4,18 @@ import { getProvider, getStore } from '../init';
 import { prefetchManager } from '../components/player/PrefetchManager';
 
 export interface PlaybackSession {
-  episodeId: string;
+  episodeId: number;
   media: Media | null;
   episode: Episode | null;
   sources: PlaySource[];
-  playSourceId: string | null;
+  playSourceId: number | null;
   selectedSourceId: string | null;
   currentTime: number;
   loading: boolean;
-  nextEpisode: { id: string; title?: string | null; episodeNumber: number } | null;
+  nextEpisode: { id: number; title?: string | null; episodeNumber: number } | null;
   outroThresholdMinutes: number;
   showNextEpisodeOverlay: boolean;
-  watchedEpisodes: string[];
+  watchedEpisodes: number[];
   /** 儿童模式下拦截播放的原因；非空时播放器不启动。 */
   blockedReason?: string;
 }
@@ -34,13 +34,13 @@ interface PlayerState {
   muted: boolean;
 
   setVolume: (volume: number, muted: boolean) => void;
-  openPlayback: (episodeId: string, opts?: { sourceId?: string | null; playSourceId?: string | null; keepPipActive?: boolean }) => Promise<void>;
-  switchEpisode: (episodeId: string, opts?: { keepPipActive?: boolean }) => Promise<void>;
-  switchEpisodeKeepPip: (episodeId: string) => Promise<void>;
+  openPlayback: (episodeId: number, opts?: { sourceId?: string | null; playSourceId?: number | null; keepPipActive?: boolean }) => Promise<void>;
+  switchEpisode: (episodeId: number, opts?: { keepPipActive?: boolean }) => Promise<void>;
+  switchEpisodeKeepPip: (episodeId: number) => Promise<void>;
   closePlayback: () => Promise<void>;
   switchCmsSource: (sourceId: string) => Promise<void>;
   handleSourceChange: (source: PlaySource) => void;
-  switchLineWithResume: (lineId: string) => Promise<void>;
+  switchLineWithResume: (lineId: number) => Promise<void>;
   flushProgress: () => Promise<void>;
   handleTimeUpdate: (currentTime: number, duration: number) => void;
   updateNextEpisode: () => void;
@@ -237,7 +237,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
 
       let savedEp: WatchHistory | null = null;
       let resume = 0;
-      let watched: string[] = [];
+      let watched: number[] = [];
       let outro = 10;
       let showOverlay = true;
       if (media) {
@@ -258,7 +258,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
                 h.episodeId !== media.id &&
                 (h.progress > 60 || (h.duration > 0 && h.progress / h.duration >= 0.1)),
             )
-            .map((h) => h.episodeId as string);
+            .map((h) => h.episodeId as number);
           savedEp = await provider.getWatchHistoryByEpisodeId(media.id, ep.id);
         } catch (err) {
           console.error('[playerStore] 读取观看配置/历史失败:', err);
@@ -268,7 +268,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
 
       // 播放线路恢复：显式传入线路 → 该集历史上一次线路（progress>0）→ 该源首条。
       // 匹配要求该线路属于解析出的有效源，防止跨源串线。
-      let playSourceId: string | null = null;
+      let playSourceId: number | null = null;
       const prefLine =
         opts?.playSourceId ??
         (savedEp && savedEp.progress > 0 ? savedEp.playSourceId : null) ??

@@ -6,7 +6,7 @@ import type { DatabaseProvider } from '../db/provider';
  * 原理：从应用自身数据（watch_history / favorite / impression / search_history）
  * 构建用户兴趣标签画像 user_interest_tag，然后**候选召回归一**：
  * 每轮重算只对「召回候选集」（行为相关 ∪ 画像命中 ∪ 探索最新，几千行）现算分并重排，
- * 生成全部候选序落 recommend_candidates（UI「推荐」数据源），前 snapshotLimit 作为精选快照。
+ * 生成全部候选序落 recommend_candidates（UI「推荐」数据源）。
  * **任何时刻都不对全库打分/物化**（v5 删除 personal_score 全表物化维护）。
  * 重算幂等：给定行为数据 + 候选集，结果确定；行为/画像/新采集变化才进入重算。
  *
@@ -15,7 +15,7 @@ import type { DatabaseProvider } from '../db/provider';
  *   - 移除子分类降权（penalized）：不再按子分类弃看率整部 -15。
  *   - genre 归一化：剧情片/剧情、喜剧片/喜剧、动作片/动作 等价标签统一，消除信号重复污染。
  *   - 搜索词噪声清洗：纯年份/语种/格式词不再进 keyword 画像。
- *   - 性能：快照限量 snapshotLimit、打散仅在高分池 highScorePoolSize 内进行（避免全量 22 万级
+ *   - 性能：打散仅在高分池 highScorePoolSize 内进行（避免全量 22 万级
  *     桶排序开销）、探索池限量 explorePoolLimit、启动增量状态从 user_interest_tag 读回
  *     （不再进程重启即全量）、新增 media 判据改用 media_change_log、算法版本号 forceFull 一次
  *     保证升级一致性。
@@ -67,8 +67,8 @@ function hashString(s: string): number {
   return h >>> 0;
 }
 
-function jitter(id: string): number {
-  return ((hashString(id) % 100) / 100) * RECOMMEND_PARAMS.jitterStrength;
+function jitter(id: number): number {
+  return ((hashString(String(id)) % 100) / 100) * RECOMMEND_PARAMS.jitterStrength;
 }
 
 /** 完播分值按时长分档：短剧单集 +8、常规剧集/短电影 +10、长电影 +12。 */
@@ -119,9 +119,7 @@ export const RECOMMEND_PARAMS = {
   castTagMaxPerMedia: 10,
   /** 概览兴趣标签 abs(strength) 下限（过滤噪声）。 */
   overviewStrengthFloor: 0.5,
-  /** 推荐快照限量：桌面 30/页≈16 页、移动 20/页≈25 页，满足「翻 10 页」体验。 */
-  snapshotLimit: 500,
-  /** 推荐候选集限量（UI「推荐」数据源，越大筛选命中越多；写入/翻页成本随其线性增长）。 */
+/** 候选推荐集限量（UI「推荐」数据源，越大筛选命中越多；写入/翻页成本随其线性增长）。 */
   candidateSize: 2000,
   /** 进入线性打散的高分候选池规模（远小于全量，控制打散成本）。 */
   highScorePoolSize: 1500,
@@ -141,7 +139,7 @@ export const RECOMMEND_PARAMS = {
 
 /** 不感兴趣列表项（设置页展示）。 */
 export interface DislikedMediaItem {
-  mediaId: string;
+  mediaId: number;
   title: string;
   createdAt: string;
 }
@@ -159,7 +157,7 @@ export interface RecommendationOverview {
   penalizedSubtypes: string[];
   topInterestTags: { tag: string; type: string; strength: number }[];
   /** 当前推荐候选 top（为你推荐靠前，来自候选表）。 */
-  topMedia: { id: string; title: string; score: number }[];
+  topMedia: { id: number; title: string; score: number }[];
   searchKeywordCount: number;
   impressionMediaCount: number;
   /** 已标记不感兴趣的影片数。 */
@@ -478,7 +476,7 @@ export class RecommendationService {
   /**
    * 记录媒体变化（供外部调用）
    */
-  async recordMediaChange(mediaId: string, changeType: string): Promise<void> {
+  async recordMediaChange(mediaId: number, changeType: string): Promise<void> {
     try {
       await this.db.execute(
         `INSERT OR REPLACE INTO media_change_log (media_id, change_type, created_at)
@@ -868,7 +866,6 @@ export class RecommendationService {
       ? this.reorder(scores, candRows, watchedMedia, favorites, recentWatched, excludedCompleted, disliked, RECOMMEND_PARAMS.candidateSize)
       : [];
     await this.db.replaceRecommendationCandidates(ordered.slice(0, RECOMMEND_PARAMS.candidateSize));
-    await this.db.replaceRecommendationSnapshot(ordered.slice(0, RECOMMEND_PARAMS.snapshotLimit));
 
     // 重算完成后清空变化日志
     await this.clearChangeLog();
@@ -1178,10 +1175,10 @@ export class RecommendationService {
     recentWatched: Set<string>,
     excludedCompleted: Set<string>,
     disliked: Set<string>,
-    limit: number = RECOMMEND_PARAMS.snapshotLimit
-  ): { mediaId: string; position: number; score: number; genreGroup: string }[] {
+    limit: number = RECOMMEND_PARAMS.candidateSize
+  ): { mediaId: number; position: number; score: number; genreGroup: string }[] {
     interface Item {
-      id: string;
+      id: number;
       score: number;
       updatedAt: string;
       genreGroup: string;
@@ -1225,7 +1222,7 @@ export class RecommendationService {
         updatedAt: s.updatedAt,
         genreGroup: s.genreGroup || UNKNOWN,
         directorGroup: s.directorGroup || '',
-        seriesKey: group || r.id,
+        seriesKey: group || String(r.id),
       };
     });
 
@@ -1238,7 +1235,7 @@ export class RecommendationService {
     );
 
     // —— U5 三维贪心打散：每次取剩余数量最多的桶；任一维度(genre/director/series)连续达上限即换桶 ——
-    // 打散只在高分池内进行（exploit 位），控制 O(池长×桶数) 开销；快照最终只取前 snapshotLimit 条
+    // 打散只在高分池内进行（exploit 位），控制 O(池长×桶数) 开销
     const exploitList = list.slice(0, RECOMMEND_PARAMS.highScorePoolSize);
     const buckets = new Map<string, Item[]>();
     for (const m of exploitList) {
@@ -1309,7 +1306,7 @@ export class RecommendationService {
 
     // 探索插槽：每 exploreRatio 间隔插入一个未占用探索候选；占用过的 media 从 exploit 序中跳过（去重）
     const step = Math.max(2, Math.round(1 / RECOMMEND_PARAMS.exploreRatio));
-    const placed = new Set<string>();
+    const placed = new Set<number>();
     const final: Item[] = [];
     let ep = 0;
     for (let i = 0; i < order.length; i++) {
@@ -1326,7 +1323,7 @@ export class RecommendationService {
             updatedAt: s.updatedAt,
             genreGroup: s.genreGroup || UNKNOWN,
             directorGroup: s.directorGroup || '',
-            seriesKey: cand.series_group || cand.id,
+            seriesKey: cand.series_group || String(cand.id),
           };
         }
       }
@@ -1341,7 +1338,7 @@ export class RecommendationService {
       }
     }
 
-    // 快照限量：仅保留前 limit 条（重排/翻页保持确定性；候选表用 candidateSize，精选快照用 snapshotLimit）
+    // 候选限量：仅保留前 limit 条（重排/翻页保持确定性）
     return final.slice(0, limit).map((m, idx) => ({
       mediaId: m.id,
       position: idx,
@@ -1383,7 +1380,7 @@ export class RecommendationService {
         'SELECT tag, tag_type as type, strength FROM user_interest_tag WHERE abs(strength) >= ? ORDER BY strength DESC LIMIT 10',
         [RECOMMEND_PARAMS.overviewStrengthFloor]
       ),
-      this.db.select<{ id: string; title: string; score: number }>(
+      this.db.select<{ id: number; title: string; score: number }>(
         'SELECT c.media_id AS id, COALESCE(m.title, \'\') AS title, c.score FROM recommend_candidates c LEFT JOIN media m ON m.id = c.media_id WHERE c.position < 10 ORDER BY c.position LIMIT 10'
       ),
       this.db.selectOne<{ count: number }>('SELECT COUNT(*) as count FROM dislike'),
@@ -1466,13 +1463,13 @@ export class RecommendationService {
   }
 
   /** 查询某 media 是否已标记不感兴趣。 */
-  async isDisliked(mediaId: string): Promise<boolean> {
-    const row = await this.db.selectOne<{ media_id: string }>('SELECT media_id FROM dislike WHERE media_id = ?', [mediaId]);
+  async isDisliked(mediaId: number): Promise<boolean> {
+    const row = await this.db.selectOne<{ media_id: number }>('SELECT media_id FROM dislike WHERE media_id = ?', [mediaId]);
     return !!row;
   }
 
   /** 切换不感兴趣：写库 + 触发热重算，返回切换后的状态。 */
-  async toggleDislike(mediaId: string): Promise<boolean> {
+  async toggleDislike(mediaId: number): Promise<boolean> {
     const disliked = await this.isDisliked(mediaId);
     if (disliked) {
       await this.db.removeDislike(mediaId);

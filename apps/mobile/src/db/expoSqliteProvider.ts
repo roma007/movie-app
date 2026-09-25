@@ -531,6 +531,19 @@ const MIGRATIONS: Migration[] = [
     description: 'drop_collection_log_table',
     sql: `DROP TABLE IF EXISTS collection_log;`,
   },
+  {
+    version: 60,
+    description: 'drop_recommend_snapshot_table',
+    sql: `DROP TABLE IF EXISTS recommend_snapshot;`,
+  },
+  {
+    version: 61,
+    description: 'pk_integer_refactor',
+    // 实际迁移为多语句重建流程（590 万行级、需回读校验），由 init() 在 runMigrations 之后
+    // 调用 migratePkToInteger() 以代码执行（检测 episode.id 类型驱动、幂等可重入）。
+    // v61 仅作为结构升级已发生的版本标记；未升级老库即使当前版本>=60 也会由 JS 检测补齐。
+    sql: `SELECT 1;`,
+  },
 ];
 
 /**
@@ -545,7 +558,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   private kidModeActive = false;
 
   /** 推荐排序「候选∩筛选」视图缓存：同筛选键 120s 内复用，翻页只需对有序候选切片（毫秒级）。 */
-  private recommendViewCache: { key: string; view: string[]; at: number } | null = null;
+  private recommendViewCache: { key: string; view: number[]; at: number } | null = null;
 
   /** 事务互斥队列：expo 单连接下多个 withTransactionAsync 交错会导致
    *  「cannot start a transaction within a transaction」；FIFO 串行保证 BEGIN/COMMIT 成对。 */
@@ -613,6 +626,11 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
     await this.runMigrations();
     mark('migrations');
+
+    // 主键 INTEGER 化迁移：老库字符串主键 → 自增整数主键。置 runMigrations 之后执行，
+    // 以便 v61 版本标记生效；实际由 episode.id 列类型驱动，幂等可重入。
+    await this.migratePkToInteger();
+    mark('pk_integer');
 
     // 初始化儿童模式开关缓存（启动时读一次，作为查询层过滤的唯一依据）
     const kidModeRow = (await wrappedDb.getFirstAsync(
@@ -742,6 +760,184 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     }
   }
 
+  /**
+   * 主键 INTEGER 化迁移（移动端）：逻辑与桌面 tauriSqlProvider.migratePkToInteger 完全一致，
+   * 仅底层 API 不同（execAsync/runAsync/getAllAsync）。详见该方法的注释：
+   * 触发条件、合并去重键、孤儿落 0 哨兵、FTS 先拆后建、可重入等语义全一致。
+   */
+  private async migratePkToInteger(): Promise<void> {
+    const cols = (await this.db!.getAllAsync<{ name: string; type: string }>('PRAGMA table_info(episode)')) || [];
+    if (cols.length === 0) return;
+    const idCol = cols.find((c) => c.name === 'id');
+    if (idCol && idCol.type.toUpperCase() === 'INTEGER') return; // 已迁移或全新库
+
+    console.warn('[DB] 检测到旧字符串主键库，开始主键 INTEGER 迁移（590 万行级，可能耗时，允许中断重试）...');
+    const exec = (sql: string) => this.db!.execAsync(sql);
+
+    // 可重入：清上一轮残留的临时表
+    for (const t of [
+      'media_pkv2', 'episode_pkv2', 'play_source_pkv2',
+      'favorite_pkv2', 'impression_pkv2', 'recommend_candidates_pkv2',
+      'dislike_pkv2', 'media_change_log_pkv2', 'watch_history_pkv2', 'watch_line_progress_pkv2',
+      'm_map', 'ep_map', 'ps_map',
+    ]) {
+      await exec(`DROP TABLE IF EXISTS ${t}`);
+    }
+    await exec('DROP TRIGGER IF EXISTS media_ai');
+    await exec('DROP TRIGGER IF EXISTS media_au');
+    await exec('DROP TRIGGER IF EXISTS media_ad');
+    await exec('DROP TABLE IF EXISTS media_fts');
+
+    await exec(`CREATE TABLE media_pkv2 (
+      id INTEGER PRIMARY KEY, title TEXT NOT NULL, original_title TEXT, alias TEXT, type TEXT NOT NULL,
+      year INTEGER NOT NULL, area TEXT, genre TEXT, director TEXT, cast TEXT, description TEXT,
+      poster_url TEXT, backdrop_url TEXT, status TEXT, remarks TEXT, fingerprint TEXT UNIQUE,
+      current_episodes INTEGER, total_episodes INTEGER, is_short_drama INTEGER DEFAULT 0,
+      duration_check_status TEXT, episode_duration INTEGER, view_count INTEGER DEFAULT 0,
+      rating REAL, rating_count INTEGER, rating_source TEXT, rating_updated_at TEXT,
+      hidden INTEGER DEFAULT 0, kid_safe INTEGER, personal_score INTEGER DEFAULT 0,
+      series_group TEXT, series_season INTEGER, source_updated_at TEXT, vod_id TEXT, created_at TEXT, updated_at TEXT
+    )`);
+    await exec(`INSERT INTO media_pkv2 (
+        title, original_title, alias, type, year, area, genre, director, "cast", description,
+        poster_url, backdrop_url, status, remarks, fingerprint, current_episodes, total_episodes,
+        is_short_drama, duration_check_status, episode_duration, view_count, rating, rating_count,
+        rating_source, rating_updated_at, hidden, kid_safe, personal_score, series_group,
+        series_season, source_updated_at, vod_id, created_at, updated_at
+      ) SELECT
+        title, original_title, alias, type, year, area, genre, director, "cast", description,
+        poster_url, backdrop_url, status, remarks, fingerprint, current_episodes, total_episodes,
+        is_short_drama, duration_check_status, episode_duration, view_count, rating, rating_count,
+        rating_source, rating_updated_at, hidden, kid_safe, personal_score, series_group,
+        series_season, source_updated_at, vod_id, created_at, updated_at
+      FROM media ORDER BY rowid`);
+    await exec('CREATE TABLE m_map (old TEXT PRIMARY KEY, new INTEGER)');
+    await exec(
+      'INSERT INTO m_map SELECT oldm.id, newm.id FROM media oldm JOIN media_pkv2 newm ON oldm.rowid = newm.rowid'
+    );
+
+    await exec(`CREATE TABLE episode_pkv2 (
+      id INTEGER PRIMARY KEY, media_id INTEGER NOT NULL, season_number INTEGER DEFAULT 1,
+      episode_number INTEGER NOT NULL, title TEXT, duration INTEGER, source_id TEXT
+    )`);
+    await exec(`INSERT INTO episode_pkv2 (media_id, season_number, episode_number, title, duration, source_id)
+      SELECT m.new, e.season_number, e.episode_number, e.title, e.duration, e.source_id
+      FROM episode e JOIN m_map m ON e.media_id = m.old
+      GROUP BY e.media_id, e.season_number, e.episode_number, e.source_id`);
+    await exec('CREATE TABLE ep_map (old TEXT PRIMARY KEY, new INTEGER)');
+    await exec(`INSERT INTO ep_map
+      SELECT e.id, n.id
+      FROM episode e
+      JOIN m_map m ON e.media_id = m.old
+      JOIN episode_pkv2 n
+        ON m.new = n.media_id AND e.season_number = n.season_number
+       AND e.episode_number = n.episode_number AND COALESCE(e.source_id, '') = COALESCE(n.source_id, '')`);
+
+    await exec(`CREATE TABLE play_source_pkv2 (
+      id INTEGER PRIMARY KEY, episode_id INTEGER NOT NULL, source_id TEXT NOT NULL, source_name TEXT,
+      url TEXT NOT NULL, quality TEXT, language TEXT, is_active INTEGER DEFAULT 1,
+      fail_count INTEGER DEFAULT 0, last_fail_at TEXT
+    )`);
+    await exec(`INSERT INTO play_source_pkv2 (episode_id, source_id, source_name, url, quality, language, is_active, fail_count, last_fail_at)
+      SELECT enew, source_id, source_name, url, quality, language, is_active, fail_count, last_fail_at
+      FROM (SELECT ep_map.new AS enew, ps.source_id, ps.source_name, ps.url, ps.quality,
+                   ps.language, ps.is_active, ps.fail_count, ps.last_fail_at
+            FROM play_source ps JOIN ep_map ON ps.episode_id = ep_map.old)
+      GROUP BY enew, url`);
+    await exec('CREATE TABLE ps_map (old TEXT PRIMARY KEY, new INTEGER)');
+    await exec(`INSERT INTO ps_map
+      SELECT ps.id, n.id
+      FROM play_source ps
+      JOIN ep_map e ON ps.episode_id = e.old
+      JOIN play_source_pkv2 n ON ps.url = n.url AND n.episode_id = e.new`);
+
+    await exec('CREATE TABLE favorite_pkv2 (id TEXT PRIMARY KEY, media_id INTEGER NOT NULL, created_at TEXT)');
+    await exec(`INSERT INTO favorite_pkv2 (id, media_id, created_at)
+      SELECT f.id, COALESCE(m.new, 0), f.created_at FROM favorite f LEFT JOIN m_map m ON f.media_id = m.old`);
+
+    await exec('CREATE TABLE impression_pkv2 (media_id INTEGER PRIMARY KEY, shown_count INTEGER DEFAULT 1, last_shown_at TEXT)');
+    await exec(`INSERT INTO impression_pkv2 (media_id, shown_count, last_shown_at)
+      SELECT COALESCE(m.new, 0), SUM(i.shown_count), MAX(i.last_shown_at)
+      FROM impression i LEFT JOIN m_map m ON i.media_id = m.old
+      GROUP BY COALESCE(m.new, 0)`);
+
+    await exec('CREATE TABLE recommend_candidates_pkv2 (media_id INTEGER PRIMARY KEY, position INTEGER, score INTEGER DEFAULT 0, genre_group TEXT)');
+    await exec(`INSERT INTO recommend_candidates_pkv2 (media_id, position, score, genre_group)
+      SELECT COALESCE(m.new, 0), MAX(c.position), MAX(c.score), MAX(c.genre_group)
+      FROM recommend_candidates c LEFT JOIN m_map m ON c.media_id = m.old
+      GROUP BY COALESCE(m.new, 0)`);
+
+    await exec('CREATE TABLE dislike_pkv2 (media_id INTEGER PRIMARY KEY, created_at TEXT)');
+    await exec(`INSERT INTO dislike_pkv2 (media_id, created_at)
+      SELECT COALESCE(m.new, 0), MAX(d.created_at)
+      FROM dislike d LEFT JOIN m_map m ON d.media_id = m.old
+      GROUP BY COALESCE(m.new, 0)`);
+
+    await exec('CREATE TABLE media_change_log_pkv2 (media_id INTEGER PRIMARY KEY, change_type TEXT NOT NULL, created_at TEXT)');
+    await exec(`INSERT INTO media_change_log_pkv2 (media_id, change_type, created_at)
+      SELECT COALESCE(m.new, 0), MAX(ch.change_type), MAX(ch.created_at)
+      FROM media_change_log ch LEFT JOIN m_map m ON ch.media_id = m.old
+      GROUP BY COALESCE(m.new, 0)`);
+
+    await exec(`CREATE TABLE watch_history_pkv2 (
+      id TEXT PRIMARY KEY, media_id INTEGER NOT NULL, episode_id INTEGER, progress INTEGER DEFAULT 0,
+      duration INTEGER DEFAULT 0, source_id TEXT, play_source_id INTEGER, updated_at TEXT
+    )`);
+    await exec(`INSERT OR REPLACE INTO watch_history_pkv2 (id, media_id, episode_id, progress, duration, source_id, play_source_id, updated_at)
+      SELECT 'wh_' || COALESCE(m.new, 0) || '_' || COALESCE(e.new, 0),
+             COALESCE(m.new, 0), COALESCE(e.new, 0), w.progress, w.duration, w.source_id,
+             COALESCE(p.new, 0), w.updated_at
+      FROM watch_history w
+      LEFT JOIN m_map m ON w.media_id = m.old
+      LEFT JOIN ep_map e ON w.episode_id = e.old
+      LEFT JOIN ps_map p ON w.play_source_id = p.old`);
+
+    await exec(`CREATE TABLE watch_line_progress_pkv2 (
+      media_id INTEGER NOT NULL, episode_id INTEGER, play_source_id INTEGER, source_id TEXT,
+      progress INTEGER DEFAULT 0, duration INTEGER DEFAULT 0, updated_at TEXT,
+      PRIMARY KEY (media_id, episode_id, play_source_id)
+    )`);
+    await exec(`INSERT OR REPLACE INTO watch_line_progress_pkv2 (media_id, episode_id, play_source_id, source_id, progress, duration, updated_at)
+      SELECT COALESCE(m.new, 0), COALESCE(e.new, 0), COALESCE(p.new, 0), w.source_id, w.progress, w.duration, w.updated_at
+      FROM watch_line_progress w
+      LEFT JOIN m_map m ON w.media_id = m.old
+      LEFT JOIN ep_map e ON w.episode_id = e.old
+      LEFT JOIN ps_map p ON w.play_source_id = p.old`);
+
+    await exec('DROP TABLE play_source');
+    await exec('ALTER TABLE play_source_pkv2 RENAME TO play_source');
+    await exec('DROP TABLE episode');
+    await exec('ALTER TABLE episode_pkv2 RENAME TO episode');
+    await exec('DROP TABLE media');
+    await exec('ALTER TABLE media_pkv2 RENAME TO media');
+    await exec('DROP TABLE favorite');
+    await exec('ALTER TABLE favorite_pkv2 RENAME TO favorite');
+    await exec('DROP TABLE impression');
+    await exec('ALTER TABLE impression_pkv2 RENAME TO impression');
+    await exec('DROP TABLE recommend_candidates');
+    await exec('ALTER TABLE recommend_candidates_pkv2 RENAME TO recommend_candidates');
+    await exec('DROP TABLE dislike');
+    await exec('ALTER TABLE dislike_pkv2 RENAME TO dislike');
+    await exec('DROP TABLE media_change_log');
+    await exec('ALTER TABLE media_change_log_pkv2 RENAME TO media_change_log');
+    await exec('DROP TABLE watch_history');
+    await exec('ALTER TABLE watch_history_pkv2 RENAME TO watch_history');
+    await exec('DROP TABLE watch_line_progress');
+    await exec('ALTER TABLE watch_line_progress_pkv2 RENAME TO watch_line_progress');
+    await exec('DROP TABLE m_map');
+    await exec('DROP TABLE ep_map');
+    await exec('DROP TABLE ps_map');
+
+    // 回收 DROP 旧表产生的空页，避免升级后库文件膨胀（失败仅损失缩库收益，不阻断）
+    try {
+      await exec('VACUUM');
+    } catch (e) {
+      console.warn('[DB] VACUUM 失败（缩库跳过）:', e);
+    }
+
+    console.warn('[DB] 主键 INTEGER 迁移完成（索引与 FTS 由 SCHEMA_SQL/postInit 重建）');
+  }
+
   private async fixGenreData(): Promise<void> {
     const rows = await this.db!.getAllAsync<{ id: string; genre: string }>(
       "SELECT id, genre FROM media WHERE genre IS NOT NULL AND genre LIKE '%[\"%' AND genre LIKE '%,%'"
@@ -816,7 +1012,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     this.kidModeActive = on;
   }
 
-  async getMediaById(id: string): Promise<Media | null> {
+  async getMediaById(id: number): Promise<Media | null> {
     const row = await this.db!.getFirstAsync<any>('SELECT * FROM media WHERE id = ?', [id]);
     if (!row) return null;
     // 儿童模式下隐藏非适龄内容，保证收藏/历史等经单条直查的入口同样生效
@@ -903,10 +1099,10 @@ export class ExpoSqliteProvider implements DatabaseProvider {
             ? this.recommendViewCache.view
             : null;
           if (!view) {
-            const candAll = await this.db!.getAllAsync<{ media_id: string }>(
+            const candAll = await this.db!.getAllAsync<{ media_id: number }>(
               `SELECT media_id FROM recommend_candidates ORDER BY position`
             );
-            const candRows = new Map<string, any>();
+            const candRows = new Map<number, any>();
             const PK_BATCH = 400;
             for (let i = 0; i < candAll.length; i += PK_BATCH) {
               const chunk = candAll.slice(i, i + PK_BATCH).map((r) => r.media_id);
@@ -1001,14 +1197,14 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     const now = new Date().toISOString();
     await this.db!.runAsync(
       `INSERT INTO media (
-        id, title, original_title, alias, type, year, area, genre, director, cast,
+        title, original_title, alias, type, year, area, genre, director, "cast",
         description, poster_url, backdrop_url, status, remarks, fingerprint,
         current_episodes, total_episodes, is_short_drama, duration_check_status, episode_duration,
         view_count, rating, rating_count, rating_source, rating_updated_at,
         hidden, kid_safe, series_group, series_season,
         source_updated_at, vod_id,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(fingerprint) DO UPDATE SET
         title = excluded.title,
         original_title = excluded.original_title,
@@ -1033,7 +1229,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
         vod_id = excluded.vod_id,
         updated_at = excluded.updated_at`,
       [
-        media.id, media.title, media.originalTitle || null, media.alias || null,
+        media.title, media.originalTitle || null, media.alias || null,
         media.type, media.year, media.area || null,
         JSON.stringify(media.genres), JSON.stringify(media.directors), JSON.stringify(media.actors),
         media.description || null, media.posterUrl || null, media.backdropUrl || null,
@@ -1053,7 +1249,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   }
 
   async updateMediaStatusAndEpisodes(
-    mediaId: string,
+    mediaId: number,
     status: string,
     currentEpisodes: number | null,
     totalEpisodes: number | null,
@@ -1065,7 +1261,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     );
   }
 
-  async updateSourceSync(mediaId: string, sourceUpdatedAt: string | null, vodId: string | null): Promise<void> {
+  async updateSourceSync(mediaId: number, sourceUpdatedAt: string | null, vodId: string | null): Promise<void> {
     await this.db!.runAsync(`UPDATE media SET source_updated_at = ?, vod_id = ? WHERE id = ?`, [sourceUpdatedAt, vodId, mediaId]);
   }
 
@@ -1074,7 +1270,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     return rows[0] ? rowToMedia(rows[0]) : null;
   }
 
-  async updateMediaPoster(mediaId: string, posterUrl: string | null, updatedAt: string): Promise<void> {
+  async updateMediaPoster(mediaId: number, posterUrl: string | null, updatedAt: string): Promise<void> {
     await this.db!.runAsync(
       `UPDATE media SET poster_url = ?, updated_at = ? WHERE id = ?`,
       [posterUrl, updatedAt, mediaId]
@@ -1082,7 +1278,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   }
 
   async updateMediaRating(
-    mediaId: string,
+    mediaId: number,
     data: { rating: number | null; ratingCount: number | null; source: 'DOUBAN'; updatedAt: string }
   ): Promise<void> {
     await this.db!.runAsync(
@@ -1091,7 +1287,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     );
   }
 
-  async incrementViewCount(id: string): Promise<void> {
+  async incrementViewCount(id: number): Promise<void> {
     await this.db!.runAsync('UPDATE media SET view_count = view_count + 1 WHERE id = ?', [id]);
   }
 
@@ -1295,7 +1491,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   }
 
   // —— Episode DAO ——
-  async getEpisodesByMediaId(mediaId: string, season?: number, sourceId?: string): Promise<Episode[]> {
+  async getEpisodesByMediaId(mediaId: number, season?: number, sourceId?: string): Promise<Episode[]> {
     let sql: string;
     const params: any[] = [mediaId];
     if (season !== undefined) {
@@ -1313,7 +1509,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     return rows.map(rowToEpisode);
   }
 
-  async getEpisodeSourcesByMediaId(mediaId: string, season?: number): Promise<VideoSource[]> {
+  async getEpisodeSourcesByMediaId(mediaId: number, season?: number): Promise<VideoSource[]> {
     let sql: string;
     const params: any[] = [mediaId];
     if (season !== undefined) {
@@ -1331,49 +1527,67 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     return rows.map(rowToVideoSource);
   }
 
-  async getEpisodeById(id: string): Promise<Episode | null> {
+  async getEpisodeById(id: number): Promise<Episode | null> {
     const row = await this.db!.getFirstAsync<any>('SELECT * FROM episode WHERE id = ?', [id]);
     return row ? rowToEpisode(row) : null;
   }
 
-  async upsertEpisode(episode: Episode): Promise<void> {
+  async upsertEpisode(episode: Episode): Promise<number> {
     await this.db!.runAsync(
-      `INSERT INTO episode (id, media_id, season_number, episode_number, title, duration, source_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
+      `INSERT INTO episode (media_id, season_number, episode_number, title, duration, source_id)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(media_id, season_number, episode_number, source_id) DO UPDATE SET
          title = excluded.title,
-         duration = excluded.duration,
-         source_id = excluded.source_id`,
-      [episode.id, episode.mediaId, episode.seasonNumber, episode.episodeNumber, episode.title || null, episode.duration || null, episode.sourceId || null]
+         duration = excluded.duration`,
+      [episode.mediaId, episode.seasonNumber, episode.episodeNumber, episode.title || null, episode.duration || null, episode.sourceId || null]
     );
+    const row = await this.db!.getFirstAsync<{ id: number }>(
+      `SELECT id FROM episode
+       WHERE media_id = ? AND season_number = ? AND episode_number = ?
+         AND COALESCE(source_id, '') = COALESCE(?, '')
+       LIMIT 1`,
+      [episode.mediaId, episode.seasonNumber, episode.episodeNumber, episode.sourceId || null]
+    );
+    return row?.id ?? 0;
   }
 
-  async upsertEpisodesBatch(episodes: Episode[]): Promise<void> {
+  async upsertEpisodesBatch(episodes: Episode[]): Promise<Map<string, number>> {
     const CHUNK = 100;
     for (let i = 0; i < episodes.length; i += CHUNK) {
       const chunk = episodes.slice(i, i + CHUNK);
-      const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
       const params: any[] = [];
       for (const e of chunk) {
-        params.push(e.id, e.mediaId, e.seasonNumber, e.episodeNumber, e.title || null, e.duration || null, e.sourceId || null);
+        params.push(e.mediaId, e.seasonNumber, e.episodeNumber, e.title || null, e.duration || null, e.sourceId || null);
       }
       await this.db!.runAsync(
-        `INSERT INTO episode (id, media_id, season_number, episode_number, title, duration, source_id)
+        `INSERT INTO episode (media_id, season_number, episode_number, title, duration, source_id)
          VALUES ${placeholders}
-         ON CONFLICT(id) DO UPDATE SET
+         ON CONFLICT(media_id, season_number, episode_number, source_id) DO UPDATE SET
            title = excluded.title,
-           duration = excluded.duration,
-           source_id = excluded.source_id`,
+           duration = excluded.duration`,
         params
       );
     }
+    const mediaIds = Array.from(new Set(episodes.map((e) => e.mediaId)));
+    const map = new Map<string, number>();
+    if (mediaIds.length === 0) return map;
+    const rows = await this.db!.getAllAsync<{ id: number; media_id: number; season_number: number; episode_number: number; source_id: string | null }>(
+      `SELECT id, media_id, season_number, episode_number, source_id FROM episode
+       WHERE media_id IN (${mediaIds.map(() => '?').join(',')})`,
+      mediaIds
+    );
+    for (const r of rows) {
+      map.set(`${r.season_number}:${r.episode_number}:${r.source_id ?? ''}`, r.id);
+    }
+    return map;
   }
 
-  async updateEpisodeDuration(episodeId: string, duration: number | null): Promise<void> {
+  async updateEpisodeDuration(episodeId: number, duration: number | null): Promise<void> {
     await this.db!.runAsync('UPDATE episode SET duration = ? WHERE id = ?', [duration ?? null, episodeId]);
   }
 
-  async deleteEpisodesByMediaIdAndSourceId(mediaId: string, sourceId: string): Promise<void> {
+  async deleteEpisodesByMediaIdAndSourceId(mediaId: number, sourceId: string): Promise<void> {
     await this.db!.runAsync('DELETE FROM episode WHERE media_id = ? AND source_id = ?', [mediaId, sourceId]);
   }
 
@@ -1407,7 +1621,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     return map;
   }
 
-  async deleteMediaCompletely(mediaId: string): Promise<void> {
+  async deleteMediaCompletely(mediaId: number): Promise<void> {
     await this.db!.runAsync('DELETE FROM play_source WHERE episode_id IN (SELECT id FROM episode WHERE media_id = ?)', [mediaId]);
     await this.db!.runAsync('DELETE FROM episode WHERE media_id = ?', [mediaId]);
     await this.db!.runAsync('DELETE FROM favorite WHERE media_id = ?', [mediaId]);
@@ -1616,7 +1830,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     return result?.count || 0;
   }
 
-  async getSeasonsByMediaId(mediaId: string): Promise<number[]> {
+  async getSeasonsByMediaId(mediaId: number): Promise<number[]> {
     const rows = await this.db!.getAllAsync<{ season_number: number }>(
       'SELECT DISTINCT season_number FROM episode WHERE media_id = ? ORDER BY season_number ASC',
       [mediaId]
@@ -1625,12 +1839,12 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   }
 
   // —— PlaySource DAO ——
-  async getPlaySourcesByEpisodeId(episodeId: string): Promise<PlaySource[]> {
+  async getPlaySourcesByEpisodeId(episodeId: number): Promise<PlaySource[]> {
     const rows = await this.db!.getAllAsync<any>('SELECT * FROM play_source WHERE episode_id = ?', [episodeId]);
     return rows.map(rowToPlaySource);
   }
 
-  async hasVersionEpisodes(mediaId: string, sourceId: string): Promise<boolean> {
+  async hasVersionEpisodes(mediaId: number, sourceId: string): Promise<boolean> {
     const rows = await this.readDb!.getAllAsync<{ r: number }>(
       `SELECT EXISTS(
          SELECT 1 FROM play_source ps
@@ -1643,7 +1857,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     return (rows[0]?.r ?? 0) === 1;
   }
 
-  async getPlaySourceUrlsByMediaAndSource(mediaId: string, sourceId: string): Promise<string[]> {
+  async getPlaySourceUrlsByMediaAndSource(mediaId: number, sourceId: string): Promise<string[]> {
     const rows = await this.readDb!.getAllAsync<{ url: string }>(
       `SELECT ps.url FROM play_source ps
        JOIN episode e ON e.id = ps.episode_id
@@ -1653,8 +1867,8 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     return rows.map((r) => r.url);
   }
 
-  async getPlaySourceLanguagesByMedia(mediaId: string): Promise<{ language: string; episodeId: string; sourceId: string }[]> {
-    const rows = await this.readDb!.getAllAsync<{ language: string; episode_id: string; source_id: string }>(
+  async getPlaySourceLanguagesByMedia(mediaId: number): Promise<{ language: string; episodeId: number; sourceId: string }[]> {
+    const rows = await this.readDb!.getAllAsync<{ language: string; episode_id: number; source_id: string }>(
       `SELECT DISTINCT ps.language, e.id AS episode_id, e.source_id
        FROM play_source ps
        JOIN episode e ON e.id = ps.episode_id
@@ -1666,14 +1880,13 @@ export class ExpoSqliteProvider implements DatabaseProvider {
 
   async upsertPlaySource(playSource: PlaySource): Promise<void> {
     await this.db!.runAsync(
-      `INSERT INTO play_source (id, episode_id, source_id, source_name, url, quality, language, is_active, fail_count, last_fail_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         url = excluded.url,
+      `INSERT INTO play_source (episode_id, source_id, source_name, url, quality, language, is_active, fail_count, last_fail_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(episode_id, url) DO UPDATE SET
          quality = excluded.quality,
          language = excluded.language`,
       [
-        playSource.id, playSource.episodeId, playSource.sourceId, playSource.sourceName || null,
+        playSource.episodeId, playSource.sourceId, playSource.sourceName || null,
         playSource.url, playSource.quality || null, playSource.language || null, 1, 0, null,
       ]
     );
@@ -1683,16 +1896,15 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     const CHUNK = 100;
     for (let i = 0; i < playSources.length; i += CHUNK) {
       const chunk = playSources.slice(i, i + CHUNK);
-      const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       const params: any[] = [];
       for (const p of chunk) {
-        params.push(p.id, p.episodeId, p.sourceId, p.sourceName || null, p.url, p.quality || null, p.language || null, 1, 0, null);
+        params.push(p.episodeId, p.sourceId, p.sourceName || null, p.url, p.quality || null, p.language || null, 1, 0, null);
       }
       await this.db!.runAsync(
-        `INSERT INTO play_source (id, episode_id, source_id, source_name, url, quality, language, is_active, fail_count, last_fail_at)
+        `INSERT INTO play_source (episode_id, source_id, source_name, url, quality, language, is_active, fail_count, last_fail_at)
          VALUES ${placeholders}
-         ON CONFLICT(id) DO UPDATE SET
-           url = excluded.url,
+         ON CONFLICT(episode_id, url) DO UPDATE SET
            quality = excluded.quality,
            language = excluded.language`,
         params
@@ -1803,23 +2015,23 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     return rows.map(rowToFavorite);
   }
 
-  async isFavorite(mediaId: string): Promise<boolean> {
+  async isFavorite(mediaId: number): Promise<boolean> {
     const row = await this.db!.getFirstAsync<{ count: number }>('SELECT COUNT(*) as count FROM favorite WHERE media_id = ?', [mediaId]);
     return (row?.count || 0) > 0;
   }
 
-  async addFavorite(mediaId: string): Promise<void> {
+  async addFavorite(mediaId: number): Promise<void> {
     const now = new Date().toISOString();
     const id = `fav_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     // INSERT OR IGNORE + uq_favorite_media_id UNIQUE 索引兜底：同一 media 重复收藏静默忽略
     await this.db!.runAsync('INSERT OR IGNORE INTO favorite (id, media_id, created_at) VALUES (?, ?, ?)', [id, mediaId, now]);
   }
 
-  async removeFavorite(mediaId: string): Promise<void> {
+  async removeFavorite(mediaId: number): Promise<void> {
     await this.db!.runAsync('DELETE FROM favorite WHERE media_id = ?', [mediaId]);
   }
 
-  async toggleFavorite(mediaId: string): Promise<boolean> {
+  async toggleFavorite(mediaId: number): Promise<boolean> {
     const isFav = await this.isFavorite(mediaId);
     if (isFav) {
       await this.removeFavorite(mediaId);
@@ -1847,7 +2059,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     return Number(row?.c ?? 0);
   }
 
-  async getWatchHistoryByEpisodeId(mediaId: string, episodeId: string): Promise<WatchHistory | null> {
+  async getWatchHistoryByEpisodeId(mediaId: number, episodeId: number): Promise<WatchHistory | null> {
     const row = await this.db!.getFirstAsync<any>(
       'SELECT * FROM watch_history WHERE media_id = ? AND episode_id = ? ORDER BY updated_at DESC LIMIT 1',
       [mediaId, episodeId]
@@ -1855,7 +2067,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     return row ? rowToWatchHistory(row) : null;
   }
 
-  async getAllWatchHistoryByMediaId(mediaId: string): Promise<WatchHistory[]> {
+  async getAllWatchHistoryByMediaId(mediaId: number): Promise<WatchHistory[]> {
     const rows = await this.db!.getAllAsync<any>(
       'SELECT * FROM watch_history WHERE media_id = ? ORDER BY updated_at DESC',
       [mediaId]
@@ -1864,15 +2076,15 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   }
 
   async upsertWatchHistory(
-    mediaId: string,
-    episodeId: string | null,
+    mediaId: number,
+    episodeId: number | null,
     progress: number,
     duration: number,
     sourceId?: string | null,
-    playSourceId?: string | null,
+    playSourceId?: number | null,
   ): Promise<void> {
     const now = new Date().toISOString();
-    const id = `wh_${mediaId}_${episodeId || 'movie'}`;
+    const id = `wh_${mediaId}_${episodeId ?? 0}`;
     await this.db!.runAsync(
       `INSERT INTO watch_history (id, media_id, episode_id, progress, duration, source_id, play_source_id, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -1882,7 +2094,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
          source_id = excluded.source_id,
          play_source_id = excluded.play_source_id,
          updated_at = excluded.updated_at`,
-      [id, mediaId, episodeId, progress, duration, sourceId ?? null, playSourceId ?? null, now]
+      [id, mediaId, episodeId ?? 0, progress, duration, sourceId ?? null, playSourceId ?? null, now]
     );
   }
 
@@ -1891,13 +2103,13 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     await this.db!.runAsync('DELETE FROM watch_line_progress');
   }
 
-  async deleteWatchHistory(mediaId: string): Promise<void> {
+  async deleteWatchHistory(mediaId: number): Promise<void> {
     await this.db!.runAsync('DELETE FROM watch_history WHERE media_id = ?', [mediaId]);
     await this.db!.runAsync('DELETE FROM watch_line_progress WHERE media_id = ?', [mediaId]);
   }
 
   // —— WatchLineProgress DAO ——
-  async getWatchLineProgressByPlaySource(mediaId: string, episodeId: string, playSourceId: string): Promise<WatchHistory | null> {
+  async getWatchLineProgressByPlaySource(mediaId: number, episodeId: number, playSourceId: number): Promise<WatchHistory | null> {
     const row = await this.db!.getFirstAsync<any>(
       'SELECT * FROM watch_line_progress WHERE media_id = ? AND episode_id = ? AND play_source_id = ? LIMIT 1',
       [mediaId, episodeId, playSourceId]
@@ -1906,9 +2118,9 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   }
 
   async upsertWatchLineProgress(
-    mediaId: string,
-    episodeId: string,
-    playSourceId: string,
+    mediaId: number,
+    episodeId: number,
+    playSourceId: number,
     progress: number,
     duration: number,
     sourceId?: string | null,
@@ -1962,7 +2174,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     await this.db!.runAsync('DELETE FROM search_history WHERE keyword = ?', [keyword]);
   }
 
-  async recordImpressions(items: { mediaId: string; shownAt: string }[]): Promise<string[]> {
+  async recordImpressions(items: { mediaId: number; shownAt: string }[]): Promise<number[]> {
     if (items.length === 0) return [];
     const placeholders = items.map(() => '(?, ?, ?)').join(', ');
     const params: any[] = [];
@@ -1978,7 +2190,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
       params
     );
     const ids = items.map((i) => i.mediaId);
-    const rows = await this.db!.getAllAsync<{ media_id: string }>(
+    const rows = await this.db!.getAllAsync<{ media_id: number }>(
       `SELECT media_id FROM impression WHERE shown_count IN (3, 6) AND media_id IN (${ids.map(() => '?').join(', ')})`,
       ids
     );
@@ -2008,30 +2220,8 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     }
   }
 
-  async replaceRecommendationSnapshot(rows: {
-    mediaId: string;
-    position: number;
-    score: number;
-    genreGroup: string;
-  }[]): Promise<void> {
-    await this.db!.runAsync('DELETE FROM recommend_snapshot');
-    const batchSize = 100;
-    for (let i = 0; i < rows.length; i += batchSize) {
-      const batch = rows.slice(i, i + batchSize);
-      const placeholders = batch.map(() => '(?, ?, ?, ?)').join(', ');
-      const params: any[] = [];
-      for (const r of batch) {
-        params.push(r.mediaId, r.position, r.score, r.genreGroup);
-      }
-      await this.db!.runAsync(
-        `INSERT INTO recommend_snapshot (media_id, position, score, genre_group) VALUES ${placeholders}`,
-        params
-      );
-    }
-  }
-
   async replaceRecommendationCandidates(rows: {
-    mediaId: string;
+    mediaId: number;
     position: number;
     score: number;
     genreGroup: string;
@@ -2055,13 +2245,12 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   async resetRecommendationData(): Promise<void> {
     await this.db!.runAsync('DELETE FROM impression');
     await this.db!.runAsync('DELETE FROM user_interest_tag');
-    await this.db!.runAsync('DELETE FROM recommend_snapshot');
     await this.db!.runAsync('DELETE FROM recommend_candidates');
     await this.db!.runAsync('UPDATE media SET personal_score = 0');
   }
 
-  async getDislikedMediaDetail(): Promise<{ mediaId: string; title: string; createdAt: string }[]> {
-    const rows = await this.db!.getAllAsync<{ media_id: string; title: string; created_at: string }>(
+  async getDislikedMediaDetail(): Promise<{ mediaId: number; title: string; createdAt: string }[]> {
+    const rows = await this.db!.getAllAsync<{ media_id: number; title: string; created_at: string }>(
       `SELECT d.media_id, COALESCE(m.title, '') AS title, COALESCE(d.created_at, '') AS created_at
        FROM dislike d LEFT JOIN media m ON m.id = d.media_id
        ORDER BY d.created_at DESC`
@@ -2069,14 +2258,14 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     return rows.map((r) => ({ mediaId: r.media_id, title: r.title, createdAt: r.created_at }));
   }
 
-  async addDislike(mediaId: string): Promise<void> {
+  async addDislike(mediaId: number): Promise<void> {
     await this.db!.runAsync(
       'INSERT INTO dislike (media_id, created_at) VALUES (?, ?) ON CONFLICT(media_id) DO UPDATE SET created_at = excluded.created_at',
       [mediaId, new Date().toISOString()]
     );
   }
 
-  async removeDislike(mediaId: string): Promise<void> {
+  async removeDislike(mediaId: number): Promise<void> {
     await this.db!.runAsync('DELETE FROM dislike WHERE media_id = ?', [mediaId]);
   }
 

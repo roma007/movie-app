@@ -38,7 +38,7 @@ export const PRAGMA_SQL = `
 
 export const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS media (
-    id TEXT PRIMARY KEY,
+    id INTEGER PRIMARY KEY,
     title TEXT NOT NULL,
     original_title TEXT,
     alias TEXT,
@@ -78,14 +78,14 @@ export const SCHEMA_SQL = `
   );
 
   CREATE TABLE IF NOT EXISTS impression (
-    media_id TEXT PRIMARY KEY,
+    media_id INTEGER PRIMARY KEY,
     shown_count INTEGER DEFAULT 1,
     last_shown_at TEXT
   );
 
   CREATE TABLE IF NOT EXISTS episode (
-    id TEXT PRIMARY KEY,
-    media_id TEXT NOT NULL,
+    id INTEGER PRIMARY KEY,
+    media_id INTEGER NOT NULL,
     season_number INTEGER DEFAULT 1,
     episode_number INTEGER NOT NULL,
     title TEXT,
@@ -95,8 +95,8 @@ export const SCHEMA_SQL = `
   );
 
   CREATE TABLE IF NOT EXISTS play_source (
-    id TEXT PRIMARY KEY,
-    episode_id TEXT NOT NULL,
+    id INTEGER PRIMARY KEY,
+    episode_id INTEGER NOT NULL,
     source_id TEXT NOT NULL,
     source_name TEXT,
     url TEXT NOT NULL,
@@ -128,27 +128,27 @@ export const SCHEMA_SQL = `
 
   CREATE TABLE IF NOT EXISTS favorite (
     id TEXT PRIMARY KEY,
-    media_id TEXT NOT NULL,
+    media_id INTEGER NOT NULL,
     created_at TEXT
   );
 
   CREATE TABLE IF NOT EXISTS watch_history (
     id TEXT PRIMARY KEY,
-    media_id TEXT NOT NULL,
-    episode_id TEXT,
+    media_id INTEGER NOT NULL,
+    episode_id INTEGER,
     progress INTEGER DEFAULT 0,
     duration INTEGER DEFAULT 0,
     source_id TEXT,
-    play_source_id TEXT,
+    play_source_id INTEGER,
     updated_at TEXT
   );
 
   -- 按「媒体+剧集+线路（视频源）」独立记忆的播放进度，用于切换线路后续播。
-  -- episode_id 采用与 watch_history 主键相同的 'movie' 哨兵约定（电影恒为 'movie'）。
+  -- episode_id 采用与 watch_history 主键相同的 '0' 哨兵约定（电影恒为 0，原 'movie' 字符串哨兵）。
   CREATE TABLE IF NOT EXISTS watch_line_progress (
-    media_id TEXT NOT NULL,
-    episode_id TEXT NOT NULL,
-    play_source_id TEXT NOT NULL,
+    media_id INTEGER NOT NULL,
+    episode_id INTEGER,
+    play_source_id INTEGER,
     source_id TEXT,
     progress INTEGER DEFAULT 0,
     duration INTEGER DEFAULT 0,
@@ -221,19 +221,11 @@ export const SCHEMA_SQL = `
     PRIMARY KEY (tag, tag_type)
   );
 
-  -- 推荐快照：全量重排后的最终序（打散+探索后），列表按 position 分页
-  CREATE TABLE IF NOT EXISTS recommend_snapshot (
-    media_id TEXT PRIMARY KEY,
-    position INTEGER,
-    score INTEGER DEFAULT 0,
-    genre_group TEXT
-  );
-
   -- 推荐候选集（v2 候选召回归一）：UI「推荐排序」的数据源。
   -- 每轮重算对候选集（行为相关 ∪ 画像命中 ∪ 探索最新，几千行）现算分并有序落库；
   -- 分类页「推荐」排序 = 候选表 JOIN media 后在候选内筛选/翻页，不再全表物化打分。
   CREATE TABLE IF NOT EXISTS recommend_candidates (
-    media_id TEXT PRIMARY KEY,
+    media_id INTEGER PRIMARY KEY,
     position INTEGER,
     score INTEGER DEFAULT 0,
     genre_group TEXT
@@ -241,7 +233,7 @@ export const SCHEMA_SQL = `
 
   -- 用户「不感兴趣」反馈：屏蔽具体影片（打分 -10、推荐序剔除、标签画像负向）
   CREATE TABLE IF NOT EXISTS dislike (
-    media_id TEXT PRIMARY KEY,
+    media_id INTEGER PRIMARY KEY,
     created_at TEXT
   );
 
@@ -254,7 +246,6 @@ export const SCHEMA_SQL = `
   );
 
   CREATE INDEX IF NOT EXISTS idx_user_interest_tag_strength ON user_interest_tag(strength);
-  CREATE INDEX IF NOT EXISTS idx_recommend_snapshot_position ON recommend_snapshot(position);
   CREATE INDEX IF NOT EXISTS idx_recommend_candidates_position ON recommend_candidates(position);
 
   CREATE INDEX IF NOT EXISTS idx_episode_media_season_source ON episode(media_id, season_number, source_id);
@@ -263,6 +254,14 @@ export const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_episode_source_id_media_id ON episode(source_id, media_id);
   CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source(episode_id);
   CREATE INDEX IF NOT EXISTS idx_play_source_source_id ON play_source(source_id);
+  -- 主键 INTEGER 化后的业务唯一键（承载 upsert ON CONFLICT）：
+  -- episode 以 (media_id, season, ep, source) 为天然唯一，替代原字符串 id 的合并语义；
+  -- play_source 以 (episode_id, url) 为线路幂等键（原 id 前缀即 episodeId+urlHash）。
+  -- 注意：迁移（含桌面已有库与移动端 v61）必须先合并去重旧重复行再建此索引，否则会冲突失败。
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_episode_media_season_ep_source
+    ON episode(media_id, season_number, episode_number, source_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_play_source_episode_id_url
+    ON play_source(episode_id, url);
   -- 收藏唯一索引：一个 media 至多一条收藏记录（根因修复前并发收藏可产生同 media 多行）
   CREATE UNIQUE INDEX IF NOT EXISTS uq_favorite_media_id ON favorite(media_id);
   CREATE INDEX IF NOT EXISTS idx_watch_history_media_id ON watch_history(media_id);
@@ -321,7 +320,7 @@ export const SCHEMA_SQL = `
 
   -- 推荐重算变化跟踪表：记录自上次重算以来变化的媒体ID
   CREATE TABLE IF NOT EXISTS media_change_log (
-    media_id TEXT PRIMARY KEY,
+    media_id INTEGER PRIMARY KEY,
     change_type TEXT NOT NULL,
     created_at TEXT
   );

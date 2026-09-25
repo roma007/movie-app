@@ -9,6 +9,13 @@ use tauri_plugin_http::init as init_http;
 /// 不再使用 tauri-plugin-sql 的 Rust 迁移机制。
 /// schema 定义位于 packages/core/src/db/schema.ts（两端共享）。
 
+/// 获取指定路径所在文件系统可用字节数（主键 INTEGER 迁移预检用，
+/// 避免大规模重建期间磁盘写爆）。跨平台基于 fs2::free_space。
+#[tauri::command]
+fn disk_free_bytes(path: String) -> Result<u64, String> {
+    fs2::free_space(&path).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
@@ -35,7 +42,8 @@ pub fn run() {
             window_state::set_window_remember,
             pip_window::style_pip_window,
             pip_window::animate_pip_appear,
-            pip_window::show_pip
+            pip_window::show_pip,
+            disk_free_bytes
         ]);
 
     #[cfg(desktop)]

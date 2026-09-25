@@ -390,7 +390,7 @@ export default function HomeScreen() {
       setWatchedHistoryMap(Object.fromEntries(list.map((i) => [i.id, i.history])));
       setEpisodeTotalMap(Object.fromEntries(list.filter((i) => i.total != null).map((i) => [i.id, i.total as number])));
       setSourceTotalMap(Object.fromEntries(list.map((i) => [i.id, i.sourceCounts])));
-      const allEpIds = [...new Set(list.flatMap((i) => i.history.map((wh) => wh.episodeId).filter(Boolean)))] as string[];
+      const allEpIds = [...new Set(list.flatMap((i) => i.history.map((wh) => wh.episodeId).filter(Boolean)))] as number[];
       const epEntries = await Promise.all(allEpIds.map((id) => provider.getEpisodeById(id).catch(() => null)));
       if (cancelled) return;
       const map: Record<string, Episode> = {};

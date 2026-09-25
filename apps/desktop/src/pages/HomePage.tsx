@@ -112,7 +112,7 @@ export default function HomePage() {
       setWatchedHistoryMap(Object.fromEntries(historyEntries.map((h) => [h.id, h.history])));
       setEpisodeTotalMap(Object.fromEntries(historyEntries.filter((h) => h.total != null).map((h) => [h.id, h.total as number])));
       setSourceTotalMap(Object.fromEntries(historyEntries.map((h) => [h.id, h.sourceCounts])));
-      const allEpIds = [...new Set(historyEntries.flatMap((h) => h.history.map((wh) => wh.episodeId).filter(Boolean)))] as string[];
+      const allEpIds = [...new Set(historyEntries.flatMap((h) => h.history.map((wh) => wh.episodeId).filter(Boolean)))] as number[];
       const epEntries = await Promise.all(allEpIds.map(async (id) => [id, await p.getEpisodeById(id)] as const));
       setEpisodeMap(Object.fromEntries(epEntries));
       homeReadyTvDetailRef.current = true;
@@ -132,8 +132,8 @@ export default function HomePage() {
   }, [userUsageTypes, provider]);
 
   useEffect(() => {
-    const candidates: { id: string; posterUrl: string }[] = [];
-    const push = (m?: { id?: string; posterUrl?: string | null }) => {
+    const candidates: { id: number; posterUrl: string }[] = [];
+    const push = (m?: { id?: number; posterUrl?: string | null }) => {
       if (m?.id && m.posterUrl) candidates.push({ id: m.id, posterUrl: m.posterUrl });
     };
 

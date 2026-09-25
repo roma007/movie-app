@@ -185,7 +185,7 @@ export function PlayerHost() {
     on<{ v: number; m: boolean }>('pip://volume', ({ v, m }) => {
       usePlayerStore.getState().setVolume(v, m);
     });
-    on<{ id: string; sourceId: string | null }>('pip://source', async ({ id }) => {
+    on<{ id: number; sourceId: string | null }>('pip://source', async ({ id }) => {
       const st = usePlayerStore.getState();
       await st.switchLineWithResume(id);
       const s2 = usePlayerStore.getState().session;
@@ -197,7 +197,7 @@ export function PlayerHost() {
       } catch {}
     });
     // pip 内点「下一集」：经主窗口解析新集后回传，期间保持 pipActive
-    on<{ episodeId: string }>('pip://next', async ({ episodeId }) => {
+    on<{ episodeId: number }>('pip://next', async ({ episodeId }) => {
       const st = usePlayerStore.getState();
       await st.switchEpisodeKeepPip(episodeId);
     });

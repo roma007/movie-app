@@ -21,7 +21,8 @@ const typeLabel: Record<string, string> = {
 };
 
 export default function PlayPage() {
-  const { episodeId } = useParams<{ episodeId: string }>();
+  const { episodeId: episodeIdParam } = useParams<{ episodeId: string }>();
+  const episodeId = episodeIdParam ? Number(episodeIdParam) : 0;
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -51,8 +52,8 @@ export default function PlayPage() {
   const [slotReady, setSlotReady] = useState(false);
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [episodeListSwitching, setEpisodeListSwitching] = useState(false);
-  const [movieLines, setMovieLines] = useState<{ episodeId: string; source: PlaySource }[]>([]);
-  const [tvLangInfo, setTvLangInfo] = useState<{ language: string; episodeId: string; sourceId: string }[]>([]);
+  const [movieLines, setMovieLines] = useState<{ episodeId: number; source: PlaySource }[]>([]);
+  const [tvLangInfo, setTvLangInfo] = useState<{ language: string; episodeId: number; sourceId: string }[]>([]);
   const [selectedLanguage, setSelectedLanguage] = useState<string | null>(null);
   const [castExpanded, setCastExpanded] = useState(false);
   const [castOverflow, setCastOverflow] = useState(false);
@@ -69,21 +70,22 @@ export default function PlayPage() {
   const [episodeDurations, setEpisodeDurations] = useState<Record<string, number | null>>({});
 
   const urlSourceIdRef = useRef<string | null>(null);
-  const urlLineIdRef = useRef<string | null>(null);
+  const urlLineIdRef = useRef<number | null>(null);
   const urlSourceAppliedRef = useRef(false);
-  const urlEpisodeIdRef = useRef<string | undefined>(undefined);
+  const urlEpisodeIdRef = useRef<number | undefined>(undefined);
   if (urlEpisodeIdRef.current !== episodeId) {
     urlEpisodeIdRef.current = episodeId;
     const query = new URLSearchParams(location.search);
     urlSourceIdRef.current = query.get('sourceId');
-    urlLineIdRef.current = query.get('line');
+    const lineParam = query.get('line');
+    urlLineIdRef.current = lineParam ? Number(lineParam) : null;
     urlSourceAppliedRef.current = false;
   }
 
-  const openingRef = useRef<string | null>(null);
-  const prevEpisodeIdRef = useRef<string | undefined>(undefined);
-  const prevMediaIdRef = useRef<string | null>(null);
-  const pendingLineRef = useRef<{ episodeId: string; playSourceId: string } | null>(null);
+  const openingRef = useRef<number | null>(null);
+  const prevEpisodeIdRef = useRef<number | undefined>(undefined);
+  const prevMediaIdRef = useRef<number | null>(null);
+  const pendingLineRef = useRef<{ episodeId: number; playSourceId: number } | null>(null);
 
   useEffect(() => {
     if (!ready || !media?.id || media.type !== 'MOVIE') {
@@ -417,7 +419,7 @@ export default function PlayPage() {
   }, [ready, activeSession?.episodeId, activeSession?.playSourceId, sources, switchLineWithResume]);
 
   const seasonToMediaMap = useMemo(() => {
-    const map = new Map<number, string>();
+    const map = new Map<number, number>();
     seriesMedia.forEach((m) => {
       if (m.seriesSeason) map.set(m.seriesSeason, m.id);
     });
@@ -447,7 +449,7 @@ export default function PlayPage() {
     setCurrentSeason(s);
   };
 
-  const handleLineClick = (entry: { episodeId: string; source: PlaySource }) => {
+  const handleLineClick = (entry: { episodeId: number; source: PlaySource }) => {
     if (!activeSession) return;
     if (entry.episodeId === activeSession.episodeId) {
       void switchLineWithResume(entry.source.id);

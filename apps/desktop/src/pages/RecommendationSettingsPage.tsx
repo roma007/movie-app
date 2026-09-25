@@ -112,7 +112,7 @@ export default function RecommendationSettingsPage() {
     }
   };
 
-  const handleRemoveDislike = async (mediaId: string) => {
+  const handleRemoveDislike = async (mediaId: number) => {
     try {
       await toggleDislike(mediaId);
       await loadLists();

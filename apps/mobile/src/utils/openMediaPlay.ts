@@ -9,7 +9,7 @@ import type { Media } from '@movie-app/core';
  */
 export interface PlayContext {
   type: 'list' | 'search' | 'recommend' | 'random';
-  mediaIds?: string[];
+  mediaIds?: number[];
   currentIndex?: number;
 }
 

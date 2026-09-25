@@ -66,7 +66,7 @@ const KEY_SHORTCUTS = {
 
 interface VideoPlayerProps {
   sources: PlaySource[];
-  initialSourceId?: string;
+  initialSourceId?: number;
   initialCurrentTime?: number;
   volume?: number;
   muted?: boolean;

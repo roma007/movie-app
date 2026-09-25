@@ -169,7 +169,10 @@ async function createTauriHttpClient(): Promise<HttpClient> {
   }
 }
 
-export async function initApp(onProgress?: (step: string) => void): Promise<void> {
+export async function initApp(
+  onProgress?: (step: string) => void,
+  onMigration?: (running: boolean) => void,
+): Promise<void> {
   if (_initPromise) return _initPromise;
   _initPromise = (async () => {
     const startTime = Date.now();
@@ -199,7 +202,15 @@ export async function initApp(onProgress?: (step: string) => void): Promise<void
       report('Step 2: TauriSqlProvider 创建完成');
       
       report('Step 3: 初始化数据库...');
+      // 主键 INTEGER 升级预检：需迁移时先通知 UI 显示全屏升级占位页；
+      // 真实迁移在 init() → initSchema → migratePkToInteger 内幂等执行。
+      const needsPkMigration = await _provider.needsPkIntegerMigration();
+      if (needsPkMigration) {
+        onMigration?.(true);
+        report('Step 3m: 检测到旧字符串主键库，开始数据库升级（预计约 2 分钟，请勿关闭应用）...');
+      }
       await _provider.init();
+      if (needsPkMigration) onMigration?.(false);
       report('Step 3: TauriSqlProvider 初始化完成');
       await logToDb('Initialized TauriSqlProvider');
       

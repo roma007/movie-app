@@ -175,7 +175,7 @@ export function hasFreshDoubanRating(
 export class RatingService {
   constructor(private db: DatabaseProvider) {}
 
-  async getOrFetchRating(mediaId: string, title: string, year: number, type: MediaType): Promise<DoubanRating | null> {
+  async getOrFetchRating(mediaId: number, title: string, year: number, type: MediaType): Promise<DoubanRating | null> {
     const media = await this.db.getMediaById(mediaId);
     if (!media) return null;
 

@@ -46,7 +46,7 @@ interface PreparedMedia {
   /** 合并模式：true=走「只增不删」追加路径，不写 media 行 */
   mergeMode: boolean;
   /** 合并目标 media id（主条目） */
-  mergeTargetId: string | null;
+  mergeTargetId: number | null;
 }
 
 /** 根据错误特征归类错误类型，用于前端按类型筛选/展示 */
@@ -225,7 +225,8 @@ export class CollectorService {
       const fingerprint = baseFingerprint;
 
       const existing = await trace('dbLookup', () => this.db.getMediaByFingerprint(fingerprint));
-      let mediaId = existing?.id || generateId();
+      // 新条目无预分配 id：INTEGER 主键由数据库分配（upsert 后按指纹回读实际 id）
+      let mediaId: number = existing?.id ?? 0;
 
       // 成对命中（库中已有同名主条目）→ 合并路径：不写 media 行，仅追加播放资源
       const mergeMode = isVersionItem && existing != null;
@@ -468,6 +469,7 @@ sourceUpdatedAt,
       const seasonNumber = prep.seasonNumber;
       const episodesBatch: Episode[] = [];
       const playSourcesBatch: PlaySource[] = [];
+      const playSourceEpKeys: string[] = [];
       const epGroups = prep.epGroups;
       const sources = prep.sources;
       const isMerge = mergeInto != null;
@@ -483,46 +485,38 @@ sourceUpdatedAt,
           const ep = eps[epIdx];
           const epNumber = epIdx + 1;
           const isVersion = isVersionTitle(ep.title) && media.type === 'MOVIE';
+          const normalizedEpNumber = isVersion ? 1 : epNumber;
 
-          // 合并路径：id 语言化（无语言版本共享主 id，play_source 以 urlHash 区分为多线路）
-          const langSuffix = isMerge && lang ? `_${lang}` : '';
-          const episodeId = isMerge
-            ? (isVersion
-                ? `ep_${writeMediaId}_movie${langSuffix}_src_${sourceId}`
-                : `ep_${writeMediaId}_s${seasonNumber}_e${epNumber}${langSuffix}_src_${sourceId}`)
-            : (isVersion
-                ? `ep_${writeMediaId}_movie_src_${sourceId}`
-                : `ep_${writeMediaId}_s${seasonNumber}_e${epNumber}_src_${sourceId}`);
-
+          // 合并路径：语言化标题提取；普通路径语言取该线路自身。episode/play_source 的 id
+          // 均由 INTEGER 主键分配（占位 0），episode 写入后统一回读 `season:ep:sourceId` → id 映射
           episodesBatch.push({
-            id: episodeId,
+            id: 0,
             mediaId: writeMediaId,
             seasonNumber,
-            episodeNumber: isVersion ? 1 : epNumber,
+            episodeNumber: normalizedEpNumber,
             title: isVersion ? null : ep.title,
             duration: null,
             sourceId,
           });
 
-          // 合并路径语言取标题提取值；普通路径取该线路自身（剧集标题/线路质量）的语言
           const lineLanguage = isMerge ? (lang || null) : (extractLanguage(ep.title, mappedQuality) ?? null);
-          const psId = isMerge ? `ps_${episodeId}_${shortUrlHash(ep.url)}` : `ps_${episodeId}_${sourceIdx}`;
           playSourcesBatch.push({
-            id: psId,
-            episodeId,
+            id: 0,
+            episodeId: 0,
             sourceId,
             sourceName: sourceDisplayName,
             url: ep.url,
             quality: isVersion ? ep.title : (mappedQuality || null),
             language: lineLanguage,
           });
+          playSourceEpKeys.push(`${seasonNumber}:${normalizedEpNumber}:${sourceId}`);
         }
       }
 
+      let epIdMap: Map<string, number>;
       if (isMerge) {
         // 合并路径：只增不删（追加 + URL 级幂等）
-        await trace('dbWrite.eps', () => this.db.upsertEpisodesBatch(episodesBatch));
-        await trace('dbWrite.ps', () => this.db.upsertPlaySourcesBatch(playSourcesBatch));
+        epIdMap = await trace('dbWrite.eps', () => this.db.upsertEpisodesBatch(episodesBatch));
       } else {
         // 合并保护：若该媒体+源已存在「非本轮写入」的外部线路（其他版本条目追加而来），
         // 跳过「先删后写」，改为纯 upsert，避免覆盖已合并进主条目的其他语言版本。
@@ -532,9 +526,13 @@ sourceUpdatedAt,
         if (!hasForeignLines) {
           await trace('dbWrite.epsDel', () => this.db.deleteEpisodesByMediaIdAndSourceId(writeMediaId, sourceId));
         }
-        await trace('dbWrite.eps', () => this.db.upsertEpisodesBatch(episodesBatch));
-        await trace('dbWrite.ps', () => this.db.upsertPlaySourcesBatch(playSourcesBatch));
+        epIdMap = await trace('dbWrite.eps', () => this.db.upsertEpisodesBatch(episodesBatch));
       }
+      // play_source.episode_id 按回读的 episode 整数 id 回填
+      for (let i = 0; i < playSourcesBatch.length; i++) {
+        playSourcesBatch[i].episodeId = epIdMap.get(playSourceEpKeys[i]) ?? 0;
+      }
+      await trace('dbWrite.ps', () => this.db.upsertPlaySourcesBatch(playSourcesBatch));
 
       return media;
     });
@@ -1223,7 +1221,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
    * 护栏：仅处理 TV 非短剧、current/total ≤ 2、且 genre 首元素为「XX片」候选；≥2 条且全无版式词标题的跳过。
    */
   async repairMediaTypeMismatches(): Promise<number> {
-    const tvRows = await this.db.select<{ id: string; fingerprint: string; genre: string | null }>(
+    const tvRows = await this.db.select<{ id: number; fingerprint: string; genre: string | null }>(
       `SELECT id, fingerprint, genre FROM media
        WHERE type = 'TV' AND fingerprint LIKE 'tv:%:s1' AND is_short_drama = 0
          AND (current_episodes IS NULL OR current_episodes <= 2)
@@ -1231,7 +1229,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
     );
     if (tvRows.length === 0) return 0;
 
-    const movieRows = await this.db.select<{ id: string; fingerprint: string }>(`SELECT id, fingerprint FROM media WHERE type = 'MOVIE' AND fingerprint LIKE 'movie:%'`);
+    const movieRows = await this.db.select<{ id: number; fingerprint: string }>(`SELECT id, fingerprint FROM media WHERE type = 'MOVIE' AND fingerprint LIKE 'movie:%'`);
     const movieIdByFp = new Map(movieRows.map((r) => [r.fingerprint, r.id]));
 
     let repaired = 0;
@@ -1273,16 +1271,16 @@ const title = await normalizer.normalizeTitle(item.vod_name);
    * 剧集按 source 归组重建为 movie 形态单集（ep_<mid>_movie_src_<src>），播放源改指、
    * 删除旧剧集（进度随旧集丢弃），media 行改 type/fingerprint/集数/季信息。
    */
-  private async convertTvToMovieSelf(tvId: string, movieFp: string): Promise<void> {
+  private async convertTvToMovieSelf(tvId: number, movieFp: string): Promise<void> {
     await this.db.withTransactionAsync(async () => {
       const tvEpisodes = await this.db.getEpisodesByMediaId(tvId);
       const sources = Array.from(new Set(tvEpisodes.map((ep) => ep.sourceId || 'default')));
 
       for (const sourceId of sources) {
         const srcEps = tvEpisodes.filter((ep) => (ep.sourceId || 'default') === sourceId);
-        const movieEpId = `ep_${tvId}_movie_src_${sourceId}`;
-        await this.db.upsertEpisode({
-          id: movieEpId,
+        // 电影形态单集（movie 版）：id 由 INTEGER 主键分配，upsert 返回实际 id
+        const movieEpId = await this.db.upsertEpisode({
+          id: 0,
           mediaId: tvId,
           seasonNumber: 1,
           episodeNumber: 1,
@@ -1309,7 +1307,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
       }
 
       // 播放进度/线路进度指向将被删除的旧剧集，直接丢弃（同 mergeTvIntoMovie 策略）；
-      // favorite/impression/dislike/recommend_snapshot/media_change_log 按 mediaId 关联，mediaId 未变无需转指。
+      // favorite/impression/dislike/media_change_log 按 mediaId 关联，mediaId 未变无需转指。
       await this.db.execute('DELETE FROM watch_history WHERE media_id = ?', [tvId]);
       await this.db.execute('DELETE FROM watch_line_progress WHERE media_id = ?', [tvId]);
 
@@ -1323,7 +1321,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
   }
 
   /** 把「误判为电视剧」记录（tvId）的播放资源并入电影记录（movieId），随后删除 tv 记录。 */
-  private async mergeTvIntoMovie(tvId: string, movieId: string): Promise<void> {
+  private async mergeTvIntoMovie(tvId: number, movieId: number): Promise<void> {
     await this.db.withTransactionAsync(async () => {
       const tvEpisodes = await this.db.getEpisodesByMediaId(tvId);
 
@@ -1334,8 +1332,17 @@ const title = await normalizer.normalizeTitle(item.vod_name);
 
         let movieEp = (await this.db.getEpisodesByMediaId(movieId, 1, sourceId))[0];
         if (!movieEp) {
+          const newId = await this.db.upsertEpisode({
+            id: 0,
+            mediaId: movieId,
+            seasonNumber: 1,
+            episodeNumber: 1,
+            title: null,
+            duration: srcEps.find((ep) => ep.duration != null)?.duration ?? null,
+            sourceId,
+          });
           movieEp = {
-            id: `ep_${movieId}_movie_src_${sourceId}`,
+            id: newId,
             mediaId: movieId,
             seasonNumber: 1,
             episodeNumber: 1,
@@ -1343,7 +1350,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
             duration: srcEps.find((ep) => ep.duration != null)?.duration ?? null,
             sourceId,
           };
-          await this.db.upsertEpisode(movieEp);
         }
 
         const existingUrls = new Set((await this.db.getPlaySourcesByEpisodeId(movieEp.id)).map((ps) => ps.url));
@@ -1375,7 +1381,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
       await repointUnique('favorite');
       await repointUnique('impression');
       await repointUnique('dislike');
-      await repointUnique('recommend_snapshot');
       await repointUnique('recommend_candidates');
       await repointUnique('media_change_log');
 
@@ -1404,7 +1409,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
 
   async mergeExistingVersionDuplicates(): Promise<number> {
     const startedAt = Date.now();
-    const rows = await this.db.select<{ id: string; title: string; year: number | null; fingerprint: string; type: string }>(
+    const rows = await this.db.select<{ id: number; title: string; year: number | null; fingerprint: string; type: string }>(
       `SELECT id, title, year, fingerprint, type FROM media`
     );
     console.log(`[Collector] 存量同名合并: 扫描 ${rows.length} 条 media 开始`);
@@ -1468,53 +1473,54 @@ const title = await normalizer.normalizeTitle(item.vod_name);
     return merged;
   }
 
-  /** 单条版本条目并入主条目：episode/play_source id 语言化重写追加，引用表转指，删除被并行。
-   *  写库聚合为批量 upsert（upsertEpisodesBatch/upsertPlaySourcesBatch），避免逐条 DB 调用拖慢全表合并。 */
+  /** 单条版本条目并入主条目：剧集/播放源并入主记录，引用表转指，删除被并条目。
+   *  老字符串主键库跨版本升级后 id 语义已变（INTEGER 自增），并入改用业务键幂等 upsert。 */
   private async mergeVersionIntoMain(
-    v: { id: string; title: string; fingerprint: string; type: string },
-    main: { id: string; title: string }
+    v: { id: number; title: string; fingerprint: string; type: string },
+    main: { id: number; title: string }
   ): Promise<void> {
     await this.db.withTransactionAsync(async () => {
       const lang = extractLanguage(v.title) ?? null;
-      const langSfx = lang ? `_${lang}` : '';
       const srcEps = await this.db.getEpisodesByMediaId(v.id);
+
+      // 1) 版本条目的每集按（main.media + season + ep + source）合入主记录，业务键幂等
+      const rebuild: Episode[] = srcEps.map((ep) => ({
+        id: 0,
+        mediaId: main.id,
+        seasonNumber: ep.seasonNumber || 1,
+        episodeNumber: ep.episodeNumber,
+        title: ep.title,
+        duration: ep.duration,
+        sourceId: ep.sourceId || 'default',
+      }));
+      const epIdMap = new Map<string, number>();
+      if (rebuild.length > 0) Object.assign(epIdMap, await this.db.upsertEpisodesBatch(rebuild));
+      const newEpIdOf = (ep: Episode): number =>
+        epIdMap.get(`${ep.seasonNumber || 1}:${ep.episodeNumber}:${ep.sourceId || 'default'}`) ?? 0;
+
+      // 2) 播放源转指到主记录剧集 id；同 URL 去重删除（保留语言归一为被并条目的 title 语言）
       const urlSeen = new Set<string>();
-      const epsBatch: Episode[] = [];
-      const psBatch: PlaySource[] = [];
-      const dedupPsIds: string[] = [];
-      const delEpIds: string[] = [];
-
       for (const ep of srcEps) {
-        const newEpId =
-          v.type === 'MOVIE'
-            ? `ep_${main.id}_movie${langSfx}_src_${ep.sourceId || 'default'}`
-            : `ep_${main.id}_s${ep.seasonNumber || 1}_e${ep.episodeNumber}${langSfx}_src_${ep.sourceId || 'default'}`;
-        epsBatch.push({ ...ep, id: newEpId, mediaId: main.id });
-
-        const psList = await this.db.getPlaySourcesByEpisodeId(ep.id);
-        for (const ps of psList) {
+        const newEpId = newEpIdOf(ep);
+        for (const ps of await this.db.getPlaySourcesByEpisodeId(ep.id)) {
           if (urlSeen.has(ps.url)) {
-            dedupPsIds.push(ps.id);
+            await this.db.execute('DELETE FROM play_source WHERE id = ?', [ps.id]);
             continue;
           }
           urlSeen.add(ps.url);
-          psBatch.push({
-            ...ps,
-            id: `ps_${newEpId}_${shortUrlHash(ps.url)}`,
-            episodeId: newEpId,
-            sourceId: ps.sourceId || 'default',
-            language: lang ?? ps.language,
-          });
+          await this.db.execute(
+            'UPDATE play_source SET episode_id = ?, source_id = ?, language = ? WHERE id = ?',
+            [newEpId, ps.sourceId || 'default', lang ?? ps.language, ps.id]
+          );
         }
-        delEpIds.push(ep.id);
       }
 
-      if (epsBatch.length > 0) await this.db.upsertEpisodesBatch(epsBatch);
-      if (psBatch.length > 0) await this.db.upsertPlaySourcesBatch(psBatch);
-      for (const id of delEpIds) await this.db.execute('DELETE FROM episode WHERE id = ?', [id]);
-      for (const id of dedupPsIds) await this.db.execute('DELETE FROM play_source WHERE id = ?', [id]);
+      // 3) 删除被并条目的旧剧集（播放源已转指，无孤儿）
+      for (const ep of srcEps) {
+        await this.db.execute('DELETE FROM episode WHERE id = ?', [ep.id]);
+      }
 
-      // 播放进度指向语言化后的新剧集，直接丢弃（与 mergeTvIntoMovie 同策略）
+      // 播放进度指向已删除旧剧集，直接丢弃（与 mergeTvIntoMovie 同策略）
       await this.db.execute('DELETE FROM watch_history WHERE media_id = ?', [v.id]);
       await this.db.execute('DELETE FROM watch_line_progress WHERE media_id = ?', [v.id]);
       const repointUnique = async (table: string): Promise<void> => {
@@ -1524,7 +1530,6 @@ const title = await normalizer.normalizeTitle(item.vod_name);
       await repointUnique('favorite');
       await repointUnique('impression');
       await repointUnique('dislike');
-      await repointUnique('recommend_snapshot');
       await repointUnique('recommend_candidates');
       await repointUnique('media_change_log');
 
@@ -2396,7 +2401,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
    * 重新探测实际视频时长，成功则更新为 PROBE 状态，失败则推迟下一次重试。
    */
   private async updateMediaDurationStatus(
-    mediaId: string,
+    mediaId: number,
     isShortDrama: boolean,
     status: 'SUMMARY' | 'PROBE' | 'FALLBACK',
     episodeDuration: number | null
@@ -2444,7 +2449,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
       params.push(`%${kw}%`);
     }
 
-    const mediaList = await this.db.select<{ id: string }>(
+    const mediaList = await this.db.select<{ id: number }>(
       `SELECT id FROM media WHERE ${conditions.join(' OR ')}`,
       params
     );
@@ -2469,8 +2474,8 @@ const title = await normalizer.normalizeTitle(item.vod_name);
   /**
    * 获取需要重新探测的媒体清单。
    */
-  async getReprobeMediaList(): Promise<{ id: string; title: string }[]> {
-    return this.db.select<{ id: string; title: string }>(
+  async getReprobeMediaList(): Promise<{ id: number; title: string }[]> {
+    return this.db.select<{ id: number; title: string }>(
       `SELECT id, title FROM media WHERE type = 'TV' AND (duration_check_status = 'FALLBACK' OR duration_check_status IS NULL) ORDER BY title`,
       []
     );
@@ -2498,7 +2503,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
     longDrama: number;
     shortDrama: number;
     failed: number;
-    failedItems: { id: string; title: string }[];
+    failedItems: { id: number; title: string }[];
   }> {
     const configService = new SystemConfigService(this.db);
     const config = await configService.getShortDramaConfig();
@@ -2508,7 +2513,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
       : `type = 'TV' AND (duration_check_status = 'FALLBACK' OR duration_check_status IS NULL)`;
 
     const mediaList = await this.db.select<{
-      id: string;
+      id: number;
       title: string;
       episode_duration: number | null;
     }>(
@@ -2522,7 +2527,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
     let longDrama = 0;
     let shortDrama = 0;
     let failed = 0;
-    const failedItems: { id: string; title: string }[] = [];
+    const failedItems: { id: number; title: string }[] = [];
 
     const durationService = new VideoDurationService();
 
@@ -2712,7 +2717,7 @@ const title = await normalizer.normalizeTitle(item.vod_name);
     longDrama: number;
     shortDrama: number;
     failed: number;
-    failedItems: { id: string; title: string }[];
+    failedItems: { id: number; title: string }[];
   }> {
     // 重置所有电视剧的判断结果
     // episode_duration 已有值且 > 0 的保留，否则重置为 NULL
