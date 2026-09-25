@@ -1,4 +1,4 @@
-import { TauriSqlProvider } from './db/tauriSqlProvider';
+import { TauriSqlProvider, type MigrationProgress } from './db/tauriSqlProvider';
 import { createAppStore, setHttpClient, setVideoFetchFn, getCurrentStoreApiVersion, getStoreApiVersion, type AppStore, type AppState, type HttpClient } from '@movie-app/core';
 
 let _provider: TauriSqlProvider | null = null;
@@ -172,6 +172,7 @@ async function createTauriHttpClient(): Promise<HttpClient> {
 export async function initApp(
   onProgress?: (step: string) => void,
   onMigration?: (running: boolean) => void,
+  onMigrationProgress?: (p: MigrationProgress) => void,
 ): Promise<void> {
   if (_initPromise) return _initPromise;
   _initPromise = (async () => {
@@ -198,7 +199,7 @@ export async function initApp(
       }
 
       report('Step 2: 创建 TauriSqlProvider...');
-      _provider = new TauriSqlProvider();
+      _provider = new TauriSqlProvider({ onMigrationProgress });
       report('Step 2: TauriSqlProvider 创建完成');
       
       report('Step 3: 初始化数据库...');

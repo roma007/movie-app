@@ -1,4 +1,4 @@
-import { ExpoSqliteProvider } from './db/expoSqliteProvider';
+import { ExpoSqliteProvider, type MigrationProgress } from './db/expoSqliteProvider';
 import { DevSettings } from 'react-native';
 import { createAppStore, CollectorService, getCurrentStoreApiVersion, getStoreApiVersion, type AppStore, type AppState } from '@movie-app/core';
 
@@ -29,11 +29,11 @@ function getSingletons(): AppSingletons {
  * 初始化应用：创建 DatabaseProvider → 建表 → 注入 store 和 collector。
  * 幂等：多次调用返回同一个 Promise。
  */
-export async function initApp(): Promise<void> {
+export async function initApp(options?: { onMigrationProgress?: (p: MigrationProgress) => void }): Promise<void> {
   const s = getSingletons();
   if (s.initPromise) return s.initPromise;
   s.initPromise = (async () => {
-    const provider = new ExpoSqliteProvider();
+    const provider = new ExpoSqliteProvider(options);
     await provider.init();
     s.provider = provider;
     const store = createAppStore(provider);

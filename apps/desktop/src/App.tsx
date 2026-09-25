@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { initApp, testCollect } from './init';
+import { MigrationDiskError, type MigrationProgress } from './db/tauriSqlProvider';
 import { Layout } from './components/Layout';
 import { PipWindow } from './pip/PipWindow';
 import { SplashOverlay } from './components/SplashOverlay';
@@ -47,9 +48,13 @@ function MainApp() {
   const [error, setError] = useState<string | null>(null);
   // 主键 INTEGER 升级进行中：全屏占位，且初始化超时窗口放宽（迁移可能数分钟）
   const [migrating, setMigrating] = useState(false);
+  // 迁移进度（百分比 + 阶段文案），渲染升级进度条
+  const [migrationProgress, setMigrationProgress] = useState<MigrationProgress | null>(null);
+  // 磁盘空间不足：渲染升级引导页（不执行迁移、不进入应用）
+  const [diskBlocked, setDiskBlocked] = useState<MigrationDiskError | null>(null);
 
   useEffect(() => {
-    if (ready || error) return;
+    if (ready || error || diskBlocked) return;
     const timeoutId = setTimeout(() => {
       console.error('初始化超时');
       setError('初始化超时');
@@ -57,7 +62,11 @@ function MainApp() {
     }, migrating ? 30 * 60 * 1000 : 120000);
 
     // 静默初始化：不再显示「正在加载/数据库步骤」文字，由欢迎页覆盖层承接
-    initApp(undefined, (running) => setMigrating(running))
+    initApp(
+      undefined,
+      (running) => setMigrating(running),
+      (p) => setMigrationProgress(p),
+    )
       .then(() => {
         clearTimeout(timeoutId);
         console.log('初始化成功');
@@ -66,6 +75,10 @@ function MainApp() {
       })
       .catch((err) => {
         console.error('初始化失败:', err);
+        if (err instanceof MigrationDiskError) {
+          setDiskBlocked(err);
+          return;
+        }
         setError(err?.message || String(err));
         setReady(true);
       });
@@ -73,7 +86,7 @@ function MainApp() {
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [ready, error, migrating]);
+  }, [ready, error, migrating, diskBlocked]);
 
   if (error) {
     return (
@@ -128,7 +141,7 @@ function MainApp() {
           </ThemeProvider>
         )}
       </div>
-      <SplashOverlay ready={ready} migrating={migrating} />
+      <SplashOverlay ready={ready} migrating={migrating} migrationProgress={migrationProgress} diskBlocked={diskBlocked} />
     </>
   );
 }

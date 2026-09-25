@@ -1,5 +1,5 @@
 import * as SQLite from 'expo-sqlite';
-import { File, Paths } from 'expo-file-system';
+import { File, Paths, getFreeDiskStorageAsync } from 'expo-file-system';
 import {
   PRAGMA_SQL,
   SCHEMA_SQL,
@@ -39,6 +39,26 @@ interface Migration {
   version: number;
   description: string;
   sql: string;
+}
+
+/** 迁移进度（百分比 + 阶段文案），供升级进度条渲染。 */
+export interface MigrationProgress {
+  percent: number;
+  label: string;
+}
+
+/** 磁盘空间不足导致无法升级（结构化数据供 UI 引导页展示）。 */
+export class MigrationDiskError extends Error {
+  readonly need: number;
+  readonly free: number;
+  readonly dbBytes: number;
+  constructor(need: number, free: number, dbBytes: number) {
+    super(`磁盘空间不足，无法完成数据库升级（需要约 ${need}，当前可用 ${free}）`);
+    this.name = 'MigrationDiskError';
+    this.need = need;
+    this.free = free;
+    this.dbBytes = dbBytes;
+  }
 }
 
 const MIGRATIONS: Migration[] = [
@@ -554,6 +574,41 @@ export class ExpoSqliteProvider implements DatabaseProvider {
   private db: SQLite.SQLiteDatabase | null = null;
   private readDb: SQLite.SQLiteDatabase | null = null;
 
+  /** 迁移进度上报（percent 0-100，label 当前阶段文案）。 */
+  private migrationProgressCb?: (p: MigrationProgress) => void;
+
+  constructor(options?: { onMigrationProgress?: (p: MigrationProgress) => void }) {
+    this.migrationProgressCb = options?.onMigrationProgress;
+  }
+
+  private reportProgress(percent: number, label: string): void {
+    this.migrationProgressCb?.({
+      percent: Math.min(100, Math.max(0, Math.round(percent * 10) / 10)),
+      label,
+    });
+  }
+
+  /** 磁盘预检：可用空间 < 库大小×2 时抛 MigrationDiskError，不执行任何迁移（库不被改动）。 */
+  private async ensureDiskCapacity(): Promise<void> {
+    try {
+      const pc = await this.db!.getFirstAsync<{ page_count: number }>('PRAGMA page_count');
+      const ps = await this.db!.getFirstAsync<{ page_size: number }>('PRAGMA page_size');
+      const dbBytes = Number(pc?.page_count ?? 0) * Number(ps?.page_size ?? 0);
+      if (!dbBytes) return;
+      const free = await getFreeDiskStorageAsync();
+      if (free == null) return;
+      const need = dbBytes * 2;
+      if (free < need) {
+        const fmt = (n: number) => `${(n / 1073741824).toFixed(2)}GB`;
+        console.error(`[DB] 磁盘空间不足，无法完成数据库升级：需要约 ${fmt(need)}，当前可用 ${fmt(free)}`);
+        throw new MigrationDiskError(need, free, dbBytes);
+      }
+    } catch (err) {
+      if (err instanceof MigrationDiskError) throw err;
+      console.warn('[DB] 磁盘预检探测失败，跳过：', err instanceof Error ? err.message : String(err));
+    }
+  }
+
   /** 儿童模式开关缓存（启动时由 system_config 初始化，setKidModeActive 同步更新）。 */
   private kidModeActive = false;
 
@@ -774,6 +829,10 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     console.warn('[DB] 检测到旧字符串主键库，开始主键 INTEGER 迁移（590 万行级，可能耗时，允许中断重试）...');
     const exec = (sql: string) => this.db!.execAsync(sql);
 
+    // 磁盘预检：不足则拒绝并提示，防大规模重建期间写爆
+    await this.ensureDiskCapacity();
+    this.reportProgress(1, '正在检查并清理上次迁移残留');
+
     // 可重入：清上一轮残留的临时表
     for (const t of [
       'media_pkv2', 'episode_pkv2', 'play_source_pkv2',
@@ -787,6 +846,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     await exec('DROP TRIGGER IF EXISTS media_au');
     await exec('DROP TRIGGER IF EXISTS media_ad');
     await exec('DROP TABLE IF EXISTS media_fts');
+    this.reportProgress(3, '正在重建影片数据');
 
     await exec(`CREATE TABLE media_pkv2 (
       id INTEGER PRIMARY KEY, title TEXT NOT NULL, original_title TEXT, alias TEXT, type TEXT NOT NULL,
@@ -812,44 +872,99 @@ export class ExpoSqliteProvider implements DatabaseProvider {
         series_season, source_updated_at, vod_id, created_at, updated_at
       FROM media ORDER BY rowid`);
     await exec('CREATE TABLE m_map (old TEXT PRIMARY KEY, new INTEGER)');
-    await exec(
-      'INSERT INTO m_map SELECT oldm.id, newm.id FROM media oldm JOIN media_pkv2 newm ON oldm.rowid = newm.rowid'
+    // 按 rowid 排行对齐：旧 media 可能有 rowid 空洞，直接 oldm.rowid=newm.rowid 会整列
+    // 错位并漏掉尾部媒体（实测桌面真实库 12,036 个媒体全丢、214,855 个映射错位）。
+    // 旧行按 rowid 排行 = media_pkv2 的插入序（INSERT ORDER BY rowid，id 自增连续），排行相等即同一条。
+    await exec(`INSERT INTO m_map
+      SELECT oldm.id, newm.id
+      FROM (SELECT id, row_number() OVER (ORDER BY rowid) AS rn FROM media) oldm
+      JOIN media_pkv2 newm ON newm.id = oldm.rn`);
+    this.reportProgress(12, '正在重建剧集数据（第 0/0 批）');
+
+    // 按 m_map.rowid 分段批量重建（去重键含 media_id，按媒体切批不会把同一键拆到两批）。
+    // 每批完成即上报真实进度，避免单条大 SQL 长时间无进度导致误判卡死。
+    const MEDIA_BATCH = 10000;
+    const mediaCount = Number(
+      (await this.db!.getFirstAsync<{ c: number }>('SELECT COUNT(*) AS c FROM m_map'))?.c ?? 0
     );
+    const mediaBatches = Math.max(1, Math.ceil(mediaCount / MEDIA_BATCH));
 
     await exec(`CREATE TABLE episode_pkv2 (
       id INTEGER PRIMARY KEY, media_id INTEGER NOT NULL, season_number INTEGER DEFAULT 1,
       episode_number INTEGER NOT NULL, title TEXT, duration INTEGER, source_id TEXT
     )`);
-    await exec(`INSERT INTO episode_pkv2 (media_id, season_number, episode_number, title, duration, source_id)
-      SELECT m.new, e.season_number, e.episode_number, e.title, e.duration, e.source_id
-      FROM episode e JOIN m_map m ON e.media_id = m.old
-      GROUP BY e.media_id, e.season_number, e.episode_number, e.source_id`);
+    // 迁移内置同 SCHEMA 索引（swap 后随表带走）：ep_map 分批 JOIN 必需走索引，
+    // 否则每批对 590 万行 episode_pkv2 全表扫描，批数×全扫次数导致数百倍降速。
+    await exec(
+      'CREATE INDEX IF NOT EXISTS idx_episode_media_season_source ON episode_pkv2(media_id, season_number, source_id)'
+    );
+    for (let b = 0; b < mediaBatches; b++) {
+      const lo = b * MEDIA_BATCH;
+      const hi = Math.min((b + 1) * MEDIA_BATCH, mediaCount);
+      await exec(`INSERT INTO episode_pkv2 (media_id, season_number, episode_number, title, duration, source_id)
+        SELECT m.new, e.season_number, e.episode_number, e.title, e.duration, e.source_id
+        FROM episode e JOIN m_map m ON e.media_id = m.old
+        WHERE m.rowid > ${lo} AND m.rowid <= ${hi}
+        GROUP BY e.media_id, e.season_number, e.episode_number, e.source_id`);
+      this.reportProgress(12 + (b / mediaBatches) * 18, `正在重建剧集数据（第 ${b + 1}/${mediaBatches} 批）`);
+    }
+
     await exec('CREATE TABLE ep_map (old TEXT PRIMARY KEY, new INTEGER)');
-    await exec(`INSERT INTO ep_map
-      SELECT e.id, n.id
-      FROM episode e
-      JOIN m_map m ON e.media_id = m.old
-      JOIN episode_pkv2 n
-        ON m.new = n.media_id AND e.season_number = n.season_number
-       AND e.episode_number = n.episode_number AND COALESCE(e.source_id, '') = COALESCE(n.source_id, '')`);
+    for (let b = 0; b < mediaBatches; b++) {
+      const lo = b * MEDIA_BATCH;
+      const hi = Math.min((b + 1) * MEDIA_BATCH, mediaCount);
+      await exec(`INSERT INTO ep_map
+        SELECT e.id, n.id
+        FROM episode e
+        JOIN m_map m ON e.media_id = m.old
+        JOIN episode_pkv2 n
+          ON m.new = n.media_id AND e.season_number = n.season_number
+         AND e.episode_number = n.episode_number AND COALESCE(e.source_id, '') = COALESCE(n.source_id, '')
+        WHERE m.rowid > ${lo} AND m.rowid <= ${hi}`);
+      this.reportProgress(30 + (b / mediaBatches) * 10, `正在构建剧集映射（第 ${b + 1}/${mediaBatches} 批）`);
+    }
+
+    const EP_BATCH = 50000;
+    const episodeCount = Number(
+      (await this.db!.getFirstAsync<{ c: number }>('SELECT COUNT(*) AS c FROM ep_map'))?.c ?? 0
+    );
+    const epBatches = Math.max(1, Math.ceil(episodeCount / EP_BATCH));
 
     await exec(`CREATE TABLE play_source_pkv2 (
       id INTEGER PRIMARY KEY, episode_id INTEGER NOT NULL, source_id TEXT NOT NULL, source_name TEXT,
       url TEXT NOT NULL, quality TEXT, language TEXT, is_active INTEGER DEFAULT 1,
       fail_count INTEGER DEFAULT 0, last_fail_at TEXT
     )`);
-    await exec(`INSERT INTO play_source_pkv2 (episode_id, source_id, source_name, url, quality, language, is_active, fail_count, last_fail_at)
-      SELECT enew, source_id, source_name, url, quality, language, is_active, fail_count, last_fail_at
-      FROM (SELECT ep_map.new AS enew, ps.source_id, ps.source_name, ps.url, ps.quality,
-                   ps.language, ps.is_active, ps.fail_count, ps.last_fail_at
-            FROM play_source ps JOIN ep_map ON ps.episode_id = ep_map.old)
-      GROUP BY enew, url`);
+    // 同 episode 段原因：ps_map 分批 JOIN 需走 episode_id 索引，避免每批全扫
+    await exec(
+      'CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source_pkv2(episode_id)'
+    );
+    for (let b = 0; b < epBatches; b++) {
+      const lo = b * EP_BATCH;
+      const hi = Math.min((b + 1) * EP_BATCH, episodeCount);
+      await exec(`INSERT INTO play_source_pkv2 (episode_id, source_id, source_name, url, quality, language, is_active, fail_count, last_fail_at)
+        SELECT enew, source_id, source_name, url, quality, language, is_active, fail_count, last_fail_at
+        FROM (SELECT ep_map.new AS enew, ps.source_id, ps.source_name, ps.url, ps.quality,
+                     ps.language, ps.is_active, ps.fail_count, ps.last_fail_at
+              FROM play_source ps JOIN ep_map ON ps.episode_id = ep_map.old
+              WHERE ep_map.new > ${lo} AND ep_map.new <= ${hi})
+        GROUP BY enew, url`);
+      this.reportProgress(40 + (b / epBatches) * 18, `正在重建播放源数据（第 ${b + 1}/${epBatches} 批）`);
+    }
+
     await exec('CREATE TABLE ps_map (old TEXT PRIMARY KEY, new INTEGER)');
-    await exec(`INSERT INTO ps_map
-      SELECT ps.id, n.id
-      FROM play_source ps
-      JOIN ep_map e ON ps.episode_id = e.old
-      JOIN play_source_pkv2 n ON ps.url = n.url AND n.episode_id = e.new`);
+    for (let b = 0; b < epBatches; b++) {
+      const lo = b * EP_BATCH;
+      const hi = Math.min((b + 1) * EP_BATCH, episodeCount);
+      await exec(`INSERT INTO ps_map
+        SELECT ps.id, n.id
+        FROM play_source ps
+        JOIN ep_map e ON ps.episode_id = e.old
+        JOIN play_source_pkv2 n ON ps.url = n.url AND n.episode_id = e.new
+        WHERE e.new > ${lo} AND e.new <= ${hi}`);
+      this.reportProgress(58 + (b / epBatches) * 8, `正在构建播放源映射（第 ${b + 1}/${epBatches} 批）`);
+    }
+    this.reportProgress(66, '正在迁移收藏与推荐数据');
 
     await exec('CREATE TABLE favorite_pkv2 (id TEXT PRIMARY KEY, media_id INTEGER NOT NULL, created_at TEXT)');
     await exec(`INSERT INTO favorite_pkv2 (id, media_id, created_at)
@@ -878,19 +993,27 @@ export class ExpoSqliteProvider implements DatabaseProvider {
       SELECT COALESCE(m.new, 0), MAX(ch.change_type), MAX(ch.created_at)
       FROM media_change_log ch LEFT JOIN m_map m ON ch.media_id = m.old
       GROUP BY COALESCE(m.new, 0)`);
+    this.reportProgress(73, '正在迁移观看历史与播放进度');
 
     await exec(`CREATE TABLE watch_history_pkv2 (
       id TEXT PRIMARY KEY, media_id INTEGER NOT NULL, episode_id INTEGER, progress INTEGER DEFAULT 0,
       duration INTEGER DEFAULT 0, source_id TEXT, play_source_id INTEGER, updated_at TEXT
     )`);
     await exec(`INSERT OR REPLACE INTO watch_history_pkv2 (id, media_id, episode_id, progress, duration, source_id, play_source_id, updated_at)
-      SELECT 'wh_' || COALESCE(m.new, 0) || '_' || COALESCE(e.new, 0),
-             COALESCE(m.new, 0), COALESCE(e.new, 0), w.progress, w.duration, w.source_id,
-             COALESCE(p.new, 0), w.updated_at
-      FROM watch_history w
-      LEFT JOIN m_map m ON w.media_id = m.old
-      LEFT JOIN ep_map e ON w.episode_id = e.old
-      LEFT JOIN ps_map p ON w.play_source_id = p.old`);
+      SELECT wid, mnew, enew, progress, duration, source_id, psnew, updated_at
+      FROM (
+        SELECT COALESCE(m.new, 0) AS mnew, COALESCE(e.new, 0) AS enew, COALESCE(p.new, 0) AS psnew,
+               w.progress, w.duration, w.source_id, w.updated_at,
+               'wh_' || COALESCE(m.new, 0) || '_' || COALESCE(e.new, 0) AS wid,
+               ROW_NUMBER() OVER (
+                 PARTITION BY COALESCE(m.new, 0), COALESCE(e.new, 0)
+                 ORDER BY w.updated_at DESC
+               ) AS rn
+        FROM watch_history w
+        LEFT JOIN m_map m ON w.media_id = m.old
+        LEFT JOIN ep_map e ON w.episode_id = e.old
+        LEFT JOIN ps_map p ON w.play_source_id = p.old
+      ) WHERE rn = 1`);
 
     await exec(`CREATE TABLE watch_line_progress_pkv2 (
       media_id INTEGER NOT NULL, episode_id INTEGER, play_source_id INTEGER, source_id TEXT,
@@ -903,6 +1026,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
       LEFT JOIN m_map m ON w.media_id = m.old
       LEFT JOIN ep_map e ON w.episode_id = e.old
       LEFT JOIN ps_map p ON w.play_source_id = p.old`);
+    this.reportProgress(82, '正在切换新旧数据');
 
     await exec('DROP TABLE play_source');
     await exec('ALTER TABLE play_source_pkv2 RENAME TO play_source');
@@ -924,9 +1048,11 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     await exec('ALTER TABLE watch_history_pkv2 RENAME TO watch_history');
     await exec('DROP TABLE watch_line_progress');
     await exec('ALTER TABLE watch_line_progress_pkv2 RENAME TO watch_line_progress');
+    this.reportProgress(86, '正在清理迁移辅助数据');
     await exec('DROP TABLE m_map');
     await exec('DROP TABLE ep_map');
     await exec('DROP TABLE ps_map');
+    this.reportProgress(88, '正在压缩数据库体积（耗时较长，请勿关闭）');
 
     // 回收 DROP 旧表产生的空页，避免升级后库文件膨胀（失败仅损失缩库收益，不阻断）
     try {
@@ -934,6 +1060,7 @@ export class ExpoSqliteProvider implements DatabaseProvider {
     } catch (e) {
       console.warn('[DB] VACUUM 失败（缩库跳过）:', e);
     }
+    this.reportProgress(100, '数据升级完成');
 
     console.warn('[DB] 主键 INTEGER 迁移完成（索引与 FTS 由 SCHEMA_SQL/postInit 重建）');
   }

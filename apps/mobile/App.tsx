@@ -44,6 +44,7 @@ function setupJSErrorLog() {
 setupJSErrorLog();
 
 import { initApp, getStore } from './src/init';
+import { MigrationDiskError, type MigrationProgress } from './src/db/expoSqliteProvider';
 import { useThemeStore } from './src/themes/store';
 import { useThemeColors } from './src/themes/useThemeColors';
 import HomeScreen from './src/pages/HomeScreen';
@@ -117,6 +118,10 @@ function RootNavigator() {
 export default function App() {
   const [ready, setReady] = useState(false);
   const routeRef = useRef('Home');
+  // 主键 INTEGER 升级进度（百分比 + 阶段文案）：ready=false 期间全屏展示进度条
+  const [migrationProgress, setMigrationProgress] = useState<MigrationProgress | null>(null);
+  // 磁盘空间不足：渲染升级引导页（不执行迁移、不进入应用）
+  const [diskBlocked, setDiskBlocked] = useState<MigrationDiskError | null>(null);
   const initTheme = useThemeStore((s) => s.initTheme);
   const initColorMode = useThemeStore((s) => s.initColorMode);
   const setSystemColorScheme = useThemeStore((s) => s.setSystemColorScheme);
@@ -141,10 +146,23 @@ export default function App() {
   }, [setSystemColorScheme]);
 
   useEffect(() => {
-    Promise.all([initApp(), initTheme(), initColorMode(), initBlurIntensity(), initImageBlur(), initImageScale(), initCardOpacity(), initFontSizeScale()])
+    Promise.all([
+      initApp({ onMigrationProgress: setMigrationProgress }),
+      initTheme(),
+      initColorMode(),
+      initBlurIntensity(),
+      initImageBlur(),
+      initImageScale(),
+      initCardOpacity(),
+      initFontSizeScale(),
+    ])
       .then(() => setReady(true))
       .catch((err) => {
         console.error('初始化失败:', err);
+        if (err instanceof MigrationDiskError) {
+          setDiskBlocked(err);
+          return;
+        }
         setReady(true);
       });
   }, []);
@@ -177,8 +195,8 @@ export default function App() {
           <RootNavigator />
         </NavigationContainer>
       )}
-      {/* 欢迎页 + 全屏广告覆盖层（主应用渲染在其下层，首页数据后台加载） */}
-      <SplashOverlay ready={ready} />
+      {/* 欢迎页 + 全屏广告覆盖层（主应用渲染在其下层，首页数据后台加载）。升级进行中（未 ready）时全屏展示进度条/引导页 */}
+      <SplashOverlay ready={ready} migrationProgress={migrationProgress} diskBlocked={diskBlocked} />
       {/* 安卓模拟器资源监控悬浮层（诊断用，右上角 x 可关） */}
       <ResourceOverlay routeRef={routeRef} />
     </SafeAreaProvider>

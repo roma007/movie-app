@@ -47,8 +47,45 @@ interface DbSem {
   waiters: (() => void)[];
 }
 
+/** 迁移进度（百分比 + 阶段文案），供升级进度条渲染。 */
+export interface MigrationProgress {
+  percent: number;
+  label: string;
+}
+
+/**
+ * 磁盘空间不足导致无法升级（结构化数据供 UI 引导页展示需要/可用/库大小）。
+ * initApp/App 捕获后渲染「升级引导页」：先装回旧版继续使用、腾出空间后重装新版自动升级。
+ */
+export class MigrationDiskError extends Error {
+  readonly need: number;
+  readonly free: number;
+  readonly dbBytes: number;
+  constructor(need: number, free: number, dbBytes: number) {
+    super(`磁盘空间不足，无法完成数据库升级（需要约 ${need}，当前可用 ${free}）`);
+    this.name = 'MigrationDiskError';
+    this.need = need;
+    this.free = free;
+    this.dbBytes = dbBytes;
+  }
+}
+
 export class TauriSqlProvider implements DatabaseProvider {
   private db: InstanceType<typeof Database> | null = null;
+
+  /** 迁移进度上报（percent 0-100，label 当前阶段文案）。 */
+  private migrationProgressCb?: (p: MigrationProgress) => void;
+
+  constructor(options?: { onMigrationProgress?: (p: MigrationProgress) => void }) {
+    this.migrationProgressCb = options?.onMigrationProgress;
+  }
+
+  private reportProgress(percent: number, label: string): void {
+    this.migrationProgressCb?.({
+      percent: Math.min(100, Math.max(0, Math.round(percent * 10) / 10)),
+      label,
+    });
+  }
 
   /** 事务进行中标志：事务内写操作绕过 writeState acquire（改由 withTransactionAsync 长持锁），避免重入死锁。
    *  注意：桌面端 tauri-plugin-sql 使用 sqlx 连接池，显式 BEGIN/COMMIT 会导致 BEGIN 在连接 A、
@@ -377,9 +414,10 @@ export class TauriSqlProvider implements DatabaseProvider {
     const need = dbBytes * 2;
     const fmt = (n: number) => `${(n / 1073741824).toFixed(2)}GB`;
     if (free < need) {
+      const fmt = (n: number) => `${(n / 1073741824).toFixed(2)}GB`;
       const msg = `磁盘空间不足，无法完成数据库升级：需要约 ${fmt(need)}，当前可用 ${fmt(free)}。请清理磁盘后重启应用重试。`;
       console.error('[DB] ' + msg);
-      throw new Error(msg);
+      throw new MigrationDiskError(need, free, dbBytes);
     }
     console.warn(`[DB] 磁盘预检通过：可用 ${fmt(free)} ≥ 需要 ${fmt(need)}（库 ${fmt(dbBytes)}×2）`);
   }
@@ -391,6 +429,7 @@ export class TauriSqlProvider implements DatabaseProvider {
 
     // 磁盘预检：不足则拒绝并提示，防大规模重建期间写爆
     await this.ensureDiskCapacity();
+    this.reportProgress(1, '正在检查并清理上次迁移残留');
 
     // 可重入：清上一轮残留的临时表（已 rename 成功的表 DROP IF EXISTS 静默跳过）
     for (const t of [
@@ -406,6 +445,7 @@ export class TauriSqlProvider implements DatabaseProvider {
     await this.db!.execute('DROP TRIGGER IF EXISTS media_au');
     await this.db!.execute('DROP TRIGGER IF EXISTS media_ad');
     await this.db!.execute('DROP TABLE IF EXISTS media_fts');
+    this.reportProgress(3, '正在重建影片数据');
 
     // ---- 1. media：按 rowid 顺序重建（新 id = 顺序行号），建 m_map ----
     await this.db!.execute(`CREATE TABLE media_pkv2 (
@@ -432,46 +472,101 @@ export class TauriSqlProvider implements DatabaseProvider {
         series_season, source_updated_at, vod_id, created_at, updated_at
       FROM media ORDER BY rowid`);
     await this.db!.execute('CREATE TABLE m_map (old TEXT PRIMARY KEY, new INTEGER)');
-    await this.db!.execute(
-      'INSERT INTO m_map SELECT oldm.id, newm.id FROM media oldm JOIN media_pkv2 newm ON oldm.rowid = newm.rowid'
-    );
+    // 按 rowid 排行对齐：旧 media 可能有 rowid 空洞，直接 oldm.rowid=newm.rowid 会整列
+    // 错位并漏掉尾部（rowid>新表行数）的媒体（实测 12,036 个新采集媒体全丢、214,855 个映射错位）。
+    // 旧行按 rowid 排行 = media_pkv2 的插入序（INSERT ORDER BY rowid，id 自增连续），排行相等即同一条。
+    await this.db!.execute(`INSERT INTO m_map
+      SELECT oldm.id, newm.id
+      FROM (SELECT id, row_number() OVER (ORDER BY rowid) AS rn FROM media) oldm
+      JOIN media_pkv2 newm ON newm.id = oldm.rn`);
+    this.reportProgress(12, '正在重建剧集数据（第 0/0 批）');
 
     // ---- 2. episode：业务键合并去重 + media_id 重映射 ----
+    // 按 m_map.rowid 分段批量重建（去重键含 media_id，按媒体切批不会把同一键拆到两批）。
+    // 每批完成即上报真实进度，避免单条大 SQL 长时间无进度导致误判卡死。
+    const MEDIA_BATCH = 10000;
+    const mediaCount = Number(
+      ((await this.db!.select('SELECT COUNT(*) AS c FROM m_map')) as { c: number }[])[0]?.c ?? 0
+    );
+    const mediaBatches = Math.max(1, Math.ceil(mediaCount / MEDIA_BATCH));
+
     await this.db!.execute(`CREATE TABLE episode_pkv2 (
       id INTEGER PRIMARY KEY, media_id INTEGER NOT NULL, season_number INTEGER DEFAULT 1,
       episode_number INTEGER NOT NULL, title TEXT, duration INTEGER, source_id TEXT
     )`);
-    await this.db!.execute(`INSERT INTO episode_pkv2 (media_id, season_number, episode_number, title, duration, source_id)
-      SELECT m.new, e.season_number, e.episode_number, e.title, e.duration, e.source_id
-      FROM episode e JOIN m_map m ON e.media_id = m.old
-      GROUP BY e.media_id, e.season_number, e.episode_number, e.source_id`);
+    // 迁移内置同 SCHEMA 索引（swap 后随表带走）：ep_map 分批 JOIN 必需走索引，
+    // 否则每批对 590 万行 episode_pkv2 全表扫描，批数×全扫次数导致数百倍降速。
+    await this.db!.execute(
+      'CREATE INDEX IF NOT EXISTS idx_episode_media_season_source ON episode_pkv2(media_id, season_number, source_id)'
+    );
+    for (let b = 0; b < mediaBatches; b++) {
+      const lo = b * MEDIA_BATCH;
+      const hi = Math.min((b + 1) * MEDIA_BATCH, mediaCount);
+      await this.db!.execute(`INSERT INTO episode_pkv2 (media_id, season_number, episode_number, title, duration, source_id)
+        SELECT m.new, e.season_number, e.episode_number, e.title, e.duration, e.source_id
+        FROM episode e JOIN m_map m ON e.media_id = m.old
+        WHERE m.rowid > ${lo} AND m.rowid <= ${hi}
+        GROUP BY e.media_id, e.season_number, e.episode_number, e.source_id`);
+      this.reportProgress(12 + (b / mediaBatches) * 18, `正在重建剧集数据（第 ${b + 1}/${mediaBatches} 批）`);
+    }
+
     await this.db!.execute('CREATE TABLE ep_map (old TEXT PRIMARY KEY, new INTEGER)');
-    await this.db!.execute(`INSERT INTO ep_map
-      SELECT e.id, n.id
-      FROM episode e
-      JOIN m_map m ON e.media_id = m.old
-      JOIN episode_pkv2 n
-        ON m.new = n.media_id AND e.season_number = n.season_number
-       AND e.episode_number = n.episode_number AND COALESCE(e.source_id, '') = COALESCE(n.source_id, '')`);
+    for (let b = 0; b < mediaBatches; b++) {
+      const lo = b * MEDIA_BATCH;
+      const hi = Math.min((b + 1) * MEDIA_BATCH, mediaCount);
+      await this.db!.execute(`INSERT INTO ep_map
+        SELECT e.id, n.id
+        FROM episode e
+        JOIN m_map m ON e.media_id = m.old
+        JOIN episode_pkv2 n
+          ON m.new = n.media_id AND e.season_number = n.season_number
+         AND e.episode_number = n.episode_number AND COALESCE(e.source_id, '') = COALESCE(n.source_id, '')
+        WHERE m.rowid > ${lo} AND m.rowid <= ${hi}`);
+      this.reportProgress(30 + (b / mediaBatches) * 10, `正在构建剧集映射（第 ${b + 1}/${mediaBatches} 批）`);
+    }
 
     // ---- 3. play_source：按 (episode_id,url) 合并去重 + episode_id 重映射，建 ps_map ----
+    const EP_BATCH = 50000;
+    const episodeCount = Number(
+      ((await this.db!.select('SELECT COUNT(*) AS c FROM ep_map')) as { c: number }[])[0]?.c ?? 0
+    );
+    const epBatches = Math.max(1, Math.ceil(episodeCount / EP_BATCH));
+
     await this.db!.execute(`CREATE TABLE play_source_pkv2 (
       id INTEGER PRIMARY KEY, episode_id INTEGER NOT NULL, source_id TEXT NOT NULL, source_name TEXT,
       url TEXT NOT NULL, quality TEXT, language TEXT, is_active INTEGER DEFAULT 1,
       fail_count INTEGER DEFAULT 0, last_fail_at TEXT
     )`);
-    await this.db!.execute(`INSERT INTO play_source_pkv2 (episode_id, source_id, source_name, url, quality, language, is_active, fail_count, last_fail_at)
-      SELECT enew, source_id, source_name, url, quality, language, is_active, fail_count, last_fail_at
-      FROM (SELECT ep_map.new AS enew, ps.source_id, ps.source_name, ps.url, ps.quality,
-                   ps.language, ps.is_active, ps.fail_count, ps.last_fail_at
-            FROM play_source ps JOIN ep_map ON ps.episode_id = ep_map.old)
-      GROUP BY enew, url`);
+    // 同 episode 段原因：ps_map 分批 JOIN 需走 episode_id 索引，避免每批全扫
+    await this.db!.execute(
+      'CREATE INDEX IF NOT EXISTS idx_play_source_episode_id ON play_source_pkv2(episode_id)'
+    );
+    for (let b = 0; b < epBatches; b++) {
+      const lo = b * EP_BATCH;
+      const hi = Math.min((b + 1) * EP_BATCH, episodeCount);
+      await this.db!.execute(`INSERT INTO play_source_pkv2 (episode_id, source_id, source_name, url, quality, language, is_active, fail_count, last_fail_at)
+        SELECT enew, source_id, source_name, url, quality, language, is_active, fail_count, last_fail_at
+        FROM (SELECT ep_map.new AS enew, ps.source_id, ps.source_name, ps.url, ps.quality,
+                     ps.language, ps.is_active, ps.fail_count, ps.last_fail_at
+              FROM play_source ps JOIN ep_map ON ps.episode_id = ep_map.old
+              WHERE ep_map.new > ${lo} AND ep_map.new <= ${hi})
+        GROUP BY enew, url`);
+      this.reportProgress(40 + (b / epBatches) * 18, `正在重建播放源数据（第 ${b + 1}/${epBatches} 批）`);
+    }
+
     await this.db!.execute('CREATE TABLE ps_map (old TEXT PRIMARY KEY, new INTEGER)');
-    await this.db!.execute(`INSERT INTO ps_map
-      SELECT ps.id, n.id
-      FROM play_source ps
-      JOIN ep_map e ON ps.episode_id = e.old
-      JOIN play_source_pkv2 n ON ps.url = n.url AND n.episode_id = e.new`);
+    for (let b = 0; b < epBatches; b++) {
+      const lo = b * EP_BATCH;
+      const hi = Math.min((b + 1) * EP_BATCH, episodeCount);
+      await this.db!.execute(`INSERT INTO ps_map
+        SELECT ps.id, n.id
+        FROM play_source ps
+        JOIN ep_map e ON ps.episode_id = e.old
+        JOIN play_source_pkv2 n ON ps.url = n.url AND n.episode_id = e.new
+        WHERE e.new > ${lo} AND e.new <= ${hi}`);
+      this.reportProgress(58 + (b / epBatches) * 8, `正在构建播放源映射（第 ${b + 1}/${epBatches} 批）`);
+    }
+    this.reportProgress(66, '正在迁移收藏与推荐数据');
 
     // ---- 4. 小表引用重映射（MEDIA 级：LEFT JOIN m_map；孤儿落 0 哨兵） ----
     await this.db!.execute('CREATE TABLE favorite_pkv2 (id TEXT PRIMARY KEY, media_id INTEGER NOT NULL, created_at TEXT)');
@@ -501,6 +596,7 @@ export class TauriSqlProvider implements DatabaseProvider {
       SELECT COALESCE(m.new, 0), MAX(ch.change_type), MAX(ch.created_at)
       FROM media_change_log ch LEFT JOIN m_map m ON ch.media_id = m.old
       GROUP BY COALESCE(m.new, 0)`);
+    this.reportProgress(73, '正在迁移观看历史与播放进度');
 
     // watch_history / watch_line_progress：media/episode/play_source 三键重映射（孤儿落 0 哨兵）；
     // watch_history 主键 id 按与写入路径一致的 wh_<mid>_<eid||0> 重拼，OR REPLACE 防同键多行
@@ -509,13 +605,20 @@ export class TauriSqlProvider implements DatabaseProvider {
       duration INTEGER DEFAULT 0, source_id TEXT, play_source_id INTEGER, updated_at TEXT
     )`);
     await this.db!.execute(`INSERT OR REPLACE INTO watch_history_pkv2 (id, media_id, episode_id, progress, duration, source_id, play_source_id, updated_at)
-      SELECT 'wh_' || COALESCE(m.new, 0) || '_' || COALESCE(e.new, 0),
-             COALESCE(m.new, 0), COALESCE(e.new, 0), w.progress, w.duration, w.source_id,
-             COALESCE(p.new, 0), w.updated_at
-      FROM watch_history w
-      LEFT JOIN m_map m ON w.media_id = m.old
-      LEFT JOIN ep_map e ON w.episode_id = e.old
-      LEFT JOIN ps_map p ON w.play_source_id = p.old`);
+      SELECT wid, mnew, enew, progress, duration, source_id, psnew, updated_at
+      FROM (
+        SELECT COALESCE(m.new, 0) AS mnew, COALESCE(e.new, 0) AS enew, COALESCE(p.new, 0) AS psnew,
+               w.progress, w.duration, w.source_id, w.updated_at,
+               'wh_' || COALESCE(m.new, 0) || '_' || COALESCE(e.new, 0) AS wid,
+               ROW_NUMBER() OVER (
+                 PARTITION BY COALESCE(m.new, 0), COALESCE(e.new, 0)
+                 ORDER BY w.updated_at DESC
+               ) AS rn
+        FROM watch_history w
+        LEFT JOIN m_map m ON w.media_id = m.old
+        LEFT JOIN ep_map e ON w.episode_id = e.old
+        LEFT JOIN ps_map p ON w.play_source_id = p.old
+      ) WHERE rn = 1`);
 
     await this.db!.execute(`CREATE TABLE watch_line_progress_pkv2 (
       media_id INTEGER NOT NULL, episode_id INTEGER, play_source_id INTEGER, source_id TEXT,
@@ -528,6 +631,7 @@ export class TauriSqlProvider implements DatabaseProvider {
       LEFT JOIN m_map m ON w.media_id = m.old
       LEFT JOIN ep_map e ON w.episode_id = e.old
       LEFT JOIN ps_map p ON w.play_source_id = p.old`);
+    this.reportProgress(82, '正在切换新旧数据');
 
     // ---- 5. swap：先子后父避免外键约束冲突；DROP 自动连带原索引，交由 initSchema 恢复 ----
     await this.db!.execute('DROP TABLE play_source');
@@ -550,9 +654,11 @@ export class TauriSqlProvider implements DatabaseProvider {
     await this.db!.execute('ALTER TABLE watch_history_pkv2 RENAME TO watch_history');
     await this.db!.execute('DROP TABLE watch_line_progress');
     await this.db!.execute('ALTER TABLE watch_line_progress_pkv2 RENAME TO watch_line_progress');
+    this.reportProgress(86, '正在清理迁移辅助数据');
     await this.db!.execute('DROP TABLE m_map');
     await this.db!.execute('DROP TABLE ep_map');
     await this.db!.execute('DROP TABLE ps_map');
+    this.reportProgress(88, '正在压缩数据库体积（耗时较长，请勿关闭）');
 
     // 迁移全程产生大量空页（DROP 旧表页未回收），VACUUM 一次性归还磁盘，
     // 否则升级后库文件反而膨胀（实测 5.9GB 旧库迁移后回收前 8.3GB → 真空后 1.3GB）。
@@ -564,6 +670,7 @@ export class TauriSqlProvider implements DatabaseProvider {
     }
 
     console.warn('[DB] 主键 INTEGER 迁移完成（索引与 FTS 由 initSchema 后半段重建）');
+    this.reportProgress(94, '数据升级完成，正在重建搜索索引…');
   }
 
   /**
@@ -672,7 +779,9 @@ export class TauriSqlProvider implements DatabaseProvider {
       "SELECT value FROM system_config WHERE key = 'db.ftsTokenizer'"
     );
     const ftsIsTrigram = ftsTokenizerRows.length > 0 && ftsTokenizerRows[0].value === 'trigram';
+    this.reportProgress(94, '正在重建搜索索引…');
     await this.rebuildFts5(!ftsIsTrigram);
+    this.reportProgress(100, '升级完成');
     if (!ftsIsTrigram) {
       const now = new Date().toISOString();
       await this.db!.execute(
